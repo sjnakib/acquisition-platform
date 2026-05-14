@@ -1,19 +1,22 @@
-'use client'
+'use client';
+import { useQuery } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 
-import { useState, useEffect } from 'react'
-
-export function useCallQueue() {
-  const [calls, setCalls] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch('/api/calls')
-      .then((r) => r.json())
-      .then((data) => setCalls(data))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [])
-
-  return { calls, loading, error }
-}
+export const useCallQueue = () => {
+    const supabase = createClient();
+    return useQuery({
+        queryKey: ['call_briefs'],
+        queryFn: async () => {
+            const { data, error } = await supabase.from('call_briefs').select(`
+                *,
+                deals (
+                    deal_name,
+                    property_type,
+                    unit_count
+                )
+            `).eq('published', true).eq('call_status', 'pending');
+            if (error) throw error;
+            return data;
+        }
+    });
+};

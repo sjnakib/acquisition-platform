@@ -1,20 +1,15 @@
-'use client'
+'use client';
+import { useQuery } from '@tanstack/react-query';
+import { createClient } from '@/lib/supabase/client';
 
-import { useState, useEffect } from 'react'
-
-export function useDeals(filters?: Record<string, string>) {
-  const [deals, setDeals] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const params = new URLSearchParams(filters)
-    fetch(`/api/deals?${params}`)
-      .then((r) => r.json())
-      .then((data) => setDeals(data))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [JSON.stringify(filters)])
-
-  return { deals, loading, error }
-}
+export const useDeals = () => {
+    const supabase = createClient();
+    return useQuery({
+        queryKey: ['deals'],
+        queryFn: async () => {
+            const { data, error } = await supabase.from('deals').select('*');
+            if (error) throw error;
+            return data;
+        }
+    });
+};

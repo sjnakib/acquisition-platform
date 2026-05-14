@@ -6,8 +6,19 @@ interface DocumentChecklistProps {
   dealId: string
 }
 
+interface Documents {
+  pl_collected?: boolean;
+  pl_period?: string;
+  rent_roll_collected?: boolean;
+  rent_roll_as_of?: string;
+  om_collected?: boolean;
+  tax_bill_collected?: boolean;
+  capex_collected?: boolean;
+  [key: string]: boolean | string | undefined;
+}
+
 export function DocumentChecklist({ dealId }: DocumentChecklistProps) {
-  const [docs, setDocs] = useState<any>({})
+  const [docs, setDocs] = useState<Documents>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -18,7 +29,7 @@ export function DocumentChecklist({ dealId }: DocumentChecklistProps) {
       .finally(() => setLoading(false))
   }, [dealId])
 
-  async function updateDoc(field: string, value: any) {
+  async function updateDoc(field: string, value: string | boolean) {
     const updated = { ...docs, [field]: value }
     setDocs(updated)
     await fetch(`/api/deals/${dealId}/documents`, {
@@ -56,7 +67,7 @@ export function DocumentChecklist({ dealId }: DocumentChecklistProps) {
       </div>
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className="flex items-center gap-3">
-          <input type="checkbox" checked={(docs as any)[`market_report_${i}`] ?? false} onChange={(e) => updateDoc(`market_report_${i}`, e.target.checked)} className="rounded" />
+          <input type="checkbox" checked={docs[`market_report_${i}`] as boolean ?? false} onChange={(e) => updateDoc(`market_report_${i}`, e.target.checked)} className="rounded" />
           <label className="text-sm text-slate-700">Market Report {i}</label>
         </div>
       ))}

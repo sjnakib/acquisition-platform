@@ -7,8 +7,14 @@ interface UnderwritingFormProps {
   unitCount?: number | null
 }
 
-export function UnderwritingForm({ dealId, unitCount }: UnderwritingFormProps) {
-  const [uw, setUw] = useState<any>({})
+interface Underwriting {
+  underwritability?: string;
+  asking_price?: number | null;
+  irr_pct?: number | null;
+}
+
+export function UnderwritingForm({ dealId }: UnderwritingFormProps) {
+  const [uw, setUw] = useState<Underwriting>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

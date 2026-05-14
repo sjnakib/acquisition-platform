@@ -6,8 +6,14 @@ interface LOITrackerProps {
   dealId: string
 }
 
+interface LOI {
+  submitted_at: string | null;
+  offered_price: number | null;
+  outcome: string | null;
+}
+
 export function LOITracker({ dealId }: LOITrackerProps) {
-  const [loi, setLoi] = useState<any>(null)
+  const [loi, setLoi] = useState<LOI | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

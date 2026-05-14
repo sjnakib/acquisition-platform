@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { MoreHorizontal, Search, Settings2 } from 'lucide-react'
+import { MoreHorizontal } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import { DealScoreBadge } from './DealScoreBadge'
 

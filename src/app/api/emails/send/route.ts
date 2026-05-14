@@ -44,16 +44,16 @@ export async function POST(req: NextRequest) {
     let result: { messageId: string; threadId: string }
     try {
       result = await sendEmail(user.id, contact.email[0]!, `Acquisition Inquiry — ${deal.address ?? 'property'}`, html)
-    } catch (err: any) {
-      const status = err.message?.includes('not found') ? 'invalid_address' : 'gmail_error'
+    } catch (err: unknown) {
+      const status = err instanceof Error && err.message?.includes('not found') ? 'invalid_address' : 'gmail_error'
       await supabase.from('email_outreach').insert({
         deal_id,
         contact_id,
         status,
-        error_message: err.message,
+        error_message: err instanceof Error ? err.message : 'Unknown error',
         template_used: 'outreach',
       })
-      return NextResponse.json({ error: err.message }, { status: 400 })
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 })
     }
 
     const { data: outreach } = await supabase.from('email_outreach').insert({

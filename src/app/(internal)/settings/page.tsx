@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings as SettingsIcon } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 
 export default function SettingsPage() {
@@ -9,12 +8,22 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('gmail') === 'connected') setGmailConnected(true)
+    if (params.get('gmail') === 'connected') {
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => {
+          setGmailConnected(true)
+        });
+      } else {
+        setTimeout(() => {
+          setGmailConnected(true)
+        }, 0);
+      }
+    }
   }, [])
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Manage your account and integrations" />
+      <PageHeader title="Settings" description="Manage your account and integrations" />
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Gmail Connection</h2>

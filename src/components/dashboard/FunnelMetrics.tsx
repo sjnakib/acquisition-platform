@@ -42,7 +42,7 @@ export function FunnelMetrics({ data }: FunnelMetricsProps) {
     <div className="bg-white rounded-xl border border-slate-200 p-6">
       <h3 className="text-sm font-semibold text-slate-700 mb-4">Pipeline Funnel</h3>
       <div className="space-y-2">
-        {stages.map((stage, i) => {
+        {stages.map((stage) => {
           const width = (stage.count / maxCount) * 100
           return (
             <div key={stage.label} className="flex items-center gap-3">

@@ -5,8 +5,21 @@ import { Phone } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 
+interface Call {
+  id: string;
+  call_status: string;
+  summary_text: string | null;
+  deals: {
+    deal_name: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    score: string | null;
+  } | null;
+}
+
 export default function ClientCallsPage() {
-  const [calls, setCalls] = useState<any[]>([])
+  const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -22,7 +35,7 @@ export default function ClientCallsPage() {
 
   return (
     <div>
-      <PageHeader title="Call Queue" subtitle="Review these deals before your call with the team" />
+      <PageHeader title="Call Queue" description="Review these deals before your call with the team" />
       {loading ? (
         <div className="space-y-3">
           {[...Array(2)].map((_, i) => <div key={i} className="h-24 bg-slate-100 animate-pulse rounded-xl" />)}

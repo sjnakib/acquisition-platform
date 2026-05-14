@@ -31,9 +31,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .single()
 
     return NextResponse.json(updated)
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Drive folder error:', err)
-    if (err.message?.includes('not connected')) {
+    if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

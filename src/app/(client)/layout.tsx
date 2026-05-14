@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, Phone, ChevronLeft, PanelRightClose, LogOut, User } from 'lucide-react'
+import { LayoutDashboard, Phone, ChevronLeft, PanelRightClose, LogOut } from 'lucide-react'
 
 const navItems = [
   { label: 'Active Deals', icon: LayoutDashboard, href: '/overview' },

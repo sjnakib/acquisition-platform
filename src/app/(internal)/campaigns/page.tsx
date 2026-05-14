@@ -5,8 +5,16 @@ import { Megaphone } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 
+interface Campaign {
+  id: string;
+  name: string;
+  market: string;
+  listing_type: string | null;
+  is_active: boolean;
+}
+
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<any[]>([])
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -19,7 +27,7 @@ export default function CampaignsPage() {
 
   return (
     <div>
-      <PageHeader title="Campaigns" subtitle="Manage your outreach campaigns" />
+      <PageHeader title="Campaigns" description="Manage your outreach campaigns" />
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         {loading ? (
           <div className="space-y-2">
@@ -39,7 +47,7 @@ export default function CampaignsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {campaigns.map((c: any) => (
+                {campaigns.map((c) => (
                   <tr key={c.id}>
                     <td className="px-4 py-3 font-medium">{c.name}</td>
                     <td className="px-4 py-3 text-slate-500">{c.market}</td>

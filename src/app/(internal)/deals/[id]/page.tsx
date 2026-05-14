@@ -2,14 +2,21 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, ExternalLink, FolderOpen, Building2 } from 'lucide-react'
+import { ArrowLeft, Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
+
+interface Deal {
+  deal_name: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+}
 
 export default function DealDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const [deal, setDeal] = useState<any>(null)
+  const [deal, setDeal] = useState<Deal | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
 

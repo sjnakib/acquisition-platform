@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { platform, username, password, notes } = await req.json()
+    const { platform, username, password } = await req.json()
 
     const { data, error } = await supabase.rpc('store_ca_credential', {
       p_platform: platform,

@@ -1,10 +1,18 @@
 import { updateSession } from '@/lib/supabase/middleware'
 import { NextResponse, type NextRequest } from 'next/server'
+import { User } from '@supabase/supabase-js';
+
+type UserWithRole = User & {
+  app_metadata: {
+    role: 'internal' | 'client' | undefined;
+  }
+}
 
 export async function proxy(request: NextRequest) {
   const { supabaseResponse, user } = await updateSession(request)
 
-  const role = (user as any)?.app_metadata?.role as 'internal' | 'client' | undefined
+  const role = (user as UserWithRole)?.app_metadata?.role
+
 
   const path = request.nextUrl.pathname
   const isAuthRoute     = path.startsWith('/login') || path.startsWith('/signup')

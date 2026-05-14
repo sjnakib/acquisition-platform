@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const body = await req.json()
 
     if (body.role) {
-      await (supabase.from('profiles') as any).update({ role: body.role }).eq('id', id)
+      await (supabase.from('profiles')).update({ role: body.role }).eq('id', id)
       await supabase.auth.admin.updateUserById(id, {
         app_metadata: { role: body.role },
       })

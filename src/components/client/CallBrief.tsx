@@ -16,7 +16,7 @@ interface CallBriefProps {
   onUpdate?: (id: string, data: Record<string, unknown>) => void
 }
 
-export function CallBrief({ brief, onUpdate }: CallBriefProps) {
+export function CallBrief({ brief }: CallBriefProps) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-start justify-between mb-3">

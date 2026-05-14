@@ -5,8 +5,19 @@ import { Building2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
 
+interface Deal {
+  id: string;
+  deal_name: string;
+  address: string;
+  city: string;
+  state: string;
+  unit_count: number;
+  year_built: number;
+  score: string;
+}
+
 export default function ClientOverviewPage() {
-  const [deals, setDeals] = useState<any[]>([])
+  const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -19,7 +30,7 @@ export default function ClientOverviewPage() {
 
   return (
     <div>
-      <PageHeader title="Active Deals" subtitle="Properties your team is actively pursuing" />
+      <PageHeader title="Active Deals" description="Properties your team is actively pursuing" />
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2">
           {[...Array(2)].map((_, i) => (

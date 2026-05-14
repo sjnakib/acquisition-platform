@@ -2,11 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, MoreHorizontal, Search, Settings2, ArrowUpDown } from 'lucide-react'
+import { Building2 } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { formatDate, formatCurrency } from '@/lib/utils'
+import { formatDate } from '@/lib/utils'
 
 interface Deal {
   id: string
@@ -37,7 +36,7 @@ export default function DealsPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Deals" subtitle="Manage your property pipeline" />
+        <PageHeader title="Deals" description="Manage your property pipeline" />
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
             <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-md" />
@@ -71,7 +70,7 @@ export default function DealsPage() {
   if (deals.length === 0) {
     return (
       <div>
-        <PageHeader title="Deals" subtitle="Manage your property pipeline" />
+        <PageHeader title="Deals" description="Manage your property pipeline" />
         <EmptyState
           icon={Building2}
           title="No deals found"
@@ -84,7 +83,7 @@ export default function DealsPage() {
 
   return (
     <div>
-      <PageHeader title="Deals" subtitle={`${deals.length} deals in pipeline`} />
+      <PageHeader title="Deals" description={`${deals.length} deals in pipeline`} />
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

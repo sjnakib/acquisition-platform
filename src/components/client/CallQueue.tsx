@@ -3,8 +3,23 @@
 import { useState, useEffect } from 'react'
 import { CallBrief } from './CallBrief'
 
+interface Call {
+  id: string;
+  call_status: string;
+  summary_text: string | null;
+  published: boolean;
+  client_notes: string | null;
+  deals?: {
+    deal_name: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    score: string | null;
+  };
+}
+
 export function CallQueue() {
-  const [calls, setCalls] = useState<any[]>([])
+  const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
