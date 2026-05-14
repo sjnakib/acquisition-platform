@@ -1,0 +1,49 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET() {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { data, error } = await supabase
+      .from('call_briefs')
+      .select('*, deals(deal_name, address, city, state, score)')
+      .order('flagged_at', { ascending: false })
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data)
+  } catch (err) {
+    console.error('Calls list error:', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
+      return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
+    }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { deal_id } = await req.json()
+
+    const { data, error } = await supabase.from('call_briefs').insert({
+      deal_id,
+      flagged_by: user.id,
+    }).select().single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    await supabase.from('deals').update({ stage: 'call_scheduled' }).eq('id', deal_id)
+
+    return NextResponse.json(data)
+  } catch (err) {
+    console.error('Call create error:', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
