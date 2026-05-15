@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { costarParser } from '@/lib/import/costar-parser';
-import { importBatchSchema } from '@/lib/validations/import.schema';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(req: NextRequest) {
@@ -24,22 +23,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const buffer = await file.arrayBuffer();
-    const preview = await costarParser(buffer);
+    console.log('[import] Starting file parse, size:', file.size, 'bytes')
+    const buffer = await file.arrayBuffer()
+    const preview = await costarParser(buffer)
+    console.log('[import] Parsed', preview.length, 'rows')
 
-    const parsedPreview = importBatchSchema.safeParse(preview);
-    if (!parsedPreview.success) {
-        return NextResponse.json({ error: 'Invalid data format in file', details: parsedPreview.error.flatten() }, { status: 400 });
-    }
+    const batchId = uuidv4()
 
-    const batchId = uuidv4();
-    
-    // For simplicity, we are not storing the preview data in this example.
-    // In a real application, you might want to cache this data in Redis or a temporary table.
-
-    return NextResponse.json({ preview: parsedPreview.data, batchId });
+    return NextResponse.json({ preview, batchId })
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Failed to parse file' }, { status: 500 });
+    console.error('[import] Parse error:', error)
+    const message = error instanceof Error ? error.message : 'Failed to parse file'
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

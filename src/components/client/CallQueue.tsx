@@ -4,56 +4,56 @@ import { useState, useEffect } from 'react'
 import { CallBrief } from './CallBrief'
 
 interface Call {
-  id: string;
-  call_status: string;
-  summary_text: string | null;
-  published: boolean;
-  client_notes: string | null;
-  deals?: {
-    deal_name: string | null;
-    address: string | null;
-    city: string | null;
-    state: string | null;
-    score: string | null;
-  };
+ id: string;
+ call_status: string;
+ summary_text: string | null;
+ published: boolean;
+ client_notes: string | null;
+ deals?: {
+ deal_name: string | null;
+ address: string | null;
+ city: string | null;
+ state: string | null;
+ score: string | null;
+ };
 }
 
 export function CallQueue() {
-  const [calls, setCalls] = useState<Call[]>([])
-  const [loading, setLoading] = useState(true)
+ const [calls, setCalls] = useState<Call[]>([])
+ const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetch('/api/calls')
-      .then((r) => r.json())
-      .then(setCalls)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+ useEffect(() => {
+ fetch('/api/calls')
+ .then((r) => r.json())
+ .then(setCalls)
+ .catch(console.error)
+ .finally(() => setLoading(false))
+ }, [])
 
-  if (loading) return <div className="text-sm text-slate-400">Loading...</div>
+ if (loading) return <div className="text-sm ">Loading...</div>
 
-  const pending = calls.filter((c) => c.call_status === 'pending')
-  const completed = calls.filter((c) => c.call_status !== 'pending')
+ const pending = calls.filter((c) => c.call_status === 'pending')
+ const completed = calls.filter((c) => c.call_status !== 'pending')
 
-  return (
-    <div className="space-y-4">
-      {pending.map((call) => (
-        <CallBrief key={call.id} brief={call} />
-      ))}
-      {completed.length > 0 && (
-        <details>
-          <summary className="text-sm font-medium text-slate-600 cursor-pointer">
-            Completed Calls ({completed.length})
-          </summary>
-          <div className="space-y-3 mt-3">
-            {completed.map((call) => (
-              <div key={call.id} className="opacity-60">
-                <CallBrief brief={call} />
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-    </div>
-  )
+ return (
+ <div className="space-y-4">
+ {pending.map((call) => (
+ <CallBrief key={call.id} brief={call} />
+ ))}
+ {completed.length > 0 && (
+ <details>
+ <summary className="text-sm font-medium cursor-pointer">
+ Completed Calls ({completed.length})
+ </summary>
+ <div className="space-y-3 mt-3">
+ {completed.map((call) => (
+ <div key={call.id} className="opacity-60">
+ <CallBrief brief={call} />
+ </div>
+ ))}
+ </div>
+ </details>
+ )}
+ </div>
+ )
 }

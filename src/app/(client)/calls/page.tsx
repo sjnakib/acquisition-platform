@@ -1,102 +1,98 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Phone } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { EmptyState } from '@/components/shared/EmptyState'
+import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 
 interface Call {
-  id: string;
-  call_status: string;
-  summary_text: string | null;
-  deals: {
-    deal_name: string | null;
-    address: string | null;
-    city: string | null;
-    state: string | null;
-    score: string | null;
-  } | null;
+ id: string
+ call_status: string
+ summary_text: string | null
+ deals: {
+ deal_name: string | null
+ address: string | null
+ city: string | null
+ state: string | null
+ score: string | null
+ } | null
+}
+
+const scoreColors: Record<string, string> = {
+ very_good: ' ', good: ' ',
+ bad: ' ', very_bad: ' ',
 }
 
 export default function ClientCallsPage() {
-  const [calls, setCalls] = useState<Call[]>([])
-  const [loading, setLoading] = useState(true)
+ const [calls, setCalls] = useState<Call[]>([])
+ const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetch('/api/calls')
-      .then((r) => r.json())
-      .then((data) => setCalls(data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+ useEffect(() => {
+ fetch('/api/calls')
+ .then((r) => r.json())
+ .then((data) => setCalls(data))
+ .catch(console.error)
+ .finally(() => setLoading(false))
+ }, [])
 
-  const pending = calls.filter((c) => c.call_status === 'pending')
-  const completed = calls.filter((c) => c.call_status !== 'pending')
+ const columns: ColumnDef<Call>[] = [
+ { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,
+ accessor: (r) => r.deals?.deal_name ?? '',
+ render: (r) => <span className="font-medium ">{r.deals?.deal_name ?? 'Untitled'}</span> },
+ { key: 'address', header: 'Address', minWidth: 160, sortable: true,
+ accessor: (r) => [r.deals?.address, r.deals?.city, r.deals?.state].filter(Boolean).join(', '),
+ render: (r) => <span className="">{[r.deals?.address, r.deals?.city, r.deals?.state].filter(Boolean).join(', ') || '—'}</span> },
+ { key: 'score', header: 'Score', width: 110, sortable: true,
+ accessor: (r) => r.deals?.score ?? '',
+ render: (r) => {
+ const s = r.deals?.score
+ if (!s) return <span className=" text-xs">—</span>
+ return (
+ <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${scoreColors[s] ?? ' '}`}>
+ {s.replace(/_/g, ' ')}
+ </span>
+ )
+ }},
+ { key: 'summary_text', header: 'Summary', minWidth: 200, sortable: true,
+ render: (r) => <span className=" text-xs line-clamp-2">{r.summary_text || 'No summary available.'}</span> },
+ { key: 'call_status', header: 'Status', width: 120, sortable: true,
+ render: (r) => (
+ <select
+ value={r.call_status}
+ onChange={async (e) => {
+ const status = e.target.value
+ await fetch(`/api/calls/${r.id}`, {
+ method: 'PATCH',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify({ call_status: status }),
+ })
+ window.location.reload()
+ }}
+ onClick={(e) => e.stopPropagation()}
+ className={`text-xs border rounded px-2 py-0.5 font-medium ${
+ r.call_status === 'pending' ? 'border-warning/30 ' :
+ r.call_status === 'completed' ? 'border-success/30 ' :
+ ' '
+ }`}
+ >
+ <option value="pending">Pending</option>
+ <option value="completed">Completed</option>
+ <option value="cancelled">Cancelled</option>
+ </select>
+ ),
+ },
+ ];
 
-  return (
-    <div>
-      <PageHeader title="Call Queue" description="Review these deals before your call with the team" />
-      {loading ? (
-        <div className="space-y-3">
-          {[...Array(2)].map((_, i) => <div key={i} className="h-24 bg-slate-100 animate-pulse rounded-xl" />)}
-        </div>
-      ) : calls.length === 0 ? (
-        <EmptyState icon={Phone} title="No calls queued yet" description="Your team will notify you." />
-      ) : (
-        <div className="space-y-6">
-          <div className="space-y-3">
-            {pending.map((call) => (
-              <div key={call.id} className="bg-white rounded-xl border border-slate-200 p-5">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{call.deals?.deal_name ?? 'Deal'}</h3>
-                    <p className="text-sm text-slate-500">{[call.deals?.address, call.deals?.city, call.deals?.state].filter(Boolean).join(', ')}</p>
-                  </div>
-                  {call.deals?.score && (
-                    <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                      {call.deals.score.replace(/_/g, ' ')}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-slate-600 mt-3">{call.summary_text || 'No summary available.'}</p>
-                <div className="flex gap-2 mt-3">
-                  <select
-                    value={call.call_status}
-                    onChange={async (e) => {
-                      const status = e.target.value
-                      await fetch(`/api/calls/${call.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ call_status: status }),
-                      })
-                      window.location.reload()
-                    }}
-                    className="text-sm border border-slate-300 rounded px-2 py-1"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {completed.length > 0 && (
-            <details>
-              <summary className="text-sm font-medium text-slate-600 cursor-pointer">Completed Calls ({completed.length})</summary>
-              <div className="space-y-3 mt-3">
-                {completed.map((call) => (
-                  <div key={call.id} className="bg-white rounded-xl border border-slate-200 p-5 opacity-60">
-                    <h3 className="font-semibold text-slate-900">{call.deals?.deal_name ?? 'Deal'}</h3>
-                    <p className="text-xs text-slate-400 mt-1">Status: {call.call_status}</p>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
-  )
+ return (
+ <div>
+ <PageHeader title="Call Queue" description="Review these deals before your call with the team" />
+ <DataGrid
+ columns={columns}
+ data={calls}
+ rowKey={(r) => r.id}
+ loading={loading}
+ emptyMessage="No calls queued yet — your team will notify you."
+ maxHeight="calc(100vh - 230px)"
+ />
+ </div>
+ )
 }

@@ -3,8 +3,10 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { MoreHorizontal } from 'lucide-react'
-import { formatDate } from '@/lib/utils'
+import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { DealScoreBadge } from './DealScoreBadge'
+import { Badge } from '@/components/ui/badge'
+import { formatDate } from '@/lib/utils'
 
 interface Deal {
   id: string
@@ -21,105 +23,119 @@ interface Deal {
 
 interface DealTableProps {
   deals: Deal[]
+  loading?: boolean
   onArchive?: (id: string) => void
   onDelete?: (id: string) => void
 }
 
-const stageColors: Record<string, string> = {
-  lead: 'bg-slate-100 text-slate-700',
-  outreach: 'bg-blue-100 text-blue-700',
-  response: 'bg-teal-100 text-teal-700',
-  document_collection: 'bg-amber-100 text-amber-700',
-  underwritability_review: 'bg-orange-100 text-orange-700',
-  underwriting: 'bg-purple-100 text-purple-700',
-  scored: 'bg-green-100 text-green-700',
-  call_scheduled: 'bg-indigo-100 text-indigo-700',
-  loi: 'bg-rose-100 text-rose-700',
-  closed: 'bg-emerald-100 text-emerald-700',
-  archived: 'bg-red-100 text-red-700',
+const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
+  lead: 'neutral',
+  outreach: 'info',
+  response: 'info',
+  document_collection: 'warning',
+  underwritability_review: 'warning',
+  underwriting: 'warning',
+  scored: 'accent',
+  call_scheduled: 'info',
+  loi: 'accent',
+  closed: 'success',
+  archived: 'neutral',
 }
 
-export function DealTable({ deals, onArchive, onDelete }: DealTableProps) {
+const columns: ColumnDef<Deal>[] = [
+  { key: 'deal_name', header: 'Property Name', minWidth: 140, sortable: true,
+    accessor: (r) => r.deal_name ?? 'Untitled',
+    render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.deal_name ?? 'Untitled'}</span> },
+  { key: 'address', header: 'Address', minWidth: 160, sortable: true,
+    accessor: (r) => [r.address, r.city, r.state].filter(Boolean).join(', '),
+    render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{[r.address, r.city, r.state].filter(Boolean).join(', ') || '—'}</span> },
+  { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true,
+    accessor: (r) => r.unit_count ?? 0,
+    render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{r.unit_count ?? '—'}</span> },
+  { key: 'stage', header: 'Stage', minWidth: 120, sortable: true,
+    render: (r) => (
+      <Badge variant={stageBadgeVariant[r.stage] ?? 'neutral'} size="sm">
+        {r.stage.replace(/_/g, ' ')}
+      </Badge>
+    )},
+  { key: 'score', header: 'Score', width: 100, sortable: true,
+    render: (r) => <DealScoreBadge score={r.score} /> },
+  { key: 'campaign', header: 'Campaign', minWidth: 120, sortable: true,
+    accessor: (r) => r.campaigns?.name ?? '',
+    render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.campaigns?.name ?? '—'}</span> },
+  { key: 'created_at', header: 'Date Added', width: 110, sortable: true,
+    accessor: (r) => r.created_at,
+    render: (r) => <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)' }}>{formatDate(r.created_at)}</span> },
+];
+
+export function DealTable({ deals, loading, onArchive, onDelete }: DealTableProps) {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
 
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Property Name</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Address</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Units</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Stage</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Score</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Campaign</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Date Added</th>
-              <th className="w-10 px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {deals.map((deal) => (
-              <tr
-                key={deal.id}
-                onClick={() => router.push(`/deals/${deal.id}`)}
-                className="hover:bg-slate-50 cursor-pointer"
+  const actionColumn: ColumnDef<Deal> = {
+    key: 'actions', header: '', width: 48, sortable: false,
+    render: (r) => (
+      <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => setMenuOpen(menuOpen === r.id ? null : r.id)}
+          style={{ color: 'var(--color-text-tertiary)' }}
+          className="hover:opacity-70 transition-opacity"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+        {menuOpen === r.id && (
+          <div
+            className="absolute right-0 top-full mt-1 w-36 rounded-lg shadow-lg py-1 z-10"
+            style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-3)', boxShadow: 'var(--shadow-lg)' }}
+          >
+            <button
+              onClick={() => { router.push(`/deals/${r.id}`); setMenuOpen(null) }}
+              className="w-full text-left px-3 py-2 text-[13px] transition-colors"
+              style={{ color: 'var(--color-text-primary)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
+              View
+            </button>
+            {onArchive && (
+              <button
+                onClick={() => { onArchive(r.id); setMenuOpen(null) }}
+                className="w-full text-left px-3 py-2 text-[13px] transition-colors"
+                style={{ color: 'var(--color-text-primary)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
               >
-                <td className="px-4 py-3 font-medium text-slate-900 max-w-xs truncate">{deal.deal_name ?? 'Untitled'}</td>
-                <td className="px-4 py-3 text-slate-500 text-sm">
-                  {[deal.address, deal.city, deal.state].filter(Boolean).join(', ') || '—'}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-700">{deal.unit_count ?? '—'}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${stageColors[deal.stage] ?? 'bg-slate-100 text-slate-700'}`}>
-                    {deal.stage.replace(/_/g, ' ')}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <DealScoreBadge score={deal.score} />
-                </td>
-                <td className="px-4 py-3 text-slate-600">{deal.campaigns?.name ?? '—'}</td>
-                <td className="px-4 py-3 text-slate-500 text-sm">{formatDate(deal.created_at)}</td>
-                <td className="px-4 py-3 relative" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => setMenuOpen(menuOpen === deal.id ? null : deal.id)}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-                  {menuOpen === deal.id && (
-                    <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-md shadow-lg border border-slate-200 py-1 z-10">
-                      <button
-                        onClick={() => { router.push(`/deals/${deal.id}`); setMenuOpen(null) }}
-                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        View
-                      </button>
-                      {onArchive && (
-                        <button
-                          onClick={() => { onArchive(deal.id); setMenuOpen(null) }}
-                          className="w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          Archive
-                        </button>
-                      )}
-                      {onDelete && (
-                        <button
-                          onClick={() => { onDelete(deal.id); setMenuOpen(null) }}
-                          className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                Archive
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={() => { onDelete(r.id); setMenuOpen(null) }}
+                className="w-full text-left px-3 py-2 text-[13px] transition-colors"
+                style={{ color: 'var(--color-danger-text)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-danger-bg)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+    ),
+  };
+
+  const allColumns = onArchive || onDelete ? [...columns, actionColumn] : columns;
+
+  return (
+    <DataGrid
+      columns={allColumns}
+      data={deals as Deal[]}
+      rowKey={(r) => r.id}
+      onRowClick={(r) => router.push(`/deals/${r.id}`)}
+      loading={loading}
+      emptyMessage="No deals found"
+      maxHeight="calc(100vh - 260px)"
+    />
   )
 }

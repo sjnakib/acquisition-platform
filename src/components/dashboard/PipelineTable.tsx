@@ -1,55 +1,51 @@
-interface PipelineTableProps {
-  data: Array<{
-    campaign_name: string
-    market: string
-    leads: number
-    emails_sent: number
-    responses_positive: number
-    underwritten: number
-    scored_good: number
-    loi_count: number
-    closed_count: number
-  }>
-  onCampaignClick?: (name: string) => void
+import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
+
+interface PipelineRow {
+ campaign_name: string
+ market: string
+ leads: number
+ emails_sent: number
+ responses_positive: number
+ underwritten: number
+ scored_good: number
+ loi_count: number
+ closed_count: number
 }
 
+interface PipelineTableProps {
+ data: PipelineRow[]
+ onCampaignClick?: (name: string) => void
+}
+
+const columns: ColumnDef<PipelineRow>[] = [
+ { key: 'campaign_name', header: 'Campaign', minWidth: 160, sortable: true,
+ render: (r) => <span className="font-medium ">{r.campaign_name}</span> },
+ { key: 'market', header: 'Market', width: 80 },
+ { key: 'leads', header: 'Leads', align: 'right', width: 70, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.leads}</span> },
+ { key: 'emails_sent', header: 'Sent', align: 'right', width: 70, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.emails_sent}</span> },
+ { key: 'responses_positive', header: 'Responses', align: 'right', width: 90, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.responses_positive}</span> },
+ { key: 'underwritten', header: 'UW', align: 'right', width: 60, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.underwritten}</span> },
+ { key: 'scored_good', header: 'Good', align: 'right', width: 65, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.scored_good}</span> },
+ { key: 'loi_count', header: 'LOI', align: 'right', width: 60, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.loi_count}</span> },
+ { key: 'closed_count', header: 'Closed', align: 'right', width: 70, sortable: true,
+ render: (r) => <span className="tabular-nums">{r.closed_count}</span> },
+];
+
 export function PipelineTable({ data, onCampaignClick }: PipelineTableProps) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Campaign</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Leads</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Sent</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Responses</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">UW</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Good</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">LOI</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-slate-500 uppercase">Closed</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {data.map((row) => (
-              <tr
-                key={row.campaign_name}
-                onClick={() => onCampaignClick?.(row.campaign_name)}
-                className="hover:bg-slate-50 cursor-pointer"
-              >
-                <td className="px-4 py-3 font-medium text-slate-900">{row.campaign_name}</td>
-                <td className="px-4 py-3 text-right">{Number(row.leads)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.emails_sent)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.responses_positive)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.underwritten)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.scored_good)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.loi_count)}</td>
-                <td className="px-4 py-3 text-right">{Number(row.closed_count)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
+ return (
+ <DataGrid
+ columns={columns}
+ data={data}
+ rowKey={(r) => r.campaign_name}
+ onRowClick={onCampaignClick ? (r) => onCampaignClick(r.campaign_name) : undefined}
+ emptyMessage="No pipeline data"
+ maxHeight={400}
+ />
+ )
 }

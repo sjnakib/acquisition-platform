@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { LayoutDashboard, Phone, ChevronLeft, PanelRightClose, LogOut } from 'lucide-react'
+import { LayoutDashboard, Phone, ChevronLeft, ChevronRight, Menu, LogOut, X } from 'lucide-react'
 
 const navItems = [
   { label: 'Active Deals', icon: LayoutDashboard, href: '/overview' },
@@ -13,7 +13,6 @@ const navItems = [
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
 
@@ -24,88 +23,107 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="min-h-screen flex">
+      {/* Desktop sidebar */}
       <aside
-        className={`hidden lg:flex flex-col bg-slate-900 border-r border-slate-700 transition-all duration-200 ${
-          collapsed ? 'w-[60px]' : 'w-[240px]'
-        }`}
+        className={`hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250 ${collapsed ? 'w-[52px]' : 'w-[220px]'}`}
+        style={{
+          background: '#0E0E0E',
+          borderColor: '#1A1A1A',
+          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
       >
-        <div className="flex items-center h-14 px-4 border-b border-slate-700">
+        <div className="flex items-center h-[52px] px-4 border-b" style={{ borderColor: '#1A1A1A', borderBottom: '1px solid rgba(200, 150, 60, 0.15)' }}>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-purple-600 rounded flex items-center justify-center text-white text-xs font-bold">AP</div>
-            {!collapsed && <span className="text-white text-sm font-semibold">Client Portal</span>}
+            <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
+            {!collapsed && <span className="text-[15px] font-medium" style={{ color: '#F0EDE8', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>}
           </div>
         </div>
 
-        <nav className="flex-1 py-4 space-y-1 px-2">
+        <nav className="flex-1 py-3 px-2 space-y-0.5">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none" style={{ color: '#3D3D3B' }}>
+            {!collapsed && 'Client'}
+          </div>
           {navItems.map((item) => {
             const isActive = pathname.startsWith(item.href)
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? 'bg-slate-700 text-white border-l-2 border-purple-500'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
+                className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap"
+                style={{
+                  color: isActive ? '#F7F5F0' : '#A8A39A',
+                  background: isActive ? '#242424' : 'transparent',
+                  fontWeight: isActive ? 500 : 400,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) { e.currentTarget.style.background = '#1A1A1A'; e.currentTarget.style.color = '#D4D0C8' }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#A8A39A' }
+                }}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
+                <item.icon className="h-4 w-4 flex-shrink-0" style={{ opacity: isActive ? 1 : 0.7 }} />
                 {!collapsed && item.label}
               </Link>
             )
           })}
         </nav>
 
-        <div className="p-2 border-t border-slate-700">
-          <div className="relative">
-            <button
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            >
-              <div className="w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center text-xs text-white">C</div>
+        <div className="border-t" style={{ borderColor: '#1A1A1A' }}>
+          <div className="p-2">
+            <div className="flex items-center gap-3 px-3 py-2 rounded-md">
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0" style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}>C</div>
               {!collapsed && (
-                <div className="flex-1 text-left text-xs">
-                  <div className="text-slate-200 font-medium truncate">Client</div>
-                  <div className="text-purple-400">Client</div>
+                <div className="flex-1 text-left leading-tight">
+                  <div className="text-[13px] font-medium" style={{ color: '#D4D0C8' }}>Client</div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px]" style={{ color: '#5C5750' }}>Client</span>
+                    <span className="text-[9px] px-1.5 py-px rounded-full border" style={{ background: '#2E1A4A', color: '#C498F8', borderColor: '#42286B' }}>Client</span>
+                  </div>
                 </div>
               )}
-            </button>
-            {userMenuOpen && (
-              <div className="absolute bottom-full left-2 mb-1 w-48 bg-white rounded-md shadow-lg border border-slate-200 py-1 z-50">
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                >
-                  <LogOut className="h-4 w-4" /> Sign out
-                </button>
-              </div>
-            )}
+            </div>
           </div>
 
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex items-center justify-center w-full mt-1 py-1 text-slate-500 hover:text-slate-300"
+            className="flex items-center justify-center w-full py-1.5 transition-colors duration-150"
+            style={{ color: '#3D3D3B' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#A8A39A' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#3D3D3B' }}
           >
-            <ChevronLeft className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+            {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
           </button>
         </div>
       </aside>
 
-      <div className="lg:hidden flex items-center h-14 px-4 bg-white border-b border-slate-200 w-full">
-        <button onClick={() => setMobileOpen(true)} className="text-slate-600">
-          <PanelRightClose className="h-5 w-5" />
+      {/* Mobile header */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between h-12 px-4 border-b" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
+        <button onClick={() => setMobileOpen(true)} style={{ color: 'var(--color-text-primary)' }}>
+          <Menu className="h-5 w-5" />
         </button>
-        <span className="ml-3 text-sm font-semibold text-slate-900">Client Portal</span>
+        <span className="text-[15px] font-medium" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+          <span style={{ color: 'var(--accent)' }}>◆</span> Acquire
+        </span>
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0" style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}>C</div>
       </div>
 
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-slate-900 border-r border-slate-700 flex flex-col">
-            <div className="flex items-center h-14 px-4 border-b border-slate-700">
-              <span className="text-white text-sm font-semibold">Client Portal</span>
+          <div className="fixed inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
+          <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: '#0E0E0E', borderRight: '1px solid #1A1A1A' }}>
+            <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: '#1A1A1A', borderBottom: '1px solid rgba(200, 150, 60, 0.15)' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
+                <span className="text-[15px] font-medium" style={{ color: '#F0EDE8', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
+              </div>
+              <button onClick={() => setMobileOpen(false)} style={{ color: '#A8A39A' }}>
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <nav className="flex-1 py-4 space-y-1 px-2">
+            <nav className="flex-1 py-3 px-2 space-y-0.5">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none" style={{ color: '#3D3D3B' }}>Client</div>
               {navItems.map((item) => {
                 const isActive = pathname.startsWith(item.href)
                 return (
@@ -113,18 +131,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm ${
-                      isActive ? 'bg-slate-700 text-white' : 'text-slate-400'
-                    }`}
+                    className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] no-underline transition-colors duration-150"
+                    style={{ color: isActive ? '#F7F5F0' : '#A8A39A', background: isActive ? '#242424' : 'transparent', fontWeight: isActive ? 500 : 400 }}
                   >
-                    <item.icon className="h-5 w-5" />
+                    <item.icon className="h-4 w-4 flex-shrink-0" />
                     {item.label}
                   </Link>
                 )
               })}
             </nav>
-            <div className="p-2 border-t border-slate-700">
-              <button onClick={handleLogout} className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-red-400">
+            <div className="p-2 border-t" style={{ borderColor: '#1A1A1A' }}>
+              <button onClick={handleLogout} className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-[13px] transition-colors" style={{ color: '#F08080' }}>
                 <LogOut className="h-5 w-5" /> Sign out
               </button>
             </div>
@@ -132,8 +149,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         </div>
       )}
 
-      <main className="flex-1 bg-slate-50 overflow-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main content */}
+      <main
+        className="flex-1 overflow-auto transition-all duration-250"
+        style={{
+          background: 'var(--color-canvas)',
+          marginLeft: collapsed ? '52px' : '220px',
+          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      >
+        <div className="pt-8 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-14">
           {children}
         </div>
       </main>

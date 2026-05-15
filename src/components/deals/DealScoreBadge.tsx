@@ -1,27 +1,30 @@
-import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 
 interface DealScoreBadgeProps {
   score: string | null | undefined
 }
 
-const scoreConfig: Record<string, { label: string; className: string }> = {
-  very_good: { label: 'Very Good', className: 'bg-green-100 text-green-800 border-green-200' },
-  good: { label: 'Good', className: 'bg-teal-100 text-teal-800 border-teal-200' },
-  bad: { label: 'Bad', className: 'bg-orange-100 text-orange-800 border-orange-200' },
-  very_bad: { label: 'Very Bad', className: 'bg-red-100 text-red-800 border-red-200' },
+const variantMap: Record<string, 'score-vg' | 'score-g' | 'score-b' | 'score-vb'> = {
+  very_good: 'score-vg',
+  good: 'score-g',
+  bad: 'score-b',
+  very_bad: 'score-vb',
+}
+
+const labelMap: Record<string, string> = {
+  very_good: 'Very Good',
+  good: 'Good',
+  bad: 'Bad',
+  very_bad: 'Very Bad',
 }
 
 export function DealScoreBadge({ score }: DealScoreBadgeProps) {
   if (!score) {
-    return <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-500">Unscored</span>
+    return <Badge variant="neutral">Unscored</Badge>
   }
 
-  const config = scoreConfig[score]
-  if (!config) return null
+  const variant = variantMap[score]
+  if (!variant) return null
 
-  return (
-    <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border', config.className)}>
-      {config.label}
-    </span>
-  )
+  return <Badge variant={variant}>{labelMap[score] ?? score}</Badge>
 }

@@ -4,7 +4,7 @@ const cspScriptSrc = [
   "'self'",
   "'unsafe-inline'",
   'https://challenges.cloudflare.com',
-  ...(process.env.NODE_ENV === 'development' ? ["'unsafe-eval'"] : []),
+  "'unsafe-eval'",
 ].join(' ')
 
 const nextConfig: NextConfig = {

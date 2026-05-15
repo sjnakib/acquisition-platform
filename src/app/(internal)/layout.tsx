@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
   LayoutDashboard, Building2, Megaphone, Upload, Settings,
-  ChevronLeft, PanelRightClose, LogOut, User
+  ChevronLeft, ChevronRight, Menu, LogOut, User, X
 } from 'lucide-react'
 
 const navItems = [
@@ -28,63 +28,103 @@ export default function InternalLayout({ children }: { children: React.ReactNode
     router.push('/login')
   }
 
+  const sidebarW = collapsed ? 'w-[52px]' : 'w-[220px]'
+
   return (
     <div className="min-h-screen flex">
       {/* Desktop sidebar */}
       <aside
-        className={`hidden lg:flex flex-col bg-slate-900 border-r border-slate-700 transition-all duration-200 ${
-          collapsed ? 'w-[60px]' : 'w-[240px]'
-        }`}
+        className={`hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250 ${sidebarW}`}
+        style={{
+          background: '#0E0E0E',
+          borderColor: '#1A1A1A',
+          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
       >
-        <div className="flex items-center h-14 px-4 border-b border-slate-700">
+        {/* Wordmark */}
+        <div className="flex items-center h-[52px] px-4 border-b" style={{ borderColor: '#1A1A1A' }}>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white text-xs font-bold">AP</div>
-            {!collapsed && <span className="text-white text-sm font-semibold">Acquisition Platform</span>}
+            <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
+            {!collapsed && <span className="text-[15px] font-medium" style={{ color: '#F0EDE8', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>}
           </div>
         </div>
 
-        <nav className="flex-1 py-4 space-y-1 px-2">
+        {/* Nav */}
+        <nav className="flex-1 py-3 px-2 space-y-0.5">
+          <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none" style={{ color: '#3D3D3B' }}>
+            {!collapsed && 'Workspace'}
+          </div>
           {navItems.map((item) => {
             const isActive = pathname.startsWith(item.href)
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? 'bg-slate-700 text-white border-l-2 border-blue-500'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
+                className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap"
+                style={{
+                  color: isActive ? '#F7F5F0' : '#A8A39A',
+                  background: isActive ? '#242424' : 'transparent',
+                  fontWeight: isActive ? 500 : 400,
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = '#1A1A1A'
+                    e.currentTarget.style.color = '#D4D0C8'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.color = '#A8A39A'
+                  }
+                }}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
+                <item.icon className="h-4 w-4 flex-shrink-0 opacity-70" style={{ opacity: isActive ? 1 : 0.7 }} />
                 {!collapsed && item.label}
               </Link>
             )
           })}
         </nav>
 
-        <div className="p-2 border-t border-slate-700">
-          <div className="relative">
+        {/* User profile */}
+        <div className="border-t" style={{ borderColor: '#1A1A1A' }}>
+          <div className="relative p-2">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md transition-colors duration-150"
+              style={{ color: '#A8A39A' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#1A1A1A' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
             >
-              <div className="w-7 h-7 bg-slate-600 rounded-full flex items-center justify-center text-xs text-white">U</div>
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+                style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}
+              >
+                U
+              </div>
               {!collapsed && (
-                <div className="flex-1 text-left text-xs">
-                  <div className="text-slate-200 font-medium truncate">User</div>
-                  <div className="text-slate-500">Internal</div>
+                <div className="flex-1 text-left leading-tight">
+                  <div className="text-[13px] font-medium" style={{ color: '#D4D0C8' }}>User</div>
+                  <div className="text-[10px]" style={{ color: '#5C5750' }}>Team</div>
                 </div>
               )}
             </button>
+
             {userMenuOpen && (
-              <div className="absolute bottom-full left-2 mb-1 w-48 bg-white rounded-md shadow-lg border border-slate-200 py-1 z-50">
-                <button className="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                  <User className="h-4 w-4" /> Profile
+              <div
+                className="absolute bottom-full left-2 mb-1 w-40 rounded-lg shadow-lg py-1 z-50"
+                style={{ background: '#191918', border: '1px solid #2A2A2A', boxShadow: 'var(--shadow-lg)' }}
+              >
+                <button className="flex items-center gap-2 w-full px-3 py-2 text-[13px] hover:bg-[#222220] transition-colors" style={{ color: '#D4D0C8' }}>
+                  <User className="h-4 w-4" /> View profile
                 </button>
+                <div className="my-1" style={{ borderTop: '1px solid #2A2A2A' }} />
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-[13px] rounded transition-colors duration-150"
+                  style={{ color: '#F08080' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(196,43,43,0.15)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
                   <LogOut className="h-4 w-4" /> Sign out
                 </button>
@@ -92,35 +132,46 @@ export default function InternalLayout({ children }: { children: React.ReactNode
             )}
           </div>
 
+          {/* Collapse toggle */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex items-center justify-center w-full mt-1 py-1 text-slate-500 hover:text-slate-300"
+            className="flex items-center justify-center w-full py-1.5 transition-colors duration-150"
+            style={{ color: '#3D3D3B' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#A8A39A' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#3D3D3B' }}
           >
-            <ChevronLeft className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+            {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
           </button>
         </div>
       </aside>
 
       {/* Mobile header */}
-      <div className="lg:hidden flex items-center h-14 px-4 bg-white border-b border-slate-200 w-full">
-        <button onClick={() => setMobileOpen(true)} className="text-slate-600">
-          <PanelRightClose className="h-5 w-5" />
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between h-12 px-4 border-b" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
+        <button onClick={() => setMobileOpen(true)} style={{ color: 'var(--color-text-primary)' }}>
+          <Menu className="h-5 w-5" />
         </button>
-        <span className="ml-3 text-sm font-semibold text-slate-900">Acquisition Platform</span>
+        <span className="text-[15px] font-medium" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+          <span style={{ color: 'var(--accent)' }}>◆</span> Acquire
+        </span>
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0" style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}>U</div>
       </div>
 
-      {/* Mobile sidebar drawer */}
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-slate-900 border-r border-slate-700 flex flex-col">
-            <div className="flex items-center h-14 px-4 border-b border-slate-700">
+          <div className="fixed inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
+          <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: '#0E0E0E', borderRight: '1px solid #1A1A1A' }}>
+            <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: '#1A1A1A' }}>
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white text-xs font-bold">AP</div>
-                <span className="text-white text-sm font-semibold">Acquisition Platform</span>
+                <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
+                <span className="text-[15px] font-medium" style={{ color: '#F0EDE8', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
               </div>
+              <button onClick={() => setMobileOpen(false)} style={{ color: '#A8A39A' }}>
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <nav className="flex-1 py-4 space-y-1 px-2">
+            <nav className="flex-1 py-3 px-2 space-y-0.5">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none" style={{ color: '#3D3D3B' }}>Workspace</div>
               {navItems.map((item) => {
                 const isActive = pathname.startsWith(item.href)
                 return (
@@ -128,23 +179,17 @@ export default function InternalLayout({ children }: { children: React.ReactNode
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                      isActive
-                        ? 'bg-slate-700 text-white border-l-2 border-blue-500'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
+                    className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] no-underline transition-colors duration-150"
+                    style={{ color: isActive ? '#F7F5F0' : '#A8A39A', background: isActive ? '#242424' : 'transparent', fontWeight: isActive ? 500 : 400 }}
                   >
-                    <item.icon className="h-5 w-5" />
+                    <item.icon className="h-4 w-4 flex-shrink-0" />
                     {item.label}
                   </Link>
                 )
               })}
             </nav>
-            <div className="p-2 border-t border-slate-700">
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-red-400 hover:bg-slate-800"
-              >
+            <div className="p-2 border-t" style={{ borderColor: '#1A1A1A' }}>
+              <button onClick={handleLogout} className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-[13px] transition-colors" style={{ color: '#F08080' }}>
                 <LogOut className="h-5 w-5" /> Sign out
               </button>
             </div>
@@ -153,8 +198,15 @@ export default function InternalLayout({ children }: { children: React.ReactNode
       )}
 
       {/* Main content */}
-      <main className="flex-1 bg-slate-50 overflow-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main
+        className="flex-1 overflow-auto transition-all duration-250"
+        style={{
+          background: 'var(--color-canvas)',
+          marginLeft: collapsed ? '52px' : '220px',
+          transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      >
+        <div className="pt-8 px-8 pb-8 lg:pt-8 max-lg:px-6 max-md:px-4 max-md:pt-14">
           {children}
         </div>
       </main>
