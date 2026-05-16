@@ -36,7 +36,7 @@ export function PageHeader({ title, description, breadcrumb, actions }: PageHead
  <h1
  className="text-[24px] font-semibold leading-tight"
  style={{
- color: 'var(--color-)',
+ color: 'var(--color-text-primary)',
  fontFamily: 'var(--font-dm-sans)',
  letterSpacing: '-0.02em',
  }}

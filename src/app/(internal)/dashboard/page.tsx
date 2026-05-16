@@ -82,7 +82,7 @@ export default function DashboardPage() {
  <ConversionChart data={pipeline} />
  </div>
  <div>
- <h3 className="text-sm font-semibold mb-3">Pipeline by Campaign</h3>
+ <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Pipeline by Campaign</h3>
  <PipelineTable data={pipeline} />
  </div>
  </div>

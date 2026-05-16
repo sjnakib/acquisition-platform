@@ -22,11 +22,7 @@ export default function LoginPage() {
     setIsSubmitting(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, turnstileToken }),
-      })
+      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, turnstileToken }) })
       const data = await res.json()
       if (!res.ok) {
         if (res.status === 401) setError('Invalid email or password.')
@@ -36,138 +32,64 @@ export default function LoginPage() {
         return
       }
       router.push(data.role === 'client' ? '/overview' : '/dashboard')
-    } catch {
-      setError('An error occurred. Please try again.')
-    } finally {
-      setIsSubmitting(false)
-    }
+    } catch { setError('An error occurred. Please try again.') }
+    finally { setIsSubmitting(false) }
   }
 
-  const darkInput = "w-full h-[34px] rounded-md px-3 text-[13px] outline-none transition-all duration-80 border bg-transparent text-[rgba(255,255,255,0.9)] placeholder:text-[rgba(255,255,255,0.25)] border-[rgba(255,255,255,0.1)] hover:border-[rgba(255,255,255,0.15)] focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--color-accent-light)]"
+  const inputClass = "w-full h-[34px] rounded-md px-3 text-[13px] outline-none transition-all duration-80 border"
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{ background: '#0E0E0E' }}>
-      {/* Amber glow */}
-      <div
-        className="fixed pointer-events-none"
-        style={{
-          top: -200, right: -200, width: 600, height: 600, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(200,150,60,0.08) 0%, transparent 70%)',
-        }}
-      />
-
-      {/* Card */}
-      <div
-        className="w-full max-w-[380px] rounded-[14px] p-8 max-sm:bg-transparent max-sm:border-0 max-sm:p-4"
-        style={{
-          background: 'rgba(255,255,255,0.03)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          backdropFilter: 'blur(12px)',
-        }}
-      >
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--color-canvas)' }}>
+      <div className="w-full max-w-[380px] rounded-[14px] p-8 max-sm:shadow-none max-sm:border-0 max-sm:p-4" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
         {/* Logo */}
         <div className="text-center mb-10">
           <div className="flex items-center justify-center gap-2 mb-3">
             <span className="text-2xl" style={{ color: 'var(--accent)' }}>◆</span>
-            <span className="text-[18px] font-medium" style={{ color: '#FFFFFF', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
+            <span className="text-[18px] font-medium" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
           </div>
-          <p
-            className="text-[11px] uppercase tracking-[0.08em]"
-            style={{ color: 'rgba(255,255,255,0.3)' }}
-          >
-            Acquisition Platform
-          </p>
+          <p className="text-[11px] uppercase tracking-[0.08em]" style={{ color: 'var(--color-text-tertiary)' }}>Acquisition Platform</p>
         </div>
 
-        <h1 className="text-[20px] font-medium text-center mb-6" style={{ color: 'rgba(255,255,255,0.9)', fontFamily: 'var(--font-dm-sans)' }}>
-          Welcome back
-        </h1>
+        <h1 className="text-[20px] font-medium text-center mb-6" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Welcome back</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Email address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              autoComplete="email"
-              required
-              className={darkInput}
-            />
+            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Email address</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required className={inputClass}
+              style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-3)', color: 'var(--color-text-primary)' }} />
           </div>
-
           <div>
-            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Password
-            </label>
+            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Password</label>
             <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-                className={darkInput + ' pr-10'}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2"
-                style={{ color: 'rgba(255,255,255,0.3)' }}
-              >
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className={inputClass + ' pr-10'}
+                style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-3)', color: 'var(--color-text-primary)' }} />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-tertiary)' }}>
                 {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           </div>
 
           <div className="flex justify-center py-1">
-            <TurnstileWidget
-              onVerify={(token) => setTurnstileToken(token)}
-              onError={() => setTurnstileError(true)}
-            />
+            <TurnstileWidget onVerify={(token) => setTurnstileToken(token)} onError={() => setTurnstileError(true)} />
           </div>
 
-          {turnstileError && (
-            <p className="text-xs text-center" style={{ color: 'var(--color-danger-text)' }}>
-              Bot check failed to load. Refresh the page or try a different browser.
-            </p>
-          )}
+          {turnstileError && <p className="text-xs text-center" style={{ color: 'var(--color-danger-text)' }}>Bot check failed to load.</p>}
 
-          <button
-            type="submit"
-            disabled={isSubmitting || !turnstileToken}
+          <button type="submit" disabled={isSubmitting || !turnstileToken}
             className="w-full h-10 rounded-md text-[14px] font-medium flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
-            style={{ background: 'var(--accent)', color: '#FFFFFF' }}
-          >
-            {isSubmitting ? (
-              <><LoadingSpinner size="sm" /> Signing in...</>
-            ) : (
-              'Sign in'
-            )}
+            style={{ background: 'var(--accent)', color: '#FFFFFF' }}>
+            {isSubmitting ? <><LoadingSpinner size="sm" /> Signing in...</> : 'Sign in'}
           </button>
         </form>
 
         {error && (
-          <div
-            className="flex items-center gap-2 mt-4 rounded-md p-3 text-[13px] animate-in fade-in slide-in-from-top-1 duration-200"
-            style={{
-              background: 'rgba(196, 43, 43, 0.12)',
-              border: '1px solid rgba(196, 43, 43, 0.3)',
-              color: '#F08080',
-            }}
-          >
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-            {error}
+          <div className="flex items-center gap-2 mt-4 rounded-md p-3 text-[13px]" style={{ background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" /> {error}
           </div>
         )}
 
         <div className="mt-4 text-center">
-          <a href="/reset-password" className="text-[13px] hover:underline" style={{ color: 'var(--accent)' }}>
-            Forgot password?
-          </a>
+          <a href="/reset-password" className="text-[13px] hover:underline" style={{ color: 'var(--accent)' }}>Forgot password?</a>
         </div>
       </div>
     </div>

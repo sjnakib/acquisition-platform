@@ -46,14 +46,14 @@
   --color-surface-2: #E8E5DE;
   --color-surface-3: #D9D5CC;
 
-  /* Sidebar */
-  --color-sidebar-bg: #0E0E0E;
-  --color-sidebar-hover: #1A1A1A;
-  --color-sidebar-active: #242424;
-  --color-sidebar-border: #2A2A2A;
-  --color-sidebar-text: #A8A39A;
-  --color-sidebar-text-active: #F7F5F0;
-  --color-sidebar-text-muted: #5C5750;
+  /* Sidebar (light — warm surface) */
+  --color-sidebar-bg: #F7F5F0;
+  --color-sidebar-hover: #EDEAE3;
+  --color-sidebar-active: #E8E5DE;
+  --color-sidebar-border: #E0DDD5;
+  --color-sidebar-text: #6B6560;
+  --color-sidebar-text-active: #1A1814;
+  --color-sidebar-text-muted: #9B9690;
 
   /* Primary Accent (internal name --accent avoids @theme collision) */
   --accent: #C8963C;
@@ -131,6 +131,16 @@
   --accent: #DBA84A;
   --color-accent-light: #3D2E10;
   --color-accent-bg: #2A1F08;
+
+  /* Sidebar — dark in dark mode */
+  --color-sidebar-bg: #0E0E0E;
+  --color-sidebar-hover: #1A1A1A;
+  --color-sidebar-active: #242424;
+  --color-sidebar-border: #2A2A2A;
+  --color-sidebar-text: #A8A39A;
+  --color-sidebar-text-active: #F7F5F0;
+  --color-sidebar-text-muted: #5C5750;
+
   --color-success-bg: #0F2A0E;
   --color-success-border: #1E4E1C;
   --color-success-text: #6FC465;

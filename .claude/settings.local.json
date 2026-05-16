@@ -5,7 +5,8 @@
       "Bash(npm install *)",
       "Bash(npx supabase *)",
       "Bash(curl *)",
-      "PowerShell($env:SUPABASE_ACCESS_TOKEN = \"sbp_0c93a1b0e64a2c1d14a70f642a32548d447b1213\"; npx supabase db push --linked 2>&1)"
+      "PowerShell($env:SUPABASE_ACCESS_TOKEN = \"sbp_0c93a1b0e64a2c1d14a70f642a32548d447b1213\"; npx supabase db push --linked 2>&1)",
+      "Bash(powershell *)"
     ]
   }
 }

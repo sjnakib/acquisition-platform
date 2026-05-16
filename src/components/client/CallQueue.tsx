@@ -30,7 +30,7 @@ export function CallQueue() {
  .finally(() => setLoading(false))
  }, [])
 
- if (loading) return <div className="text-sm ">Loading...</div>
+ if (loading) return <div className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading...</div>
 
  const pending = calls.filter((c) => c.call_status === 'pending')
  const completed = calls.filter((c) => c.call_status !== 'pending')
