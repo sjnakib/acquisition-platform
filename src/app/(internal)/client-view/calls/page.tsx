@@ -2,6 +2,6 @@
 
 import CallQueueTable from '@/components/client/CallQueueTable'
 
-export default function ClientCallsPage() {
+export default function InternalClientCallsPage() {
   return <CallQueueTable />
 }

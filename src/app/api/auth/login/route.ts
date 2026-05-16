@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
     const { success: rateLimitOk } = await loginRateLimit.limit(ip)
     if (!rateLimitOk) {
-      return NextResponse.json({ error: 'Too many attempts. Try again in 15 minutes.' }, { status: 429 })
+      return NextResponse.json({ error: 'Too many attempts. Try again in 5 minutes.' }, { status: 429 })
     }
 
     const body = await req.json()

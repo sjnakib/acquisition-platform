@@ -32,7 +32,7 @@ export function LoginForm() {
 
       if (!res.ok) {
         if (res.status === 401) setError('Invalid email or password.')
-        else if (res.status === 429) setError('Too many attempts. Try again in 15 minutes.')
+        else if (res.status === 429) setError('Too many attempts. Try again in 5 minutes.')
         else setError(data.error ?? 'Bot verification failed.')
         return
       }

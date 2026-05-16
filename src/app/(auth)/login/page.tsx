@@ -26,7 +26,7 @@ export default function LoginPage() {
       const data = await res.json()
       if (!res.ok) {
         if (res.status === 401) setError('Invalid email or password.')
-        else if (res.status === 429) setError('Too many attempts. Try again in 15 minutes.')
+        else if (res.status === 429) setError('Too many attempts. Try again in 5 minutes.')
         else if (res.status === 400) setError(data.error ?? 'Bot verification failed.')
         else setError(data.error ?? 'An error occurred.')
         return

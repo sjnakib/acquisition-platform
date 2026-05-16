@@ -18,7 +18,7 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute     = path.startsWith('/login') || path.startsWith('/signup')
   const isInternalRoute = path.startsWith('/dashboard') || path.startsWith('/deals') ||
                           path.startsWith('/campaigns') || path.startsWith('/import') ||
-                          path.startsWith('/settings')
+                          path.startsWith('/settings') || path.startsWith('/client-view')
   const isClientRoute   = path.startsWith('/overview') || path.startsWith('/calls')
 
   if (!user && (isInternalRoute || isClientRoute)) {

@@ -2,6 +2,6 @@
 
 import ActiveDealsTable from '@/components/client/ActiveDealsTable'
 
-export default function ClientOverviewPage() {
+export default function InternalClientOverviewPage() {
   return <ActiveDealsTable />
 }
