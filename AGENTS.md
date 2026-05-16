@@ -34,8 +34,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Route Groups & Auth
 
-- **Three route groups:** `(auth)` — login/signup/reset-password, `(internal)` — team views, `(client)` — CEO/client views.
-- **`src/proxy.ts`** gates: unauthenticated → `/login`; authenticated on auth pages → role home (`/overview` or `/dashboard`); wrong-role → redirect to correct home.
+- **Three route groups:** `(auth)` — login/signup/reset-password, `(internal)` — team views (plus `(internal)/client-view/` for internal users previewing client UI), `(client)` — CEO/client views.
+- **`src/proxy.ts`** gates (use this instead of `src/middleware.ts`): unauthenticated → `/login`; authenticated on auth pages → role home (`/overview` or `/dashboard`); wrong-role → redirect to correct home.
 - **Layout-level guards** in `(internal)/layout.tsx` and `(client)/layout.tsx` reinforce role checks.
 - **`app/page.tsx`** just `redirect('/login')`.
 - **API routes** authenticate via `supabase.auth.getUser()` (anon-key client, RLS-scoped). Mutations check `origin` header against `NEXT_PUBLIC_APP_URL` for CSRF (GET routes do not).
