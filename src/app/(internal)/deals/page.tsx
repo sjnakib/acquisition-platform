@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DealTable } from '@/components/deals/DealTable'
+import { pageHeadings } from '@/lib/page-headings'
 
 interface Deal {
  id: string
@@ -31,7 +32,7 @@ export default function DealsPage() {
 
  return (
  <div>
- <PageHeader title="Deals" description={loading ? 'Loading...' : `${deals.length} deals in pipeline`} />
+ <PageHeader title={pageHeadings.deals.title} description={loading ? 'Loading...' : `${deals.length} deals in pipeline`} />
  <DealTable deals={deals} loading={loading} />
  </div>
  )

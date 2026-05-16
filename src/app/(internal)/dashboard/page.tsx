@@ -7,6 +7,7 @@ import { KPIScorecard } from '@/components/dashboard/KPIScorecard'
 import { ConversionChart } from '@/components/dashboard/ConversionChart'
 import { PipelineTable } from '@/components/dashboard/PipelineTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { pageHeadings } from '@/lib/page-headings'
 
 export default function DashboardPage() {
  const [pipeline, setPipeline] = useState<Array<{
@@ -64,7 +65,7 @@ export default function DashboardPage() {
  if (loading) {
  return (
  <div>
- <PageHeader title="Dashboard" description="Overview of your acquisition pipeline" />
+      <PageHeader title={pageHeadings.dashboard.title} description={pageHeadings.dashboard.description} />
  <div className="flex items-center justify-center py-20">
  <LoadingSpinner size="lg" />
  </div>
@@ -74,7 +75,7 @@ export default function DashboardPage() {
 
  return (
  <div>
- <PageHeader title="Dashboard" description="Overview of your acquisition pipeline" />
+      <PageHeader title={pageHeadings.dashboard.title} description={pageHeadings.dashboard.description} />
  <div className="space-y-6">
  <KPIScorecard data={pipeline} />
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

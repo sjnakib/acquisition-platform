@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
+import { BrandLogo } from '@/components/shared/BrandLogo'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -42,12 +43,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--color-canvas)' }}>
       <div className="w-full max-w-[380px] rounded-[14px] p-8 max-sm:shadow-none max-sm:border-0 max-sm:p-4" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
         {/* Logo */}
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <span className="text-2xl" style={{ color: 'var(--accent)' }}>◆</span>
-            <span className="text-[18px] font-medium" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
-          </div>
-          <p className="text-[11px] uppercase tracking-[0.08em]" style={{ color: 'var(--color-text-tertiary)' }}>Acquisition Platform</p>
+        <div className="text-center mb-10 flex justify-center">
+          <BrandLogo variant="full" />
         </div>
 
         <h1 className="text-[20px] font-medium text-center mb-6" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Welcome back</h1>

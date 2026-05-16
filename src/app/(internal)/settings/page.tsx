@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
+import { pageHeadings } from '@/lib/page-headings'
 
 export default function SettingsPage() {
   const [gmailConnected, setGmailConnected] = useState(false)
@@ -17,7 +18,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Settings" description="Manage your account and integrations" />
+      <PageHeader title={pageHeadings.settings.title} description={pageHeadings.settings.description} />
       <div className="space-y-6">
         <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
           <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Gmail Connection</h2>

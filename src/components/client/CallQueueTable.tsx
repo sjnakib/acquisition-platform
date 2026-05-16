@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
 
@@ -89,7 +90,7 @@ export default function CallQueueTable() {
 
   return (
     <div>
-      <PageHeader title="Call Queue" description="Review these deals before your call with the team" />
+      <PageHeader title={pageHeadings.callQueue.title} description={pageHeadings.callQueue.description} />
       <DataGrid
         columns={columns}
         data={calls}

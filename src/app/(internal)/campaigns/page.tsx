@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
+import { pageHeadings } from '@/lib/page-headings'
 
 interface Campaign {
   id: string
@@ -43,7 +44,7 @@ export default function CampaignsPage() {
 
   return (
     <div>
-      <PageHeader title="Campaigns" description="Manage your outreach campaigns" />
+      <PageHeader title={pageHeadings.campaigns.title} description={pageHeadings.campaigns.description} />
       <DataGrid
         columns={columns}
         data={campaigns}

@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, Menu, LogOut, User, X, Sun, Moon,
 } from 'lucide-react'
 import type { NavItem } from '@/lib/navigation'
+import { BrandLogo } from '@/components/shared/BrandLogo'
 
 interface NavSection {
   label: string
@@ -66,10 +67,10 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
       >
         {/* Wordmark */}
         <div className="flex items-center h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
-          <div className="flex items-center gap-2">
-            <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
-            {!collapsed && <span className="text-[15px] font-medium" style={{ color: s('text-active'), fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>}
-          </div>
+          {collapsed
+            ? <BrandLogo variant="icon" />
+            : <div style={{ color: s('text-active') }}><BrandLogo variant="wordmark" /></div>
+          }
         </div>
 
         {/* Nav */}
@@ -203,9 +204,9 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         <button onClick={() => setMobileOpen(true)} style={{ color: 'var(--color-text-primary)' }}>
           <Menu className="h-5 w-5" />
         </button>
-        <span className="text-[15px] font-medium" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
-          <span style={{ color: 'var(--accent)' }}>◆</span> Acquire
-        </span>
+        <div style={{ color: 'var(--color-text-primary)' }}>
+          <BrandLogo variant="wordmark" />
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -223,9 +224,8 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
           <div className="fixed inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
           <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: s('bg'), borderRight: `1px solid ${s('border')}` }}>
             <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
-              <div className="flex items-center gap-2">
-                <span className="text-lg" style={{ color: 'var(--accent)' }}>◆</span>
-                <span className="text-[15px] font-medium" style={{ color: s('text-active'), fontFamily: 'var(--font-dm-sans)' }}>Acquire</span>
+              <div style={{ color: s('text-active') }}>
+                <BrandLogo variant="wordmark" />
               </div>
               <button onClick={() => setMobileOpen(false)} style={{ color: s('text') }}>
                 <X className="h-5 w-5" />

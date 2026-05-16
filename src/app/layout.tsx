@@ -3,10 +3,11 @@ import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import ReactQueryProvider from "@/components/shared/ReactQueryProvider";
 import { Toaster } from "@/components/ui/sonner";
+import { BRAND } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Acquire — Acquisition Platform",
-  description: "Multifamily Property Acquisition Platform",
+  title: `${BRAND.name} — ${BRAND.tagline}`,
+  description: BRAND.description,
 };
 
 export default function RootLayout({

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
 
@@ -64,7 +65,7 @@ export default function ActiveDealsTable() {
 
   return (
     <div>
-      <PageHeader title="Active Deals" description="Properties your team is actively pursuing" />
+      <PageHeader title={pageHeadings.activeDeals.title} description={pageHeadings.activeDeals.description} />
       <DataGrid
         columns={columns}
         data={deals}
