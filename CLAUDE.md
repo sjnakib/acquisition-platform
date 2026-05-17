@@ -9,7 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev          # dev server at localhost:3000
 npm run build        # production build
-npm run lint         # ESLint (only automated check — no test/typecheck scripts)
+npm run lint         # ESLint
+npm run test         # Vitest (node env, globals on)
+npm run test:watch   # Vitest watch mode
 npm run db:types     # regenerate Supabase types (--project-ref, not --project-id)
 npm run db:push      # push migrations to linked Supabase project
 npm run db:push:local
@@ -73,9 +75,9 @@ Defined in `next.config.ts`. Adding external APIs/scripts/iframes → update CSP
 
 ### Theme & design system
 
-- **CSS variable system** — components use `var(--color-*)` tokens (see `UI.md`). No raw hex, no Tailwind palette colors (`bg-slate-*`, `text-blue-*`), no `prefers-color-scheme`.
+- **CSS variable system** — components use `var(--color-*)` tokens (see `docs/architecture/ui.md`). No raw hex, no Tailwind palette colors (`bg-slate-*`, `text-blue-*`), no `prefers-color-scheme`.
 - Light mode default, opt-in dark via `.dark` class on `<html>`.
-- **Do NOT use `next-themes`** despite it being in `package.json` and root layout importing it — the `UI.md` spec takes precedence (inline `<script>` + `localStorage` key `acq_theme`).
+- **Do NOT use `next-themes`** despite it being in `package.json` and root layout importing it — the `docs/architecture/ui.md` spec takes precedence (inline `<script>` + `localStorage` key `acq_theme`).
 - Sidebar is always-dark (`#0E0E0E`), does NOT participate in theming.
 - Animation via `tw-animate-css` plugin.
 
@@ -95,21 +97,20 @@ Components live in `src/components/` by domain: `ui/` (shadcn-style primitives),
 | Doc | Content |
 |---|---|
 | `PLAN.md` (2867 lines) | Sequential build plan, schema details, Supabase API patterns |
-| `UI.md` (493 lines) | Full design system: color tokens, dimensions, theme rules, remediation debt |
+| `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules, remediation debt |
 | `EXCEL_TABLE.md` (728 lines) | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |
 | `docs/architecture/database.md` | Database design, RLS, schema |
 | `docs/guides/` | Various dev guides, API conventions |
-| `docs/architecture/ui.md` | UI architecture decisions |
 
 ## Implementation gaps
 
 Many components built but NOT wired to pages. See AGENTS.md "Implementation Status" section. Before implementing new features, check `src/components/` — the component may exist but be disconnected. Notable gaps:
-- Dashboard shows "coming soon" — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` built but unused
 - Deal detail page: 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`
-- Import wizard uses mock data, no preview table, no progress polling
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx` have hardcoded Tailwind palette colors — need remediation to use CSS var tokens
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI.md spec
+- Settings: campaign management is placeholder
+- Client calls page: missing `client_notes` textarea
+- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx` have hardcoded Tailwind palette colors — need remediation to use CSS var tokens
+- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates `docs/architecture/ui.md` spec
 
 ## Critical gotchas
 
@@ -119,6 +120,6 @@ Many components built but NOT wired to pages. See AGENTS.md "Implementation Stat
 - Hooks live in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
 - `vercel.json` missing (needed for Gmail watch cron).
 - Upstash Redis required locally for rate limiting.
-- No test infrastructure exists — only lint check (`npm run lint`).
+- Vitest configured (`vitest.config.ts`, node env, globals) but no test files written yet.
 - Hooks: `useAuth.ts`, `useCallQueue.ts`, `useCampaigns.ts`, `useColumnWidths.ts`, `useDeals.ts`, `useGridInteraction.ts`.
 - Company brand config in `src/lib/brand.ts`.
