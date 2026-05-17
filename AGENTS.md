@@ -37,12 +37,13 @@ Next.js 16 — APIs, conventions, and file structure differ from training data. 
 ## Architecture
 
 - **Supabase layer:** `src/lib/supabase/` — `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (session refresh), `admin.ts` (service role), `types.ts` (manual placeholder).
-- **Hooks:** `src/lib/hooks/` (7 files). `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`.
+- **Hooks:** `src/lib/hooks/` (6 files): `useAuth`, `useCampaigns`, `useCallQueue`, `useColumnWidths`, `useDeals`, `useGridInteraction`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`.
 - **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.
 - **Tailwind CSS v4** with `@tailwindcss/postcss` — no `tailwind.config.ts`. `tw-animate-css` plugin.
-- **Theme:** CSS variables in `globals.css` (light default, opt-in dark via `.dark` class). **Do NOT use `next-themes`** — root layout violates UI.md spec. UI.md takes precedence.
+- **Theme:** CSS variables in `globals.css` (light default, opt-in dark via `.dark` class). **Do NOT use `next-themes`** — root layout violates UI spec. `docs/architecture/ui.md` takes precedence.
 - **CSS variables:** All components must use `var(--color-*)` tokens. Raw hex, Tailwind palette colors, `prefers-color-scheme` prohibited. Sidebar always-dark (`#0E0E0E`), no theming.
+- **`src/lib/brand.ts`** — brand config (name: 'Acquire'). **`src/lib/page-headings.ts`** — centralized page heading titles/descriptions.
 
 ## CSP Headers (`next.config.ts`)
 
@@ -55,9 +56,9 @@ Adding external APIs, scripts, or iframes requires updating CSP in `next.config.
 ## Key Reference Docs (read before building)
 
 - **`PLAN.md`** — Sequential build plan, phase-gated, schema details, API patterns.
-- **`UI.md`** — Design system spec: color tokens, dimensions, theme rules, remediation debt.
+- **`docs/architecture/ui.md`** — Design system spec: color tokens, dimensions, theme rules, remediation debt.
 - **`EXCEL_TABLE.md`** — DataGrid/DealTable: keyboard nav, cell editing, clipboard, virtualization.
-- **`docs/architecture/`** and **`docs/guides/`** — System overview, DB/RLS, API conventions, dev setup.
+- **`docs/architecture/`** — overview, database schema. **`docs/guides/developer/`** — API conventions, getting started. **`docs/guides/user/`** — platform usage.
 
 ## Integration Gotchas
 
@@ -71,10 +72,10 @@ Adding external APIs, scripts, or iframes requires updating CSP in `next.config.
 ## Implementation Status (Known Gaps)
 
 Components may already exist in `src/components/` — check before building.
-- Dashboard: "coming soon" — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` built but unused.
+- Dashboard: **wired up** — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` all used. Data aggregated client-side from `/api/deals`.
 - Deal detail (`/deals/[id]`): 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`, etc.
-- Settings: Gmail connect works; campaign management, user management, email template editor are placeholders.
-- Import wizard: mock data, no preview table, no progress polling.
+- Settings: Gmail connect works; campaign management is placeholder.
+- Import wizard: **fully wired** — upload → preview → confirm → poll status (3-step flow with `CoStarImportWizard`).
 - Client calls page: missing `client_notes` textarea.
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`: hardcoded Tailwind palette colors — need `var(--color-*)` remediation (see `UI.md`).
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI.md spec (mandates inline `<script>` + `localStorage`). Do NOT add more `next-themes` usage.
+- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx`: hardcoded Tailwind palette colors (`text-slate-*`, `bg-blue-600`, `bg-white`, etc.) — need `var(--color-*)` remediation (see `docs/architecture/ui.md`).
+- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI spec (mandates inline `<script>` + `localStorage`). Do NOT add more `next-themes` usage.
