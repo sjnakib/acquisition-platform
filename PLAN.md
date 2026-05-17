@@ -1,12 +1,28 @@
-# Multifamily Property Acquisition Platform — Technical PLAN.md
+# Property Acquisition Platform — Technical PLAN.md (v2 — Redesigned)
 > For use by an AI coding agent (Claude Code, OpenCode, etc.)
 > Stack: Next.js 16.2.6 (App Router) · Supabase · Cloudflare Turnstile · Gmail API · Google Drive API
+> **This document supersedes the previous PLAN.md.** It reflects the system redesign described in `SYSTEM_REDESIGN.md`.
 
 ---
 
 ## 0. Agent Orientation & Ground Rules
 
 Before writing a single line of code, the agent MUST read this entire document top to bottom. The plan is sequential — each phase gates the next. Do not skip phases, do not guess at schema details, do not invent library APIs.
+
+### 0.0 — What Changed in This Redesign (Read First)
+
+This version of the plan is a substantial rewrite. If you have previously seen the old plan, **discard these assumptions** — they are no longer true:
+
+1. **No separate "Leads" entity.** Every record enters the pipeline as a deal at the `lead` stage. There is one `deals` table.
+2. **Simplified 8-stage lifecycle.** Stages are now `lead → outreach → response → underwriting → loi → closed`, plus terminal states `failed` and `archived`. The old intermediate stages (`document_collection`, `underwritability_review`, `scored`, `call_scheduled`) are removed.
+3. **`failed` is only valid after the `loi` stage.** Any deal removed from the pipeline before LOI must be set to `archived`, not `failed`.
+4. **Flexible column schema.** The `deals` table stores ONLY the fields the system itself needs (outreach email, pipeline metadata, IDs, timestamps). All other property data (address, zip, CoStar link, external property IDs, etc.) is stored dynamically. There is no fixed set of "extra" property columns.
+5. **`gen_random_uuid()` is the only primary key.** Any external identifier (e.g. a CoStar `property_id`) is just a plain dynamic field — not required, and imports without one will not break.
+6. **The import engine is column-agnostic.** The user maps source columns at import time: to existing system fields, to new dynamic fields, or drops them. The user also designates which column(s) are the outreach email target and which column is the unit count.
+7. **New `portfolios` table.** Optional groupings of deals, with a defined deletion behaviour.
+8. **New `activity_log` table.** Tracks phone calls, voicemails, and manual notes; drives a computed `last_contacted_at` on each deal.
+9. **Flexible `document_checklist`.** Checklist items are rows that can be added/removed per deal, each with optional metadata — not a fixed set of boolean columns.
+10. **`underwriting` table has new approval/review fields** (`proceed_with_loi`, analyst, two reviewers, and their dates).
 
 ### 0.1 — Supabase Documentation Reference
 
@@ -27,6 +43,16 @@ Wherever this document shows a 🛑 symbol, the agent MUST stop, print the requi
 - Only use packages that exist in the exact version range specified.
 - Before using any npm package, verify it exists with `npm info <package> version`.
 - If a package's API is uncertain, search its README or docs before using it.
+
+### 0.4 — UI and Theming (Strict Compliance)
+
+The application uses a strict CSS variable-based design system (defined in `globals.css` and `UI.md`).
+- **NO Tailwind Color Palettes**: You must NEVER use `bg-white`, `bg-slate-*`, `text-blue-*`, `text-gray-*`, or any raw hex codes.
+- **ONLY CSS Variables**: Use `var(--color-surface-0)`, `var(--color-text-primary)`, `var(--color-accent)`, etc.
+- **Light Mode Default**: The app is light-themed by default. Dark mode is an explicit user opt-in (`.dark` class on `<html>`). Do not use `@media (prefers-color-scheme: dark)`. Note: `next-themes` is currently used in the root layout — this is a known violation of the UI.md spec. Do NOT add more `next-themes` usage; it will be replaced with an inline `<script>` + `localStorage` approach per UI.md §3.5.
+- **Tailwind CSS v4**: The project uses Tailwind CSS v4 with `@tailwindcss/postcss`. There is NO `tailwind.config.ts` file. Theme tokens are configured via `@theme inline` in `globals.css`.
+- **Sidebar Exception**: The sidebar uses CSS variables (`--color-sidebar-*`) defined in `globals.css` for both light and dark themes. In light mode the sidebar has warm surface tones; in dark mode it renders as permanently dark (`#0E0E0E`).
+- **DataGrid**: Complex tables use a robust Excel-like interaction model documented in `EXCEL_TABLE.md` (multi-cell selection, F2 editing, copy/paste). The `DataGrid` component (`src/components/shared/DataGrid.tsx`, ~47KB) and `useGridInteraction` hook (~39KB) implement this. The DataGrid must support **dynamic columns** sourced at runtime (see §3 and §11) — column definitions are not statically known at build time.
 
 ---
 
@@ -90,6 +116,10 @@ npx create-next-app@16.2.6 acquisition-platform \
   --src-dir \
   --import-alias "@/*"
 
+# Note: The project uses Tailwind CSS v4 with @tailwindcss/postcss.
+# There is NO tailwind.config.ts — theme tokens are defined via @theme inline in globals.css.
+# PostCSS config (postcss.config.mjs) uses only { "@tailwindcss/postcss": {} }.
+
 cd acquisition-platform
 ```
 
@@ -104,13 +134,19 @@ npm install react-hook-form@^7 zod@^3 @hookform/resolvers@^3
 
 # UI primitives (shadcn/ui — run after project init)
 npx shadcn@latest init
-# Choose: Default style, Slate base color, CSS variables: yes
+# Choose: Default style, CSS variables: yes
 
 # Install required shadcn components
-npx shadcn@latest add button input label card table badge dialog sheet tabs select textarea toast sonner switch
+npx shadcn@latest add button input label card table badge dialog sheet select textarea sonner switch
 
 # Data fetching / server state
 npm install @tanstack/react-query@^5
+
+# Virtualization (for DataGrid)
+npm install @tanstack/react-virtual@^3
+
+# Immutable state (for DataGrid selection ranges)
+npm install immer@^10
 
 # Date utilities
 npm install date-fns@^3
@@ -118,11 +154,20 @@ npm install date-fns@^3
 # Cloudflare Turnstile
 npm install react-turnstile@^1
 
-# File parsing (CoStar Excel import) — exceljs replaces abandoned xlsx package
+# File parsing (spreadsheet import) — exceljs replaces abandoned xlsx package
 npm install exceljs@^4
 
+# CSV parsing (import engine accepts CSV as well as XLSX)
+npm install papaparse@^5
+
 # Misc utilities
-npm install clsx@^2 tailwind-merge@^2 lucide-react@^0.460
+npm install clsx@^2 tailwind-merge@^2 lucide-react@^0.460 class-variance-authority@^0.7
+
+# Debounce
+npm install use-debounce@^10
+
+# Tailwind animation plugin
+npm install tw-animate-css@^1
 
 # Google APIs
 npm install googleapis@^140 google-auth-library@^9
@@ -133,9 +178,19 @@ npm install @react-email/components@^0.0 @react-email/render@^1
 # Rate limiting
 npm install @upstash/ratelimit @upstash/redis
 
+# Theme support (KNOWN VIOLATION — see UI.md; to be replaced with inline script)
+npm install next-themes@^0.4
+
+# Sonner toast
+npm install sonner@^2
+
 # Dev
 npm install -D supabase@^2   # Supabase CLI as local dev dep
+npm install -D vitest@^4     # Test runner
+npm install -D fast-check@^4 # Property-based testing
 ```
+
+> **New in v2:** `papaparse` is added because the redesigned import engine is format-agnostic — it accepts CSV exports as well as XLSX, since the column schema is no longer tied to a fixed CoStar layout.
 
 ### 2.3 — Initialize Supabase CLI
 
@@ -154,7 +209,6 @@ Replace the generated `tsconfig.json` content with:
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "target": "ES2022",
     "lib": ["dom", "dom.iterable", "ES2022"],
     "allowJs": false,
@@ -166,12 +220,13 @@ Replace the generated `tsconfig.json` content with:
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
+    "noEmit": true,
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
   "exclude": ["node_modules"]
 }
 ```
@@ -183,6 +238,13 @@ Replace the generated `next.config.ts` content with:
 ```typescript
 import type { NextConfig } from 'next'
 
+const cspScriptSrc = [
+  "'self'",
+  "'unsafe-inline'",
+  'https://challenges.cloudflare.com',
+  "'unsafe-eval'",
+].join(' ')
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   images: {
@@ -191,7 +253,7 @@ const nextConfig: NextConfig = {
     ],
   },
   experimental: {
-    serverActions: { allowedOrigins: [process.env.NEXT_PUBLIC_APP_URL!] },
+    serverActions: { allowedOrigins: [process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'] },
   },
   headers: async () => [
     {
@@ -201,7 +263,7 @@ const nextConfig: NextConfig = {
           key: 'Content-Security-Policy',
           value: [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+            `script-src ${cspScriptSrc}`,
             "frame-src https://challenges.cloudflare.com",
             "connect-src 'self' https://*.supabase.co https://www.googleapis.com https://accounts.google.com",
             "img-src 'self' data: https://lh3.googleusercontent.com",
@@ -221,7 +283,55 @@ export default nextConfig
 
 ---
 
-## 3. Directory Structure
+## 3. System Architecture Overview
+
+### 3.1 — High-Level Workflow
+
+```
+Import Deals → Campaigns → (Positive / Neutral Response) → Deals Board → Underwriting → LOI → Close / Fail
+                                                                              ↓
+                                                                    Portfolios (optional grouping)
+```
+
+There is **no separate "Leads" entity**. All records enter the pipeline as deals at the `lead` stage and move through the lifecycle via the `stage` column.
+
+### 3.2 — Data Model at a Glance
+
+| Table | Purpose | New in v2? |
+|---|---|---|
+| `profiles` | User accounts + role | — |
+| `campaigns` | Outreach campaigns | — |
+| `portfolios` | Optional groupings of deals | **NEW** |
+| `deals` | Core pipeline record (system fields only) | restructured |
+| `deal_fields` | Dynamic per-deal property data (key/value) | **NEW** |
+| `field_definitions` | Catalogue of known dynamic field keys | **NEW** |
+| `contacts` | Owner contacts per deal | — |
+| `email_outreach` | Email campaign activity | restructured |
+| `activity_log` | Phone calls, voicemails, manual notes | **NEW** |
+| `document_checklist` | Flexible per-deal document items | restructured |
+| `ca_credentials` | Encrypted confidentiality-agreement logins | — |
+| `underwriting` | Screening + underwriting metrics + approvals | restructured |
+| `loi_records` / `loi_rounds` | LOI + counter-offer rounds | — |
+| `google_tokens` | Per-user Gmail/Drive OAuth tokens | — |
+| `import_jobs` | Bulk import progress tracking | restructured |
+
+### 3.3 — The Flexible Column Principle
+
+The `deals` table stores **only** fields the system itself requires to function:
+
+- Fields needed to send campaign emails (the designated outreach email address).
+- Pipeline / stage metadata (`stage`, `score`, `is_archived`, etc.).
+- System-managed timestamps and IDs.
+- Foreign keys (`campaign_id`, `portfolio_id`).
+- The designated `unit_count` (required for per-unit financial metrics).
+
+**Every other piece of property data** — street address, city, state, zip, CoStar URL, external property IDs, building class, year built, anything else in a source file — is stored dynamically in the `deal_fields` table as key/value rows. The `field_definitions` table catalogues which dynamic keys exist, their display labels, and their data types, so the UI can render them consistently.
+
+This means: there is no schema migration required to support a new source-file column. The import wizard creates a new `field_definitions` row on the fly.
+
+---
+
+## 4. Directory Structure
 
 ```
 acquisition-platform/
@@ -232,7 +342,7 @@ acquisition-platform/
 │   │   │   ├── signup/page.tsx
 │   │   │   └── reset-password/page.tsx   # stub page (Phase 1 only)
 │   │   ├── (internal)/               # Route group: internal team views
-│   │   │   ├── layout.tsx            # Auth guard: internal role only
+│   │   │   ├── layout.tsx            # Sidebar + main content layout
 │   │   │   ├── error.tsx             # Error boundary
 │   │   │   ├── dashboard/page.tsx
 │   │   │   ├── deals/
@@ -240,11 +350,17 @@ acquisition-platform/
 │   │   │   │   └── [id]/
 │   │   │   │       ├── page.tsx      # Deal detail
 │   │   │   │       └── layout.tsx
+│   │   │   ├── portfolios/
+│   │   │   │   ├── page.tsx          # Portfolio list
+│   │   │   │   └── [id]/page.tsx     # Portfolio detail (deals in portfolio)
 │   │   │   ├── campaigns/page.tsx
-│   │   │   ├── import/page.tsx       # CoStar bulk import
-│   │   │   └── settings/page.tsx
+│   │   │   ├── import/page.tsx       # Bulk import wizard
+│   │   │   ├── settings/page.tsx
+│   │   │   └── client-view/          # Internal users preview client views
+│   │   │       ├── overview/page.tsx
+│   │   │       └── calls/page.tsx
 │   │   ├── (client)/                 # Route group: client/CEO view
-│   │   │   ├── layout.tsx            # Auth guard: client role only
+│   │   │   ├── layout.tsx            # Client sidebar layout (simplified nav)
 │   │   │   ├── error.tsx
 │   │   │   ├── overview/page.tsx
 │   │   │   └── calls/page.tsx
@@ -259,15 +375,24 @@ acquisition-platform/
 │   │   │   │       └── refresh-watch/route.ts  # Re-register Gmail watch (cron target)
 │   │   │   ├── deals/
 │   │   │   │   ├── route.ts             # GET list, POST create
+│   │   │   │   ├── batch/route.ts       # PATCH batch update (DataGrid paste)
 │   │   │   │   ├── [id]/
-│   │   │   │   │   ├── route.ts         # GET, PATCH, DELETE
+│   │   │   │   │   ├── route.ts         # GET, PATCH, DELETE-guard
+│   │   │   │   │   ├── fields/route.ts  # GET/PATCH dynamic field values
 │   │   │   │   │   ├── documents/route.ts
+│   │   │   │   │   ├── activity/route.ts  # GET list, POST log activity
 │   │   │   │   │   └── drive/route.ts   # POST: create Drive folder
 │   │   │   │   └── import/
-│   │   │   │       ├── route.ts         # POST: parse + preview
+│   │   │   │       ├── route.ts         # POST: parse + return column headers
 │   │   │   │       └── [batchId]/
-│   │   │   │           ├── confirm/route.ts  # POST: trigger Edge Function import
-│   │   │   │           └── status/route.ts   # GET: poll import progress
+│   │   │   │           ├── mapping/route.ts   # POST: submit column mapping
+│   │   │   │           ├── confirm/route.ts   # POST: trigger Edge Function import
+│   │   │   │           └── status/route.ts    # GET: poll import progress
+│   │   │   ├── field-definitions/
+│   │   │   │   └── route.ts             # GET list, POST create dynamic field def
+│   │   │   ├── portfolios/
+│   │   │   │   ├── route.ts             # GET list, POST create
+│   │   │   │   └── [id]/route.ts        # GET, PATCH, DELETE (with deletion-mode body)
 │   │   │   ├── emails/
 │   │   │   │   ├── [id]/route.ts        # PATCH: classify response, set flags
 │   │   │   │   ├── send/route.ts        # POST: send outreach email
@@ -285,7 +410,9 @@ acquisition-platform/
 │   │   │   │   ├── route.ts             # POST create
 │   │   │   │   └── [id]/
 │   │   │   │       ├── route.ts         # PATCH outcome
-│   │   │   │       ├── rounds/route.ts  # GET list, POST add round
+│   │   │   │       └── rounds/route.ts  # GET list, POST add round
+│   │   │   ├── underwriting/
+│   │   │   │   └── route.ts             # PATCH update underwriting data
 │   │   │   ├── ca-credentials/
 │   │   │   │   └── route.ts             # POST create (encrypted)
 │   │   │   ├── admin/
@@ -293,6 +420,7 @@ acquisition-platform/
 │   │   │   │   └── users/[id]/route.ts  # PATCH role, DELETE user (service role)
 │   │   │   └── turnstile/verify/route.ts
 │   │   ├── not-found.tsx
+│   │   ├── page.tsx                     # redirect('/login')
 │   │   ├── layout.tsx
 │   │   └── globals.css
 │   ├── components/
@@ -301,93 +429,123 @@ acquisition-platform/
 │   │   │   ├── LoginForm.tsx
 │   │   │   └── TurnstileWidget.tsx
 │   │   ├── deals/
+│   │   │   ├── CampaignEditPopover.tsx
 │   │   │   ├── DealCard.tsx
-│   │   │   ├── DealTable.tsx
+│   │   │   ├── DealTable.tsx          # Wraps DataGrid; columns = system + dynamic
 │   │   │   ├── DealStageBar.tsx
 │   │   │   ├── DealScoreBadge.tsx
-│   │   │   ├── DocumentChecklist.tsx
+│   │   │   ├── DynamicFieldPanel.tsx  # Renders/edits deal_fields key/value pairs
+│   │   │   ├── ActivityTimeline.tsx   # Phone/voicemail/note log
+│   │   │   ├── DocumentChecklist.tsx  # Flexible add/remove checklist
 │   │   │   ├── EmailThread.tsx
 │   │   │   ├── UnderwritingForm.tsx
+│   │   │   ├── ApprovalPanel.tsx      # proceed_with_loi + reviewer sign-off
 │   │   │   └── LOITracker.tsx
+│   │   ├── portfolios/
+│   │   │   ├── PortfolioCard.tsx
+│   │   │   └── DeletePortfolioDialog.tsx  # orphan vs archive choice
 │   │   ├── dashboard/
 │   │   │   ├── FunnelMetrics.tsx
 │   │   │   ├── KPIScorecard.tsx
 │   │   │   ├── PipelineTable.tsx
 │   │   │   └── ConversionChart.tsx
 │   │   ├── client/
-│   │   │   ├── ClientDealCard.tsx
+│   │   │   ├── ActiveDealsTable.tsx
 │   │   │   ├── CallBrief.tsx
-│   │   │   └── CallQueue.tsx
+│   │   │   ├── CallQueue.tsx
+│   │   │   ├── CallQueueTable.tsx
+│   │   │   └── ClientDealCard.tsx
 │   │   ├── import/
-│   │   │   └── CoStarImportWizard.tsx
+│   │   │   ├── ImportWizard.tsx       # 5-step wizard (upload → map → targets → preview → run)
+│   │   │   ├── ColumnMapper.tsx       # Maps each source column → field/new/drop
+│   │   │   └── ImportPreviewTable.tsx
 │   │   └── shared/
-│   │       ├── PageHeader.tsx
-│   │       ├── LoadingSpinner.tsx
+│   │       ├── BrandLogo.tsx
+│   │       ├── DataGrid.tsx           # Excel-like virtualized table; dynamic columns
 │   │       ├── EmptyState.tsx
-│   │       └── ReactQueryProvider.tsx
+│   │       ├── LoadingSpinner.tsx
+│   │       ├── PageHeader.tsx
+│   │       ├── ReactQueryProvider.tsx
+│   │       └── Sidebar.tsx
 │   ├── lib/
 │   │   ├── supabase/
-│   │   │   ├── client.ts             # Browser Supabase client (singleton)
-│   │   │   ├── server.ts             # Server Supabase client (SSR, anon key)
-│   │   │   ├── admin.ts              # Server Supabase client (service role ONLY)
-│   │   │   ├── middleware.ts         # Session refresh helper
-│   │   │   └── types.ts             # Generated DB types (auto-generated)
+│   │   │   ├── client.ts
+│   │   │   ├── server.ts
+│   │   │   ├── admin.ts
+│   │   │   ├── middleware.ts
+│   │   │   └── types.ts
 │   │   ├── google/
-│   │   │   ├── oauth.ts              # OAuth flow helpers + token refresh
-│   │   │   ├── gmail.ts             # Gmail send/watch/list helpers
-│   │   │   └── drive.ts             # Drive folder create/link helpers
+│   │   │   ├── oauth.ts
+│   │   │   ├── gmail.ts
+│   │   │   └── drive.ts
 │   │   ├── email/
 │   │   │   └── templates/
-│   │   │       ├── outreach.tsx      # React Email: outreach template
+│   │   │       ├── outreach.tsx
 │   │   │       ├── thank-you.tsx
 │   │   │       └── declination.tsx
 │   │   ├── import/
-│   │   │   └── costar-parser.ts      # CoStar Excel column mapping (exceljs)
-│   │   ├── rate-limit.ts             # Upstash rate limit instances
+│   │   │   ├── file-parser.ts         # Format-agnostic: XLSX (exceljs) + CSV (papaparse)
+│   │   │   └── mapping.ts             # Column-mapping types + apply logic
+│   │   ├── stage-machine.ts           # Stage transition rules + validation
+│   │   ├── rate-limit.ts
 │   │   ├── validations/
-│   │   │   ├── deal.schema.ts        # Zod schemas for deal forms
+│   │   │   ├── deal.schema.ts
+│   │   │   ├── portfolio.schema.ts
+│   │   │   ├── activity.schema.ts
 │   │   │   ├── auth.schema.ts
 │   │   │   ├── contact.schema.ts
 │   │   │   └── import.schema.ts
 │   │   ├── hooks/
-│   │   │   ├── useDeals.ts
-│   │   │   ├── useCampaigns.ts
+│   │   │   ├── useAuth.ts
 │   │   │   ├── useCallQueue.ts
-│   │   │   └── useAuth.ts
-│   │   └── utils.ts                  # cn(), formatCurrency(), etc.
-│   ├── middleware.ts                  # Next.js middleware: session + role routing
+│   │   │   ├── useCampaigns.ts
+│   │   │   ├── usePortfolios.ts
+│   │   │   ├── useColumnWidths.ts
+│   │   │   ├── useDeals.ts
+│   │   │   └── useGridInteraction.ts
+│   │   ├── brand.ts
+│   │   ├── navigation.ts
+│   │   ├── page-headings.ts
+│   │   └── utils.ts                  # cn(), formatCurrency(), formatDate(), formatPercent()
+│   ├── proxy.ts                       # Next.js 16 proxy: session + role routing
 │   └── types/
-│       ├── database.ts               # Manual type overrides if needed
-│       └── global.d.ts
 ├── supabase/
 │   ├── migrations/
 │   │   ├── 0001_extensions.sql
 │   │   ├── 0002_auth_roles.sql
 │   │   ├── 0003_campaigns.sql
-│   │   ├── 0004_deals.sql
-│   │   ├── 0005_contacts.sql
-│   │   ├── 0006_email_outreach.sql
-│   │   ├── 0007_documents.sql
-│   │   ├── 0008_underwriting.sql
-│   │   ├── 0009_call_briefs.sql
-│   │   ├── 0010_loi.sql
-│   │   ├── 0011_google_tokens.sql
-│   │   ├── 0012_import_jobs.sql
-│   │   ├── 0013_rls_policies.sql
-│   │   └── 0014_functions.sql
+│   │   ├── 0004_portfolios.sql
+│   │   ├── 0005_deals.sql
+│   │   ├── 0006_deal_fields.sql
+│   │   ├── 0007_contacts.sql
+│   │   ├── 0008_email_outreach.sql
+│   │   ├── 0009_activity_log.sql
+│   │   ├── 0010_documents.sql
+│   │   ├── 0011_underwriting.sql
+│   │   ├── 0012_call_briefs.sql
+│   │   ├── 0013_loi.sql
+│   │   ├── 0014_google_tokens.sql
+│   │   ├── 0015_import_jobs.sql
+│   │   ├── 0016_rls_policies.sql
+│   │   └── 0017_functions.sql
 │   ├── seed.sql
 │   └── config.toml
-├── .env.local                        # Never commit
-├── .env.example                      # Commit with placeholders
+├── docs/
+│   ├── architecture/
+│   └── guides/
+├── .env.local
+├── .env.example
 ├── .gitignore
+├── eslint.config.mjs
 ├── next.config.ts
-├── tailwind.config.ts
+├── postcss.config.mjs
+├── vitest.config.ts
 └── tsconfig.json
 ```
 
 ---
 
-## 4. Database Migrations
+## 5. Database Migrations
 
 Run migrations in order after all are written:
 
@@ -449,7 +607,6 @@ begin
     v_role
   );
 
-  -- Sync role into app_metadata so middleware can read it from JWT (no extra DB call)
   update auth.users
   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) ||
     jsonb_build_object('role', v_role::text)
@@ -476,119 +633,158 @@ create type public.email_template_key as enum ('outreach', 'thank_you', 'declina
 create table public.campaigns (
   id                       uuid primary key default gen_random_uuid(),
   name                     text not null,
-  market                   text not null,             -- e.g. "NJ", "NV", "AZ"
+  market                   text not null,
   listing_type             public.listing_type,
-  email_template           public.email_template_key, -- maps to src/lib/email/templates/
-  email_subject_template   text,                      -- subject line with {{variables}}
-  target_response_rate_pct numeric(5,2),              -- for KPI scorecard
-  target_loi_count         int,                       -- for KPI scorecard
+  email_template           public.email_template_key,
+  email_subject_template   text,
+  target_response_rate_pct numeric(5,2),
+  target_loi_count         int,
   is_active                boolean not null default true,
   created_by               uuid references public.profiles(id),
   created_at               timestamptz not null default now(),
   updated_at               timestamptz not null default now()
 );
-
--- Valid email_template_key values map to files:
--- 'outreach'    → src/lib/email/templates/outreach.tsx
--- 'thank_you'   → src/lib/email/templates/thank-you.tsx
--- 'declination' → src/lib/email/templates/declination.tsx
---
--- email_subject_template supports variables: {{property_address}}, {{owner_name}}, {{sender_name}}
--- Example: "Acquisition Inquiry — {{property_address}}"
 ```
 
-### Migration 0004 — Deals (Core Table)
+### Migration 0004 — Portfolios  **(NEW)**
+
+Portfolios are optional groupings of deals. The `deals` table gets a nullable `portfolio_id` FK in migration 0005.
 
 ```sql
--- supabase/migrations/0004_deals.sql
+-- supabase/migrations/0004_portfolios.sql
 
+create table public.portfolios (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  description text,
+  created_by  uuid references public.profiles(id),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create index portfolios_name_idx on public.portfolios using gin (name gin_trgm_ops);
+```
+
+> **Deletion behaviour is enforced in the API layer, not the DB.** The FK uses `on delete set null` so that a raw delete cannot orphan-with-error, but the actual `DELETE /api/portfolios/[id]` route must implement the two-option prompt (see §6 and §15). Hard deletion of *deals* is never permitted — historical data must be preserved.
+
+### Migration 0005 — Deals (Core Table — System Fields Only)
+
+The `deals` table holds **only** the fields the system itself needs. All other property data lives in `deal_fields` (migration 0006).
+
+```sql
+-- supabase/migrations/0005_deals.sql
+
+-- Redesigned 8-stage lifecycle. 'failed' is a terminal state valid ONLY after 'loi'.
+-- 'archived' is the terminal state for any deal removed before LOI.
 create type public.deal_stage as enum (
   'lead',
   'outreach',
   'response',
-  'document_collection',
-  'underwritability_review',
   'underwriting',
-  'scored',
-  'call_scheduled',
   'loi',
   'closed',
+  'failed',
   'archived'
 );
 
 create type public.deal_score as enum ('very_good', 'good', 'bad', 'very_bad');
 
-create type public.property_type as enum (
-  'multifamily', 'retail', 'office', 'industrial', 'mixed_use', 'other'
-);
-
--- Standard CoStar building classes: A, B, C, D
--- 'unclassified' is used when CoStar export omits the class field
-create type public.building_class as enum ('A', 'B', 'C', 'D', 'unclassified');
-
 create table public.deals (
-  id                    uuid primary key default gen_random_uuid(),
-  campaign_id           uuid references public.campaigns(id) on delete set null,
+  id                uuid primary key default gen_random_uuid(),
+  campaign_id       uuid references public.campaigns(id) on delete set null,
+  portfolio_id      uuid references public.portfolios(id) on delete set null,
 
-  -- Identifiers
-  property_id           text,
-  deal_name             text,
-  -- import_batch format: "YYYY-MM-DD_{campaignUuid}"
-  -- Example: "2026-05-14_a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-  -- Generated as: `${new Date().toISOString().slice(0, 10)}_${campaignId}`
-  import_batch          text,
+  -- Minimal identity. deal_name is the only human label the system needs;
+  -- it may be derived from a mapped source column at import time.
+  deal_name         text,
 
-  -- Property Info
-  source                public.deal_source not null default 'indirect',
-  listing_type          public.listing_type,
-  property_type         public.property_type,
-  building_class        public.building_class,
-  year_built            int,
-  year_renovated        int,
-  unit_count            int,
-  property_link         text,                        -- CoStar URL
+  -- import_batch format: "YYYY-MM-DD_{importJobUuid}"
+  import_batch      text,
 
-  -- Address
-  address               text,
-  city                  text,
-  state                 text,
-  zip                   text,
+  -- Outreach email target(s). The import wizard designates which source
+  -- column(s) populate this. Array supports multiple recipients per deal.
+  outreach_emails   text[] not null default '{}',
 
-  -- Pipeline
-  stage                 public.deal_stage not null default 'lead',
-  score                 public.deal_score,
-  is_archived           boolean not null default false,
-  archive_reason        text,
+  -- Unit count is a SYSTEM field (not dynamic) because per-unit financial
+  -- metrics depend on it. The import wizard designates its source column.
+  unit_count        int,
+
+  -- Pipeline metadata
+  stage             public.deal_stage not null default 'lead',
+  score             public.deal_score,
+  is_archived       boolean not null default false,
+  archive_reason    text,
+
+  -- Computed by the activity_log trigger (migration 0009)
+  last_contacted_at timestamptz,
 
   -- Google Drive
-  drive_folder_url      text,
+  drive_folder_url  text,
 
   -- Internal notes
-  internal_notes        text,
+  internal_notes    text,
 
   -- Audit
-  created_by            uuid references public.profiles(id),
-  created_at            timestamptz not null default now(),
-  updated_at            timestamptz not null default now()
+  created_by        uuid references public.profiles(id),
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
 );
 
-create unique index deals_property_id_campaign_idx
-  on public.deals(property_id, campaign_id)
-  where property_id is not null;
-
-create index deals_search_idx on public.deals
-  using gin(to_tsvector('english',
-    coalesce(deal_name, '') || ' ' ||
-    coalesce(address, '')   || ' ' ||
-    coalesce(city, '')      || ' ' ||
-    coalesce(state, '')
-  ));
+create index deals_campaign_idx  on public.deals(campaign_id);
+create index deals_portfolio_idx on public.deals(portfolio_id);
+create index deals_stage_idx     on public.deals(stage);
+create index deals_search_idx    on public.deals
+  using gin (to_tsvector('english', coalesce(deal_name, '')));
 ```
 
-### Migration 0005 — Contacts
+> **No `property_id` column, no fixed address columns.** Address, zip, state, CoStar link, external property IDs and everything else are dynamic fields. There is no unique constraint on any external identifier — imports without one do not break. Duplicate detection at import time is a best-effort match on dynamic fields and is advisory only (see §11).
+
+### Migration 0006 — Dynamic Fields  **(NEW)**
+
+This is the heart of the flexible-schema redesign. `field_definitions` catalogues every dynamic property attribute; `deal_fields` stores the per-deal values.
 
 ```sql
--- supabase/migrations/0005_contacts.sql
+-- supabase/migrations/0006_deal_fields.sql
+
+create type public.field_data_type as enum (
+  'text', 'number', 'integer', 'date', 'boolean', 'url', 'currency'
+);
+
+-- Catalogue of known dynamic field keys (created by the import wizard or manually).
+create table public.field_definitions (
+  id            uuid primary key default gen_random_uuid(),
+  key           text not null unique,           -- machine key, e.g. 'street_address'
+  label         text not null,                  -- display label, e.g. 'Street Address'
+  data_type     public.field_data_type not null default 'text',
+  -- display ordering in the dynamic field panel / grid
+  sort_order    int not null default 100,
+  -- whether this field shows as a column in the deal grid by default
+  show_in_grid  boolean not null default false,
+  created_at    timestamptz not null default now()
+);
+
+-- Per-deal dynamic values. One row per (deal, field).
+create table public.deal_fields (
+  id           uuid primary key default gen_random_uuid(),
+  deal_id      uuid not null references public.deals(id) on delete cascade,
+  field_id     uuid not null references public.field_definitions(id) on delete cascade,
+  -- value stored as text; the API casts based on field_definitions.data_type
+  value        text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  unique (deal_id, field_id)
+);
+
+create index deal_fields_deal_idx  on public.deal_fields(deal_id);
+create index deal_fields_field_idx on public.deal_fields(field_id);
+```
+
+> **Why text values?** A single typed column would force one Postgres type. Storing `value` as text and casting per `data_type` at the API boundary keeps the schema stable while supporting numbers, dates, booleans and URLs. The Zod layer in §12 validates the cast.
+
+### Migration 0007 — Contacts
+
+```sql
+-- supabase/migrations/0007_contacts.sql
 
 create table public.contacts (
   id           uuid primary key default gen_random_uuid(),
@@ -596,7 +792,7 @@ create table public.contacts (
   name         text,
   company      text,
   title        text,
-  email        text[],     -- array: supports multiple recipients
+  email        text[],
   phone_office text,
   phone_cell   text,
   is_primary   boolean not null default false,
@@ -606,10 +802,10 @@ create table public.contacts (
 create index contacts_deal_idx on public.contacts(deal_id);
 ```
 
-### Migration 0006 — Email Outreach
+### Migration 0008 — Email Outreach
 
 ```sql
--- supabase/migrations/0006_email_outreach.sql
+-- supabase/migrations/0008_email_outreach.sql
 
 create type public.email_status as enum (
   'not_sent', 'sent', 'invalid_address', 'gmail_error', 'replied'
@@ -624,7 +820,6 @@ create table public.email_outreach (
   deal_id                 uuid not null references public.deals(id) on delete cascade,
   contact_id              uuid references public.contacts(id) on delete set null,
 
-  -- Outbound
   status                  public.email_status not null default 'not_sent',
   sent_at                 timestamptz,
   subject                 text,
@@ -633,21 +828,15 @@ create table public.email_outreach (
   gmail_thread_id         text,
   error_message           text,
 
-  -- Response
+  -- A positive OR neutral reply moves the deal to the 'response' stage.
   response_classification public.response_classification,
   responded_at            timestamptz,
 
-  -- conversation_log is a MANUALLY EDITABLE plain-text textarea on the Outreach tab.
-  -- The internal team pastes or types a running summary of email exchanges here.
-  -- The Gmail webhook does NOT auto-populate this field —
-  -- it only updates status and responded_at.
+  -- Manually editable plain-text running summary. NOT auto-populated by webhook.
   conversation_log        text,
 
-  -- Thank-you email
   thank_you_sent          boolean not null default false,
   thank_you_sent_at       timestamptz,
-
-  -- Declination email
   declination_sent        boolean not null default false,
   declination_sent_at     timestamptz,
 
@@ -655,58 +844,116 @@ create table public.email_outreach (
   updated_at              timestamptz not null default now()
 );
 
-create index email_outreach_deal_idx on public.email_outreach(deal_id);
+create index email_outreach_deal_idx   on public.email_outreach(deal_id);
 create index email_outreach_thread_idx on public.email_outreach(gmail_thread_id)
   where gmail_thread_id is not null;
 ```
 
-### Migration 0007 — Document Checklist & CA
+### Migration 0009 — Activity Log  **(NEW)**
+
+Tracks phone calls, voicemails and manual notes alongside email outreach. Logging any activity updates `deals.last_contacted_at` via a trigger.
 
 ```sql
--- supabase/migrations/0007_documents.sql
+-- supabase/migrations/0009_activity_log.sql
+
+create type public.activity_type as enum (
+  'call', 'voicemail', 'note', 'meeting', 'other'
+);
+
+create table public.activity_log (
+  id          uuid primary key default gen_random_uuid(),
+  deal_id     uuid not null references public.deals(id) on delete cascade,
+  type        public.activity_type not null,
+  summary     text not null,                 -- e.g. "Left voicemail"
+  logged_by   uuid references public.profiles(id),
+  logged_at   timestamptz not null default now()
+);
+
+create index activity_log_deal_idx on public.activity_log(deal_id, logged_at desc);
+
+-- Keep deals.last_contacted_at in sync with the most recent activity.
+create or replace function public.touch_last_contacted()
+returns trigger language plpgsql as $$
+begin
+  update public.deals
+  set last_contacted_at = greatest(coalesce(last_contacted_at, new.logged_at), new.logged_at)
+  where id = new.deal_id;
+  return new;
+end;
+$$;
+
+create trigger trg_activity_touches_deal
+  after insert on public.activity_log
+  for each row execute procedure public.touch_last_contacted();
+```
+
+> Email sends do not write to `activity_log`; `last_contacted_at` reflects manual touches and email outreach can be read from `email_outreach.sent_at` separately. If the team wants email sends to also bump `last_contacted_at`, add an equivalent trigger on `email_outreach` in a future migration — out of scope for Phase 1.
+
+### Migration 0010 — Document Checklist & CA  **(restructured — now flexible)**
+
+The checklist is no longer a fixed set of boolean columns. Each checklist item is a row, so documents can be added or removed per deal, each with optional metadata.
+
+```sql
+-- supabase/migrations/0010_documents.sql
 
 create type public.ca_status as enum (
   'not_required', 'pending', 'signed', 'approved'
 );
 
+-- One row per document item per deal.
 create table public.document_checklist (
-  id                     uuid primary key default gen_random_uuid(),
-  deal_id                uuid not null references public.deals(id) on delete cascade,
-
-  pl_collected           boolean not null default false,
-  pl_period              text,
-  rent_roll_collected    boolean not null default false,
-  rent_roll_as_of        date,
-  om_collected           boolean not null default false,
-  tax_bill_collected     boolean,
-  capex_collected        boolean,
-  market_report_1        boolean,
-  market_report_2        boolean,
-  market_report_3        boolean,
-  market_report_4        boolean,
-
-  ca_status              public.ca_status not null default 'not_required',
-  ca_platform            text,
-  -- UUID FK to ca_credentials; not a free-text label
-  ca_credential_id       uuid references public.ca_credentials(id) on delete set null,
-
-  updated_at             timestamptz not null default now(),
-  unique(deal_id)
+  id            uuid primary key default gen_random_uuid(),
+  deal_id       uuid not null references public.deals(id) on delete cascade,
+  -- e.g. 'P&L', 'Rent Roll', 'OM', 'Tax Bill', 'CAPEX Schedule', 'Market Report 1'
+  doc_name      text not null,
+  collected     boolean not null default false,
+  -- optional free-form metadata: upload date, reviewer notes, period, etc.
+  metadata      jsonb not null default '{}'::jsonb,
+  sort_order    int not null default 100,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );
 
--- CA credentials stored separately (sensitive — password stored encrypted)
+create index document_checklist_deal_idx on public.document_checklist(deal_id);
+
+-- Default checklist items seeded for a new deal (called from /api/deals POST
+-- and from the import Edge Function). Documents can be added/removed afterwards.
+create or replace function public.seed_default_checklist(p_deal_id uuid)
+returns void language plpgsql as $$
+declare items text[] := array[
+  'P&L', 'Rent Roll', 'Offering Memorandum (OM)', 'Tax Bill',
+  'CAPEX Schedule', 'Market Report 1', 'Market Report 2',
+  'Market Report 3', 'Market Report 4'
+];
+  d text; i int := 0;
+begin
+  foreach d in array items loop
+    insert into public.document_checklist (deal_id, doc_name, sort_order)
+    values (p_deal_id, d, i);
+    i := i + 10;
+  end loop;
+end;
+$$;
+
+-- CA credentials stored separately (sensitive — password stored encrypted).
 create table public.ca_credentials (
   id                  uuid primary key default gen_random_uuid(),
   platform            text not null,
   username            text,
-  -- password stored as pgp_sym_encrypt(password, DB_ENCRYPTION_KEY) — NEVER plaintext
-  password_encrypted  bytea,
+  password_encrypted  bytea,    -- pgp_sym_encrypt(password, DB_ENCRYPTION_KEY)
   notes               text,
   created_at          timestamptz not null default now()
 );
 
--- Secure function to insert a CA credential with encrypted password
--- Called from /api/ca-credentials/route.ts with the plaintext password
+-- CA status attached to a deal (one row per deal).
+create table public.deal_ca (
+  deal_id           uuid primary key references public.deals(id) on delete cascade,
+  ca_status         public.ca_status not null default 'not_required',
+  ca_platform       text,
+  ca_credential_id  uuid references public.ca_credentials(id) on delete set null,
+  updated_at        timestamptz not null default now()
+);
+
 create or replace function public.store_ca_credential(
   p_platform text,
   p_username text,
@@ -723,58 +970,70 @@ end;
 $$;
 ```
 
-### Migration 0008 — Underwriting
+### Migration 0011 — Underwriting  **(restructured — screening + metrics + approvals)**
+
+The `underwriting` table now carries the pre-screening fields, the underwriting output fields, **and** the approval/review tracking fields. Per-unit figures are computed from `deals.unit_count`.
 
 ```sql
--- supabase/migrations/0008_underwriting.sql
+-- supabase/migrations/0011_underwriting.sql
 
 create type public.underwritability as enum (
-  'underwritable', 'not_underwritable', 'maybe'
+  'go', 'no_go', 'maybe'
 );
 
 create table public.underwriting (
-  id                      uuid primary key default gen_random_uuid(),
-  deal_id                 uuid not null references public.deals(id) on delete cascade,
+  id                       uuid primary key default gen_random_uuid(),
+  deal_id                  uuid not null references public.deals(id) on delete cascade,
 
-  underwritability        public.underwritability,
-  screened_at             timestamptz,
-  screened_by             uuid references public.profiles(id),
+  -- ── Pre-Underwriting Screening ──────────────────────────────
+  asking_price             numeric(15,2),
+  price_per_unit           numeric(12,2),   -- asking_price / deals.unit_count
+  population_1mi           int,
+  population_growth_pct    numeric(6,3),
+  rent_growth_pct          numeric(6,3),
+  vacancy_rate_pct         numeric(6,3),
+  market_price_per_unit    numeric(12,2),
+  delta_pct                numeric(6,3),    -- (price_per_unit - market_ppu) / market_ppu * 100
+  cap_rate                 numeric(6,3),
+  underwritability_status  public.underwritability,   -- Go / No-Go / Maybe
+  screened_at              timestamptz,
+  screened_by              uuid references public.profiles(id),
 
-  -- Market Research
-  asking_price            numeric(15,2),
-  asking_price_per_unit   numeric(12,2),
-  population_1mi          int,
-  population_growth_pct   numeric(6,3),
-  rent_growth_t12_pct     numeric(6,3),
-  rent_growth_fwd_pct     numeric(6,3),
-  vacancy_rate_pct        numeric(6,3),
-  market_price_per_unit   numeric(12,2),
-  market_delta_pct        numeric(6,3),   -- auto-calculated: ((asking_ppu - market_ppu) / market_ppu) * 100
-  cap_rate                numeric(6,3),
-  sale_comps_available    boolean,
-  rent_comps_available    boolean,
+  -- ── Key Underwriting Output ─────────────────────────────────
+  purchase_price           numeric(15,2),
+  purchase_price_per_unit  numeric(12,2),   -- purchase_price / deals.unit_count
+  capex                    numeric(15,2),
+  capex_per_unit           numeric(12,2),   -- capex / deals.unit_count
+  occupancy_pct            numeric(6,3),
+  irr_pct                  numeric(6,3),
+  equity_multiple          numeric(6,3),
+  cash_on_cash_pct         numeric(6,3),
+  profit                   numeric(15,2),
+  uw_notes                 text,
 
-  -- Underwriting Summary
-  purchase_price          numeric(15,2),
-  purchase_price_per_unit numeric(12,2),   -- auto-calculated: purchase_price / unit_count
-  capex_estimate          numeric(15,2),
-  irr_pct                 numeric(6,3),
-  equity_multiple         numeric(6,3),
-  cash_on_cash_pct        numeric(6,3),
-  projected_profit        numeric(15,2),
-  occupancy_pct           numeric(6,3),
-  uw_notes                text,
+  -- ── Approval & Pipeline Tracking ────────────────────────────
+  proceed_with_loi         boolean,                                   -- formal go/no-go
+  uw_analyst_id            uuid references public.profiles(id),       -- who underwrote
+  uw_completion_date       date,
+  reviewer_1_id            uuid references public.profiles(id),
+  review_1_date            date,
+  reviewer_2_id            uuid references public.profiles(id),
+  review_2_date            date,
 
-  created_at              timestamptz not null default now(),
-  updated_at              timestamptz not null default now(),
-  unique(deal_id)
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
+  unique (deal_id)
 );
+
+create index underwriting_deal_idx on public.underwriting(deal_id);
 ```
 
-### Migration 0009 — Call Briefs
+> **Per-unit fields** (`price_per_unit`, `purchase_price_per_unit`, `capex_per_unit`) are auto-calculated by the API layer on every write using `deals.unit_count`. They are stored (not generated columns) so a manual override is possible; the UI labels them "(auto)" until overridden, exactly as in the old plan.
+
+### Migration 0012 — Call Briefs
 
 ```sql
--- supabase/migrations/0009_call_briefs.sql
+-- supabase/migrations/0012_call_briefs.sql
 
 create type public.call_status as enum (
   'pending', 'completed', 'cancelled'
@@ -783,32 +1042,27 @@ create type public.call_status as enum (
 create table public.call_briefs (
   id              uuid primary key default gen_random_uuid(),
   deal_id         uuid not null references public.deals(id) on delete cascade,
-
-  -- Brief content (drafted by internal team)
   summary_text    text,
   published       boolean not null default false,
   published_at    timestamptz,
-
-  -- Call tracking
   call_status     public.call_status not null default 'pending',
   completed_at    timestamptz,
-  client_notes    text,            -- written by CEO/client after reviewing
-
-  -- Scheduling
+  client_notes    text,
   flagged_by      uuid references public.profiles(id),
   flagged_at      timestamptz not null default now(),
-
   updated_at      timestamptz not null default now()
 );
 
-create index call_briefs_deal_idx on public.call_briefs(deal_id);
+create index call_briefs_deal_idx   on public.call_briefs(deal_id);
 create index call_briefs_status_idx on public.call_briefs(call_status) where published = true;
 ```
 
-### Migration 0010 — LOI & Negotiation
+> Note: call briefs are no longer tied to a dedicated `call_scheduled` stage (that stage was removed). A brief can be created for any deal in the `underwriting` stage or later; publishing a brief does not change `deals.stage`.
+
+### Migration 0013 — LOI & Negotiation
 
 ```sql
--- supabase/migrations/0010_loi.sql
+-- supabase/migrations/0013_loi.sql
 
 create type public.loi_outcome as enum (
   'in_progress', 'deal_reached', 'fallen_through'
@@ -817,7 +1071,6 @@ create type public.loi_outcome as enum (
 create table public.loi_records (
   id                    uuid primary key default gen_random_uuid(),
   deal_id               uuid not null references public.deals(id) on delete cascade,
-
   submitted_at          date,
   offered_price         numeric(15,2),
   outcome               public.loi_outcome not null default 'in_progress',
@@ -825,10 +1078,9 @@ create table public.loi_records (
   close_date            date,
   fallen_through_reason text,
   fallen_through_date   date,
-
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now(),
-  unique(deal_id)
+  unique (deal_id)
 );
 
 create table public.loi_rounds (
@@ -845,10 +1097,12 @@ create table public.loi_rounds (
 create index loi_rounds_loi_idx on public.loi_rounds(loi_id);
 ```
 
-### Migration 0011 — Google OAuth Token Storage
+> **Stage interaction:** issuing an LOI moves the deal to `loi`. `outcome='deal_reached'` → `stage='closed'`. `outcome='fallen_through'` → `stage='failed'` (this is the ONLY place `failed` is valid — see §6).
+
+### Migration 0014 — Google OAuth Token Storage
 
 ```sql
--- supabase/migrations/0011_google_tokens.sql
+-- supabase/migrations/0014_google_tokens.sql
 
 create table public.google_tokens (
   id               uuid primary key default gen_random_uuid(),
@@ -858,44 +1112,61 @@ create table public.google_tokens (
   token_type       text,
   expiry           timestamptz,
   scopes           text[],
-  last_history_id  text,   -- Gmail historyId for push notification processing
+  last_history_id  text,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
-  unique(user_id)
+  unique (user_id)
 );
 ```
 
-### Migration 0012 — Import Jobs
+### Migration 0015 — Import Jobs  **(restructured — stores column mapping)**
+
+The import job now persists the user's column mapping so the confirm-step Edge Function can apply it.
 
 ```sql
--- supabase/migrations/0012_import_jobs.sql
+-- supabase/migrations/0015_import_jobs.sql
 
 create table public.import_jobs (
-  id          uuid primary key default gen_random_uuid(),
-  campaign_id uuid references public.campaigns(id) on delete set null,
-  user_id     uuid references auth.users(id) on delete set null,
-  total_rows  int not null default 0,
-  inserted    int not null default 0,
-  skipped     int not null default 0,
-  status      text not null default 'pending'
-    check (status in ('pending', 'running', 'done', 'failed')),
-  error_log   text[],
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  id            uuid primary key default gen_random_uuid(),
+  campaign_id   uuid references public.campaigns(id) on delete set null,
+  portfolio_id  uuid references public.portfolios(id) on delete set null,
+  user_id       uuid references auth.users(id) on delete set null,
+
+  source_headers text[] not null default '{}',   -- raw column headers from the file
+  -- The mapping the user submitted in wizard Step 2/3. Shape:
+  -- { "Property Address": { action: "field", key: "street_address" },
+  --   "Owner Email":      { action: "email_target" },
+  --   "Units":            { action: "unit_count" },
+  --   "Random Col":       { action: "drop" } }
+  column_mapping jsonb not null default '{}'::jsonb,
+
+  total_rows    int not null default 0,
+  inserted      int not null default 0,
+  skipped       int not null default 0,
+  status        text not null default 'pending'
+    check (status in ('pending', 'mapping', 'running', 'done', 'failed')),
+  error_log     text[],
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );
 ```
 
-### Migration 0013 — Row-Level Security Policies
+### Migration 0016 — Row-Level Security Policies
 
 ```sql
--- supabase/migrations/0013_rls_policies.sql
+-- supabase/migrations/0016_rls_policies.sql
 
 alter table public.profiles           enable row level security;
 alter table public.campaigns          enable row level security;
+alter table public.portfolios         enable row level security;
 alter table public.deals              enable row level security;
+alter table public.field_definitions  enable row level security;
+alter table public.deal_fields        enable row level security;
 alter table public.contacts           enable row level security;
 alter table public.email_outreach     enable row level security;
+alter table public.activity_log       enable row level security;
 alter table public.document_checklist enable row level security;
+alter table public.deal_ca            enable row level security;
 alter table public.ca_credentials     enable row level security;
 alter table public.underwriting       enable row level security;
 alter table public.call_briefs        enable row level security;
@@ -904,30 +1175,33 @@ alter table public.loi_rounds         enable row level security;
 alter table public.google_tokens      enable row level security;
 alter table public.import_jobs        enable row level security;
 
--- Helper: get the calling user's role from JWT (no DB round-trip)
+-- Helper: get the calling user's custom role from app_metadata.
 create or replace function public.get_my_role()
 returns public.user_role language sql stable security definer as $$
-  select (auth.jwt()->>'role')::public.user_role
+  select coalesce(
+    (auth.jwt()->'app_metadata'->>'role')::public.user_role,
+    (auth.jwt()->'user_metadata'->>'role')::public.user_role,
+    'internal'
+  )
 $$;
 
 -- PROFILES
 create policy "profiles: own row" on public.profiles
   for select using (id = auth.uid());
-
 create policy "profiles: internal sees all" on public.profiles
   for select using (public.get_my_role() = 'internal');
-
 create policy "profiles: own update" on public.profiles
   for update using (id = auth.uid());
 
--- CAMPAIGNS: internal full access; client no access
+-- CAMPAIGNS / PORTFOLIOS — internal full access; client none
 create policy "campaigns: internal all" on public.campaigns
   for all using (public.get_my_role() = 'internal');
-
--- DEALS: internal full; client sees only good/very_good non-archived
-create policy "deals: internal all" on public.deals
+create policy "portfolios: internal all" on public.portfolios
   for all using (public.get_my_role() = 'internal');
 
+-- DEALS — internal full; client sees only good/very_good non-archived
+create policy "deals: internal all" on public.deals
+  for all using (public.get_my_role() = 'internal');
 create policy "deals: client read good" on public.deals
   for select using (
     public.get_my_role() = 'client'
@@ -935,30 +1209,51 @@ create policy "deals: client read good" on public.deals
     and score in ('good', 'very_good')
   );
 
--- CONTACTS: internal only
+-- DYNAMIC FIELDS — field_definitions readable by all authenticated users
+-- (so the client deal cards can render labels); deal_fields gated like deals.
+create policy "field_definitions: read all" on public.field_definitions
+  for select using (auth.uid() is not null);
+create policy "field_definitions: internal write" on public.field_definitions
+  for all using (public.get_my_role() = 'internal');
+
+create policy "deal_fields: internal all" on public.deal_fields
+  for all using (public.get_my_role() = 'internal');
+create policy "deal_fields: client read good" on public.deal_fields
+  for select using (
+    public.get_my_role() = 'client'
+    and exists (
+      select 1 from public.deals d
+      where d.id = deal_fields.deal_id
+        and d.is_archived = false
+        and d.score in ('good', 'very_good')
+    )
+  );
+
+-- INTERNAL-ONLY TABLES
 create policy "contacts: internal all" on public.contacts
   for all using (public.get_my_role() = 'internal');
-
--- EMAIL OUTREACH: internal only
 create policy "email_outreach: internal all" on public.email_outreach
   for all using (public.get_my_role() = 'internal');
-
--- DOCUMENT CHECKLIST: internal only
+create policy "activity_log: internal all" on public.activity_log
+  for all using (public.get_my_role() = 'internal');
 create policy "document_checklist: internal all" on public.document_checklist
   for all using (public.get_my_role() = 'internal');
-
--- CA CREDENTIALS: internal only
+create policy "deal_ca: internal all" on public.deal_ca
+  for all using (public.get_my_role() = 'internal');
 create policy "ca_credentials: internal all" on public.ca_credentials
   for all using (public.get_my_role() = 'internal');
-
--- UNDERWRITING: internal only
 create policy "underwriting: internal all" on public.underwriting
   for all using (public.get_my_role() = 'internal');
-
--- CALL BRIEFS: internal full; client sees published briefs for deals they can access
-create policy "call_briefs: internal all" on public.call_briefs
+create policy "loi_records: internal all" on public.loi_records
+  for all using (public.get_my_role() = 'internal');
+create policy "loi_rounds: internal all" on public.loi_rounds
+  for all using (public.get_my_role() = 'internal');
+create policy "import_jobs: internal all" on public.import_jobs
   for all using (public.get_my_role() = 'internal');
 
+-- CALL BRIEFS — internal full; client sees published briefs for visible deals
+create policy "call_briefs: internal all" on public.call_briefs
+  for all using (public.get_my_role() = 'internal');
 create policy "call_briefs: client sees published" on public.call_briefs
   for select using (
     public.get_my_role() = 'client'
@@ -970,8 +1265,6 @@ create policy "call_briefs: client sees published" on public.call_briefs
         and d.score in ('good', 'very_good')
     )
   );
-
--- Client can ONLY update call_status and client_notes; cannot un-publish
 create policy "call_briefs: client update notes" on public.call_briefs
   for update using (
     public.get_my_role() = 'client'
@@ -983,34 +1276,19 @@ create policy "call_briefs: client update notes" on public.call_briefs
         and d.score in ('good', 'very_good')
     )
   )
-  with check (
-    public.get_my_role() = 'client'
-    and published = true  -- client cannot flip published to false
-  );
--- NOTE: In the /api/calls/[id] PATCH route, explicitly whitelist updatable fields:
---   const { call_status, client_notes } = await req.json()
---   Only pass { call_status, client_notes } to the Supabase update — never spread the full body.
+  with check (public.get_my_role() = 'client' and published = true);
+-- NOTE: the /api/calls/[id] PATCH route must whitelist only
+-- { call_status, client_notes } — never spread the full body.
 
--- LOI: internal only
-create policy "loi_records: internal all" on public.loi_records
-  for all using (public.get_my_role() = 'internal');
-
-create policy "loi_rounds: internal all" on public.loi_rounds
-  for all using (public.get_my_role() = 'internal');
-
--- GOOGLE TOKENS: own row only
+-- GOOGLE TOKENS — own row only
 create policy "google_tokens: own row" on public.google_tokens
   for all using (user_id = auth.uid());
-
--- IMPORT JOBS: internal only
-create policy "import_jobs: internal all" on public.import_jobs
-  for all using (public.get_my_role() = 'internal');
 ```
 
-### Migration 0014 — Utility Functions & Pipeline View
+### Migration 0017 — Utility Functions & Pipeline View
 
 ```sql
--- supabase/migrations/0014_functions.sql
+-- supabase/migrations/0017_functions.sql
 
 -- updated_at auto-update trigger
 create or replace function public.update_updated_at()
@@ -1024,9 +1302,9 @@ $$;
 do $$ declare t text;
 begin
   foreach t in array array[
-    'profiles','campaigns','deals','email_outreach',
-    'document_checklist','underwriting','call_briefs',
-    'loi_records','google_tokens','import_jobs'
+    'profiles','campaigns','portfolios','deals','deal_fields',
+    'email_outreach','document_checklist','deal_ca','underwriting',
+    'call_briefs','loi_records','google_tokens','import_jobs'
   ] loop
     execute format('
       create trigger trg_%s_updated_at
@@ -1036,34 +1314,35 @@ begin
   end loop;
 end $$;
 
--- Dashboard pipeline summary — security definer function (enforces internal-only access)
--- Returns no rows for non-internal callers
+-- Dashboard pipeline summary — security definer, internal-only hard gate.
 create or replace function public.get_pipeline_summary()
 returns table (
-  campaign_name          text,
-  market                 text,
-  leads                  bigint,
-  emails_sent            bigint,
-  responses_positive     bigint,
-  underwritten           bigint,
-  scored_good            bigint,
-  loi_count              bigint,
-  closed_count           bigint
+  campaign_name        text,
+  market               text,
+  leads                bigint,
+  emails_sent          bigint,
+  responses_positive   bigint,
+  underwritten         bigint,
+  scored_good          bigint,
+  loi_count            bigint,
+  closed_count         bigint,
+  failed_count         bigint
 ) language sql stable security definer as $$
   select
     c.name,
     c.market,
     count(*) filter (where d.stage = 'lead'),
     count(*) filter (where e.status = 'sent'),
-    count(*) filter (where e.response_classification = 'positive'),
-    count(*) filter (where d.stage in ('underwriting','scored','call_scheduled','loi','closed')),
+    count(*) filter (where e.response_classification in ('positive','neutral')),
+    count(*) filter (where d.stage in ('underwriting','loi','closed','failed')),
     count(*) filter (where d.score in ('good','very_good')),
     count(*) filter (where d.stage in ('loi','closed')),
-    count(*) filter (where d.stage = 'closed')
+    count(*) filter (where d.stage = 'closed'),
+    count(*) filter (where d.stage = 'failed')
   from public.deals d
   join public.campaigns c on c.id = d.campaign_id
   left join public.email_outreach e on e.deal_id = d.id
-  where public.get_my_role() = 'internal'   -- hard gate: returns empty for client role
+  where public.get_my_role() = 'internal'
   group by c.id, c.name, c.market
 $$;
 ```
@@ -1078,7 +1357,114 @@ npx supabase db diff --linked
 
 ---
 
-## 5. Supabase Type Generation
+## 6. Deal Stages, Lifecycle & Portfolio Behaviour
+
+This section is the single source of truth for stage rules. The agent must implement these in `src/lib/stage-machine.ts` and enforce them in every API route that writes `deals.stage`.
+
+### 6.1 — Stage Definitions
+
+| Stage | Description |
+|---|---|
+| `lead` | Freshly imported; no outreach yet |
+| `outreach` | Campaign email(s) sent |
+| `response` | Owner has replied (positive or neutral) |
+| `underwriting` | Active financial analysis in progress |
+| `loi` | Letter of Intent has been sent |
+| `closed` | Deal successfully closed |
+| `failed` | Deal rejected — **only valid after the `loi` stage** |
+| `archived` | Removed from active pipeline for any reason prior to LOI |
+
+### 6.2 — Stage Transition Rules
+
+- `lead` → `outreach`: triggered when the first campaign email is sent (`POST /api/emails/send`).
+- `outreach` → `response`: triggered when a **positive or neutral** reply is classified (`PATCH /api/emails/[id]`).
+- `response` → `underwriting`: triggered manually when analysis begins.
+- `underwriting` → `loi`: triggered when an LOI is issued (`POST /api/loi`).
+- `loi` → `closed`: LOI outcome `deal_reached`.
+- `loi` → `failed`: LOI outcome `fallen_through`.
+- **`failed` is reachable ONLY from `loi`.** Any attempt to set `stage='failed'` on a deal whose current stage is not `loi` must be rejected with HTTP 422.
+- Any deal removed from the pipeline **before** the `loi` stage must be set to `archived` (with `is_archived=true`), never `failed`.
+- An optional free-text `archive_reason` may be recorded when archiving.
+
+### 6.3 — `src/lib/stage-machine.ts`
+
+```typescript
+export const DEAL_STAGES = [
+  'lead', 'outreach', 'response', 'underwriting',
+  'loi', 'closed', 'failed', 'archived',
+] as const
+export type DealStage = (typeof DEAL_STAGES)[number]
+
+// Linear progression path (terminal states excluded from "next").
+const FORWARD: Record<DealStage, DealStage | null> = {
+  lead: 'outreach',
+  outreach: 'response',
+  response: 'underwriting',
+  underwriting: 'loi',
+  loi: 'closed',       // default forward; 'failed' is an explicit branch
+  closed: null,
+  failed: null,
+  archived: null,
+}
+
+export function nextStage(current: DealStage): DealStage | null {
+  return FORWARD[current]
+}
+
+/**
+ * Validates a requested stage transition.
+ * Returns { ok: true } or { ok: false, reason } — callers return 422 on failure.
+ */
+export function canTransition(from: DealStage, to: DealStage): { ok: boolean; reason?: string } {
+  if (from === to) return { ok: true }
+
+  // 'failed' may ONLY be entered from 'loi'.
+  if (to === 'failed' && from !== 'loi') {
+    return { ok: false, reason: "'failed' is only valid after the LOI stage. Use 'archived' instead." }
+  }
+
+  // 'archived' is reachable from any pre-LOI stage (and underwriting),
+  // but a post-LOI exit should be 'failed' or 'closed', not 'archived'.
+  if (to === 'archived' && (from === 'loi' || from === 'closed' || from === 'failed')) {
+    return { ok: false, reason: "Deals at or past the LOI stage cannot be archived; set 'closed' or 'failed'." }
+  }
+
+  return { ok: true }
+}
+```
+
+> Every `PATCH /api/deals/[id]` that includes a `stage` field MUST call `canTransition(currentStage, newStage)` and return `{ error: reason }` with status 422 on failure. Do not rely on the UI alone.
+
+### 6.4 — Portfolios
+
+Portfolios are optional groupings, one `portfolio_id` FK per deal. A deal may belong to zero or one portfolio.
+
+#### Portfolio Deletion Behaviour
+
+`DELETE /api/portfolios/[id]` MUST accept a body specifying one of two modes. The route prompts the user via `DeletePortfolioDialog.tsx` before sending:
+
+1. **Orphan the deals** (`mode: 'orphan'`) — set every member deal's `portfolio_id` to `null`. Deals remain active on the main board.
+2. **Archive the deals** (`mode: 'archive'`) — set every member deal's `stage='archived'`, `is_archived=true`, `archive_reason='Portfolio Deleted'`. (Deals already at/past LOI are left untouched — see §6.3; surface a notice listing them.)
+
+```typescript
+// DELETE /api/portfolios/[id] — pseudocode
+const { mode } = await req.json()   // 'orphan' | 'archive'
+if (mode === 'orphan') {
+  await supabase.from('deals').update({ portfolio_id: null }).eq('portfolio_id', id)
+} else if (mode === 'archive') {
+  await supabase.from('deals')
+    .update({ stage: 'archived', is_archived: true, archive_reason: 'Portfolio Deleted' })
+    .eq('portfolio_id', id)
+    .not('stage', 'in', '(loi,closed,failed)')
+}
+await supabase.from('portfolios').delete().eq('id', id)
+```
+
+**Hard deletion of deals is never permitted.** Historical data must always be preserved — only the portfolio row itself is deleted.
+
+---
+
+## 7. Supabase Type Generation
 
 ```bash
 npx supabase gen types typescript \
@@ -1100,20 +1486,19 @@ Add to `package.json` scripts:
 }
 ```
 
-Note: the flag is `--project-ref`, not `--project-id`. Using `--project-id` will throw an unknown flag error in Supabase CLI v2.
+Note: the flag is `--project-ref`, not `--project-id`. Using `--project-id` throws an unknown-flag error in Supabase CLI v2.
 
 ---
 
-## 6. Supabase Client Setup
+## 8. Supabase Client Setup
 
 ### `src/lib/supabase/client.ts` (browser)
 
 ```typescript
 import { createBrowserClient } from '@supabase/ssr'
-import type { Database } from './types'
 
 export function createClient() {
-  return createBrowserClient<Database>(
+  return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
@@ -1125,17 +1510,16 @@ export function createClient() {
 ```typescript
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import type { Database } from './types'
 
 export async function createClient() {
   const cookieStore = await cookies()
-  return createServerClient<Database>(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => {
+        setAll: (cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[]) => {
           cookiesToSet.forEach(({ name, value, options }) =>
             cookieStore.set(name, value, options)
           )
@@ -1152,13 +1536,12 @@ export async function createClient() {
 // CRITICAL: Never import this file in any component or client-side code.
 // Only import in: /api/emails/webhook, /api/admin/*, and background job files.
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
-import type { Database } from './types'
 
 export function createAdminClient() {
   if (typeof window !== 'undefined') {
     throw new Error('Admin client cannot be used in browser context')
   }
-  return createSupabaseClient<Database>(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } }
@@ -1173,7 +1556,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+  const supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1181,7 +1564,7 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: (cookiesToSet) => {
+        setAll: (cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[]) => {
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -1195,38 +1578,38 @@ export async function updateSession(request: NextRequest) {
 }
 ```
 
-### `src/middleware.ts`
+### `src/proxy.ts` (Next.js 16 Proxy Pattern — replaces `middleware.ts`)
+
+In Next.js 16, session and role routing uses the **proxy pattern**. The file is `src/proxy.ts`; the function is exported as `proxy()`, not `middleware()`.
 
 ```typescript
 import { updateSession } from '@/lib/supabase/middleware'
 import { NextResponse, type NextRequest } from 'next/server'
+import { User } from '@supabase/supabase-js'
 
-export async function middleware(request: NextRequest) {
+type UserWithRole = User & {
+  app_metadata: { role: 'internal' | 'client' | undefined }
+}
+
+export async function proxy(request: NextRequest) {
   const { supabaseResponse, user } = await updateSession(request)
-
-  // Read role from JWT app_metadata — no extra DB round-trip
-  // Role is written to app_metadata by handle_new_user trigger and role-change API
-  const role = (user as any)?.app_metadata?.role as 'internal' | 'client' | undefined
+  const role = (user as UserWithRole)?.app_metadata?.role
 
   const path = request.nextUrl.pathname
   const isAuthRoute     = path.startsWith('/login') || path.startsWith('/signup')
   const isInternalRoute = path.startsWith('/dashboard') || path.startsWith('/deals') ||
-                          path.startsWith('/campaigns') || path.startsWith('/import') ||
-                          path.startsWith('/settings')
+                          path.startsWith('/portfolios') || path.startsWith('/campaigns') ||
+                          path.startsWith('/import') || path.startsWith('/settings') ||
+                          path.startsWith('/client-view')
   const isClientRoute   = path.startsWith('/overview') || path.startsWith('/calls')
 
-  // Unauthenticated user → redirect to login
   if (!user && (isInternalRoute || isClientRoute)) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
-
-  // Authenticated user on auth route → redirect to their dashboard
   if (user && isAuthRoute) {
     const dest = role === 'client' ? '/overview' : '/dashboard'
     return NextResponse.redirect(new URL(dest, request.url))
   }
-
-  // Wrong-role route enforcement
   if (user && isClientRoute && role !== 'client') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
@@ -1242,21 +1625,21 @@ export const config = {
 }
 ```
 
+> The `isInternalRoute` matcher now also covers `/portfolios`.
+
 ---
 
-## 7. Shared Components
+## 9. Shared Components
 
 ### `src/components/shared/ReactQueryProvider.tsx`
 
 ```typescript
 'use client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useState } from 'react'
 
-export function ReactQueryProvider({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: { queries: { staleTime: 60 * 1000 } },
-  }))
+const queryClient = new QueryClient()
+
+export default function ReactQueryProvider({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 }
 ```
@@ -1264,7 +1647,7 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
 Add to `src/app/layout.tsx`:
 
 ```typescript
-import { ReactQueryProvider } from '@/components/shared/ReactQueryProvider'
+import ReactQueryProvider from '@/components/shared/ReactQueryProvider'
 // ...
 <ReactQueryProvider>{children}</ReactQueryProvider>
 ```
@@ -1272,26 +1655,21 @@ import { ReactQueryProvider } from '@/components/shared/ReactQueryProvider'
 ### `src/components/shared/LoadingSpinner.tsx`
 
 ```typescript
-// Props: size?: 'sm' | 'md' | 'lg' (default 'md')
-// Sizes: sm=16px border-2, md=24px border-[3px], lg=40px border-4
-// Implementation: Tailwind animate-spin, border-t-blue-600, rounded-full
-// Use size='sm' inside buttons; size='lg' centered in page-level loading containers
-```
+interface LoadingSpinnerProps { size?: 'sm' | 'md' | 'lg' | 'page' }
 
-Full implementation:
-
-```typescript
-interface LoadingSpinnerProps { size?: 'sm' | 'md' | 'lg' }
-
-const sizeMap = {
-  sm: 'h-4 w-4 border-2',
-  md: 'h-6 w-6 border-[3px]',
-  lg: 'h-10 w-10 border-4',
+const sizeMap: Record<string, string> = {
+  sm: 'h-3.5 w-3.5 border-[1.5px]',
+  md: 'h-5 w-5 border-2',
+  lg: 'h-8 w-8 border-[3px]',
+  page: 'h-12 w-12 border-4',
 }
 
 export function LoadingSpinner({ size = 'md' }: LoadingSpinnerProps) {
   return (
-    <div className={`animate-spin rounded-full border-slate-200 border-t-blue-600 ${sizeMap[size]}`} />
+    <div
+      className={`animate-spin rounded-full ${sizeMap[size]}`}
+      style={{ borderColor: 'var(--color-surface-3)', borderTopColor: 'var(--accent)' }}
+    />
   )
 }
 ```
@@ -1299,53 +1677,32 @@ export function LoadingSpinner({ size = 'md' }: LoadingSpinnerProps) {
 ### `src/components/shared/EmptyState.tsx`
 
 ```typescript
-// Props:
-//   icon?: LucideIcon
-//   title: string
-//   description?: string
-//   action?: { label: string; onClick: () => void }
-// Layout: centered column, icon 48px text-slate-400, title text-slate-600 text-lg font-medium,
-//         description text-slate-400 text-sm max-w-xs text-center,
-//         action renders a Button if provided
+// Props: icon?: LucideIcon; title: string; description?: string;
+//        action?: { label: string; onClick: () => void }
+// Centered column: icon 40px var(--color-text-tertiary); title text-[17px]
+// font-medium var(--color-text-secondary); description text-[13px]
+// var(--color-text-tertiary) max-w-[320px]; action → Button variant="secondary" size="sm".
 ```
 
-### `src/app/not-found.tsx`
+### `src/app/not-found.tsx`, `(internal)/error.tsx`, `(client)/error.tsx`
 
-```typescript
-export default function NotFound() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-slate-50">
-      <h1 className="text-6xl font-bold text-slate-200">404</h1>
-      <p className="text-slate-600 text-lg">This page doesn't exist.</p>
-      <a href="/dashboard" className="text-blue-600 hover:underline text-sm">Go to Dashboard</a>
-    </div>
-  )
-}
-```
+Same as previous plan: a centered 404 page and a `'use client'` error boundary with a "Try again" button using `var(--accent)`. Use CSS variable tokens only.
 
-### `src/app/(internal)/error.tsx` and `src/app/(client)/error.tsx`
+### DataGrid — Dynamic Columns
 
-```typescript
-'use client'
-export default function Error({ error, reset }: { error: Error; reset: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <h2 className="text-xl font-semibold text-slate-800">Something went wrong</h2>
-      <p className="text-slate-500 text-sm max-w-sm text-center">{error.message}</p>
-      <button
-        onClick={reset}
-        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-      >
-        Try again
-      </button>
-    </div>
-  )
-}
-```
+`DataGrid.tsx` (~47KB, virtualized via `@tanstack/react-virtual`) and `useGridInteraction.ts` (~39KB, `useReducer`-based) implement the Excel-like interaction model in `EXCEL_TABLE.md` (focus cell, range selection, multi-range, F2 edit, copy/paste, fill down/right, resize/autofit).
+
+**Redesign requirement:** the grid must accept a **runtime-generated column array**. The deal grid's columns are the fixed system columns plus one column per `field_definitions` row where `show_in_grid = true`. `DealTable.tsx` builds the column list by merging static system column defs with dynamic defs fetched from `GET /api/field-definitions`. A dynamic column's `accessor` reads from the deal's joined `deal_fields` map; its editor casts on save per `data_type`.
+
+### Other Shared Components
+
+- **`BrandLogo.tsx`**: SVG building icon + wordmark (`icon` / `wordmark` / `full` variants); uses `BRAND` const from `src/lib/brand.ts`.
+- **`Sidebar.tsx`** (~13KB): collapsible desktop sidebar (52px/220px) + mobile Sheet drawer. Uses `--color-sidebar-*` tokens.
+- **`PageHeader.tsx`**: title + description + breadcrumb + action buttons.
 
 ---
 
-## 8. Rate Limiting
+## 10. Rate Limiting
 
 ### `src/lib/rate-limit.ts`
 
@@ -1355,10 +1712,10 @@ import { Redis } from '@upstash/redis'
 
 const redis = Redis.fromEnv()
 
-// 5 login attempts per 15 minutes per IP
+// 5 login attempts per 5 minutes per IP
 export const loginRateLimit = new Ratelimit({
   redis,
-  limiter: Ratelimit.slidingWindow(5, '15 m'),
+  limiter: Ratelimit.slidingWindow(5, '5 m'),
   prefix: 'rl:login',
 })
 
@@ -1373,29 +1730,27 @@ export const emailSendRateLimit = new Ratelimit({
 Apply in API routes:
 
 ```typescript
-// Example usage in /api/auth/login/route.ts:
 const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
 const { success } = await loginRateLimit.limit(ip)
-if (!success) return NextResponse.json({ error: 'Too many attempts. Try again in 15 minutes.' }, { status: 429 })
+if (!success) return NextResponse.json({ error: 'Too many attempts. Try again in 5 minutes.' }, { status: 429 })
 ```
 
 ---
 
-## 9. Authentication — Cloudflare Turnstile
+## 11. Authentication — Cloudflare Turnstile
 
-### 9.1 — CSRF Check Helper
+### 11.1 — CSRF Check Helper
 
 Add to all state-changing API routes (POST, PATCH, DELETE):
 
 ```typescript
-// Helper to add at the top of each state-changing API route handler:
 const origin = req.headers.get('origin')
 if (origin !== process.env.NEXT_PUBLIC_APP_URL) {
   return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
 }
 ```
 
-### 9.2 — Verify Endpoint
+### 11.2 — Verify Endpoint
 
 ```typescript
 // src/app/api/turnstile/verify/route.ts
@@ -1408,34 +1763,26 @@ export async function POST(req: NextRequest) {
   }
 
   const { token } = await req.json()
-
-  // Read IP from headers — NextRequest.ip was removed in Next.js 13+
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-           ?? req.headers.get('x-real-ip')
-           ?? undefined
+           ?? req.headers.get('x-real-ip') ?? undefined
 
-  const res = await fetch(
-    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        secret: process.env.TURNSTILE_SECRET_KEY!,
-        response: token,
-        ...(ip && { remoteip: ip }),
-      }),
-    }
-  )
+  const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      secret: process.env.TURNSTILE_SECRET_KEY!,
+      response: token,
+      ...(ip && { remoteip: ip }),
+    }),
+  })
 
   const data = await res.json()
-  if (!data.success) {
-    return NextResponse.json({ success: false }, { status: 400 })
-  }
+  if (!data.success) return NextResponse.json({ success: false }, { status: 400 })
   return NextResponse.json({ success: true })
 }
 ```
 
-### 9.3 — Login API Route
+### 11.3 — Login API Route
 
 ```typescript
 // src/app/api/auth/login/route.ts
@@ -1445,19 +1792,16 @@ import { loginRateLimit } from '@/lib/rate-limit'
 import { loginSchema } from '@/lib/validations/auth.schema'
 
 export async function POST(req: NextRequest) {
-  // CSRF
   if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
     return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
   }
 
-  // Rate limit by IP
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
   const { success: rateLimitOk } = await loginRateLimit.limit(ip)
   if (!rateLimitOk) {
-    return NextResponse.json({ error: 'Too many attempts. Try again in 15 minutes.' }, { status: 429 })
+    return NextResponse.json({ error: 'Too many attempts. Try again in 5 minutes.' }, { status: 429 })
   }
 
-  // Validate input
   const body = await req.json()
   const parsed = loginSchema.safeParse(body)
   if (!parsed.success) {
@@ -1466,7 +1810,6 @@ export async function POST(req: NextRequest) {
 
   const { email, password, turnstileToken } = parsed.data
 
-  // Verify Turnstile server-side
   const turnstileRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/turnstile/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'origin': process.env.NEXT_PUBLIC_APP_URL! },
@@ -1476,7 +1819,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bot verification failed. Please try again.' }, { status: 400 })
   }
 
-  // Authenticate
   const supabase = await createClient()
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error || !data.user) {
@@ -1487,74 +1829,57 @@ export async function POST(req: NextRequest) {
 }
 ```
 
-Apply the same Turnstile + rate limit gate to `/api/auth/signup/route.ts`.
+Apply the same Turnstile + rate-limit gate to `/api/auth/signup/route.ts`.
 
-### 9.4 — Login Page UI
+### 11.4 — Login Page UI
 
 ```
 LOGIN PAGE FULL SPEC:
 Route: /login
-Layout: centered card (max-w-sm mx-auto) on a dark slate-900 full-screen background
+Layout: centered card (max-w-[380px]) on var(--color-canvas) full-screen background
 
-Card (bg-white rounded-xl shadow-lg p-8) contains:
-  - App wordmark/logo (SVG or text) centered at top, mb-6
-  - H1: "Sign in" — text-xl font-semibold text-slate-900, mb-1
-  - Subtitle: "Acquisition Platform" — text-sm text-slate-500, mb-6
-  - Email input:
-      type="email", label="Email address" (above input, text-sm font-medium text-slate-700)
-      placeholder="you@company.com", autocomplete="email"
-      Full-width, border-slate-300, rounded-md, focus:ring-blue-500
-  - Password input:
-      type="password" (toggle show/hide via eye icon button, right-side inset)
-      label="Password", autocomplete="current-password"
-  - Turnstile widget: rendered below password, centered, theme="light"
-      Submit button is disabled until Turnstile fires onVerify callback
-  - Submit button:
-      Full-width, bg-blue-600 hover:bg-blue-700 text-white, rounded-md, h-10
-      Text: "Sign in" (idle) | <LoadingSpinner size="sm" /> (submitting)
-      Disabled when: isSubmitting=true OR Turnstile not yet verified
-  - Error display (below submit, only when error exists):
-      Red alert box (bg-red-50 border border-red-200 rounded-md p-3 text-red-700 text-sm)
-      "Invalid email or password." — on 401
-      "Bot verification failed. Please try again." — on Turnstile fail
-      "Too many attempts. Try again in 15 minutes." — on 429
-  - "Forgot password?" link: text-sm text-blue-600 underline, href="/reset-password"
-    (stub page in Phase 1, shows "Feature coming soon" message)
+Card (var(--color-surface-0) rounded-[14px] p-8, border 1px solid var(--color-surface-2),
+      shadow var(--shadow-md)) contains:
+  - BrandLogo variant="full" centered, mb-10
+  - H1 "Welcome back" — text-[20px] font-medium var(--color-text-primary), centered mb-6
+  - Email input: type="email", uppercase label, placeholder "you@company.com",
+      h-[34px] rounded-md px-3 text-[13px], bg var(--color-surface-0), border var(--color-surface-3)
+  - Password input: type="password" with show/hide Eye toggle
+  - Turnstile widget: centered below password; submit disabled until onVerify fires
+  - Submit button: full-width h-10 rounded-md text-[14px] font-medium,
+      bg var(--accent), color #FFFFFF, active:scale-[0.98]
+      "Sign in" idle | spinner + "Signing in..." submitting
+  - Error alert: bg var(--color-danger-bg), border var(--color-danger-border),
+      color var(--color-danger-text); 401 → "Invalid email or password.",
+      400 → "Bot verification failed.", 429 → "Too many attempts. Try again in 5 minutes."
+  - "Forgot password?" link → /reset-password (stub)
 
-Behavior on success:
-  - Read role from response JSON
-  - If role === 'client' → router.push('/overview')
-  - If role === 'internal' (or any other) → router.push('/dashboard')
-
-Mobile (< 640px): full-screen card, no border-radius, no shadow, p-6
+On success: role 'client' → /overview; else → /dashboard
+Mobile (< 640px): no shadow, no border, p-4
 ```
 
 ---
 
-## 10. Gmail & Google Drive Integration
+## 12. Gmail & Google Drive Integration
 
-### 10.1 — OAuth Flow
+### 12.1 — OAuth Flow
 
 ```
 User clicks "Connect Gmail" →
-  GET /api/auth/google →
-    Redirect to Google OAuth consent screen →
+  GET /api/auth/google → redirect to Google consent →
   Google redirects to /api/auth/google/callback →
-    Exchange code for tokens →
-    Upsert tokens into public.google_tokens →
-    Call gmail.users.watch() to register push notifications →
-    Store returned historyId in google_tokens.last_history_id →
+    Exchange code for tokens → upsert into public.google_tokens →
+    Call gmail.users.watch() → store historyId in google_tokens.last_history_id →
   Redirect to /settings?gmail=connected
 ```
 
-### 10.2 — `src/lib/google/oauth.ts`
+### 12.2 — `src/lib/google/oauth.ts`
 
 ```typescript
 import { google } from 'googleapis'
 import { createClient } from '@/lib/supabase/server'
 
-// Use gmail.modify (not gmail.readonly) — required for push notifications;
-// gmail.readonly would trigger Google's sensitive-scope verification delay
+// gmail.modify (not gmail.readonly) — required for push notifications.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.modify',
@@ -1582,15 +1907,10 @@ export async function exchangeCode(code: string) {
   return tokens
 }
 
-// Returns an authenticated OAuth2 client with auto-refresh wired to DB
 export async function getAuthedClient(userId: string) {
   const supabase = await createClient()
-
   const { data: tokenRow, error } = await supabase
-    .from('google_tokens')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
+    .from('google_tokens').select('*').eq('user_id', userId).single()
 
   if (error || !tokenRow) {
     throw new Error('Google account not connected. Visit /settings to connect Gmail.')
@@ -1603,13 +1923,10 @@ export async function getAuthedClient(userId: string) {
     expiry_date: tokenRow.expiry ? new Date(tokenRow.expiry).getTime() : undefined,
   })
 
-  // Persist refreshed tokens back to DB automatically
   oauthClient.on('tokens', async (tokens) => {
     await supabase.from('google_tokens').update({
       access_token: tokens.access_token ?? tokenRow.access_token,
-      expiry: tokens.expiry_date
-        ? new Date(tokens.expiry_date).toISOString()
-        : tokenRow.expiry,
+      expiry: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : tokenRow.expiry,
       updated_at: new Date().toISOString(),
     }).eq('user_id', userId)
   })
@@ -1618,12 +1935,10 @@ export async function getAuthedClient(userId: string) {
 }
 ```
 
-### 10.3 — `/api/auth/google/callback/route.ts`
-
-After storing tokens, immediately register Gmail push notifications:
+### 12.3 — Callback registers Gmail watch
 
 ```typescript
-// After upserting tokens:
+// After upserting tokens in /api/auth/google/callback/route.ts:
 const gmail = google.gmail({ version: 'v1', auth })
 const watchRes = await gmail.users.watch({
   userId: 'me',
@@ -1632,42 +1947,26 @@ const watchRes = await gmail.users.watch({
     labelIds: ['INBOX'],
   },
 })
-// Store historyId for incremental push processing
-await supabase.from('google_tokens').update({
-  last_history_id: watchRes.data.historyId ?? null,
-}).eq('user_id', userId)
+await supabase.from('google_tokens')
+  .update({ last_history_id: watchRes.data.historyId ?? null })
+  .eq('user_id', userId)
 ```
 
-### 10.4 — Gmail Push Notification Setup (One-Time Deployment Step)
+### 12.4 — Gmail Push Notification Setup (One-Time)
 
 🛑 **STOP — Complete these steps in Google Cloud Console before deploying.**
 
 ```
-1. Google Cloud Console → Pub/Sub → Create Topic
-   Topic ID: gmail-notifications
-
+1. Pub/Sub → Create Topic: gmail-notifications
 2. Add Publisher permission on the topic:
-   Principal: gmail-api-push@system.gserviceaccount.com
-   Role: Pub/Sub Publisher
-
-3. Create Push Subscription on the topic:
-   Subscription ID: gmail-notifications-sub
-   Delivery type: Push
-   Endpoint URL: https://yourdomain.com/api/emails/webhook
-   Audience (for JWT verification): https://yourdomain.com/api/emails/webhook
-
-4. Gmail watch expires after 7 days. Add a Vercel Cron Job:
-   In vercel.json:
-   {
-     "crons": [{
-       "path": "/api/auth/google/refresh-watch",
-       "schedule": "0 12 */6 * *"   // every 6 days at noon UTC
-     }]
-   }
-   The refresh-watch route calls gmail.users.watch() for all users with google_tokens.
+   Principal: gmail-api-push@system.gserviceaccount.com  Role: Pub/Sub Publisher
+3. Create Push Subscription: gmail-notifications-sub
+   Delivery: Push   Endpoint: https://yourdomain.com/api/emails/webhook
+   Audience (JWT): https://yourdomain.com/api/emails/webhook
+4. Gmail watch expires after 7 days — add a Vercel cron (see §20).
 ```
 
-### 10.5 — Gmail Webhook with Authentication
+### 12.5 — Gmail Webhook with Authentication
 
 ```typescript
 // src/app/api/emails/webhook/route.ts
@@ -1681,40 +1980,34 @@ const pubsubClient = new OAuth2Client()
 
 export async function POST(req: NextRequest) {
   // 1. Verify the Bearer JWT from Google Pub/Sub
-  const authHeader = req.headers.get('authorization') ?? ''
-  const token = authHeader.replace('Bearer ', '')
-
+  const token = (req.headers.get('authorization') ?? '').replace('Bearer ', '')
   try {
     const ticket = await pubsubClient.verifyIdToken({
       idToken: token,
       audience: `${process.env.NEXT_PUBLIC_APP_URL}/api/emails/webhook`,
     })
-    const payload = ticket.getPayload()
-    if (payload?.email !== 'gmail-api-push@system.gserviceaccount.com') {
+    if (ticket.getPayload()?.email !== 'gmail-api-push@system.gserviceaccount.com') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
   } catch {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
   }
 
-  // 2. Parse Pub/Sub message (base64-encoded)
+  // 2. Parse Pub/Sub message
   const body = await req.json()
-  const messageData = Buffer.from(body.message.data, 'base64').toString()
-  const notification = JSON.parse(messageData) as { emailAddress: string; historyId: string }
+  const notification = JSON.parse(
+    Buffer.from(body.message.data, 'base64').toString()
+  ) as { emailAddress: string; historyId: string }
 
-  // 3. Find user by email, fetch new Gmail history since last historyId
+  // 3. Find user, fetch new Gmail history
   const supabase = createAdminClient()
   const { data: authUser } = await supabase
-    .from('google_tokens')
-    .select('user_id, last_history_id')
-    .eq('user_id', /* lookup by emailAddress */ notification.emailAddress)
-    .single()
-
-  if (!authUser) return NextResponse.json({ ok: true }) // unknown user, ignore
+    .from('google_tokens').select('user_id, last_history_id')
+    .eq('user_id', notification.emailAddress).single()
+  if (!authUser) return NextResponse.json({ ok: true })
 
   const auth = await getAuthedClient(authUser.user_id)
   const gmail = google.gmail({ version: 'v1', auth })
-
   const historyRes = await gmail.users.history.list({
     userId: 'me',
     startHistoryId: authUser.last_history_id ?? notification.historyId,
@@ -1723,46 +2016,41 @@ export async function POST(req: NextRequest) {
   })
 
   // 4. Match new messages to email_outreach by gmail_thread_id
-  for (const historyItem of historyRes.data.history ?? []) {
-    for (const msg of historyItem.messagesAdded ?? []) {
+  for (const h of historyRes.data.history ?? []) {
+    for (const msg of h.messagesAdded ?? []) {
       const threadId = msg.message?.threadId
       if (!threadId) continue
-
       const { data: outreach } = await supabase
-        .from('email_outreach')
-        .select('id, status')
-        .eq('gmail_thread_id', threadId)
-        .single()
-
+        .from('email_outreach').select('id, status')
+        .eq('gmail_thread_id', threadId).single()
       if (outreach && outreach.status === 'sent') {
+        // Only status/responded_at are set. Classification (and the
+        // resulting stage move to 'response') is done by the internal team.
         await supabase.from('email_outreach').update({
           status: 'replied',
           responded_at: new Date().toISOString(),
-          // response_classification left null — internal team must classify on Outreach tab
         }).eq('id', outreach.id)
       }
     }
   }
 
   // 5. Update stored historyId
-  await supabase.from('google_tokens').update({
-    last_history_id: notification.historyId,
-  }).eq('user_id', authUser.user_id)
+  await supabase.from('google_tokens')
+    .update({ last_history_id: notification.historyId })
+    .eq('user_id', authUser.user_id)
 
   return NextResponse.json({ ok: true })
 }
 ```
 
-### 10.6 — `src/lib/google/drive.ts`
+### 12.6 — `src/lib/google/drive.ts`
 
 ```typescript
 import { google } from 'googleapis'
 import { getAuthedClient } from './oauth'
 
 export async function createDealFolder(
-  userId: string,
-  dealName: string,
-  parentFolderId?: string
+  userId: string, dealName: string, parentFolderId?: string
 ): Promise<{ folderId: string; folderUrl: string }> {
   const auth = await getAuthedClient(userId)
   const drive = google.drive({ version: 'v3', auth })
@@ -1776,147 +2064,239 @@ export async function createDealFolder(
     fields: 'id, webViewLink',
   })
 
-  // Set anyone-with-link viewer access
   await drive.permissions.create({
     fileId: folder.data.id!,
     requestBody: { role: 'reader', type: 'anyone' },
   })
 
-  return {
-    folderId: folder.data.id!,
-    folderUrl: folder.data.webViewLink!,
-  }
+  return { folderId: folder.data.id!, folderUrl: folder.data.webViewLink! }
 }
 ```
 
-Drive folder API route (`POST /api/deals/[id]/drive`):
-1. Authenticate user; confirm Gmail/Drive is connected (return 400 if not).
-2. Call `createDealFolder(userId, deal.deal_name)`.
-3. PATCH `deals.drive_folder_url` with the returned URL.
-4. Return `{ drive_folder_url }` to client.
+Drive folder API route (`POST /api/deals/[id]/drive`): authenticate, confirm Drive connected (400 if not), call `createDealFolder`, PATCH `deals.drive_folder_url`, return `{ drive_folder_url }`.
 
 ---
 
-## 11. CoStar Import Parser
+## 13. The Import Engine  **(fully redesigned — column-agnostic)**
+
+The import engine no longer assumes a fixed CoStar layout. It accepts any tabular file (XLSX or CSV), reads its headers, and lets the user decide what each column becomes. There is **no hardcoded `COLUMN_MAP`**.
+
+### 13.1 — Import Flow Overview
+
+```
+Step 1  Upload         → user picks a campaign (and optional portfolio) + uploads a file
+Step 2  Parse headers  → server parses the file, returns the raw column headers + a few sample rows
+Step 3  Map columns    → for EACH header the user chooses an action:
+                           • map to an existing system field (deal_name)
+                           • mark as the outreach email target  (one or more columns)
+                           • mark as the unit count column        (exactly one column)
+                           • map to an existing dynamic field     (field_definitions.key)
+                           • create a NEW dynamic field           (new field_definitions row)
+                           • drop the column                      (not imported)
+Step 4  Preview        → server shows what will be inserted, with advisory duplicate flags
+Step 5  Run            → Edge Function applies the mapping row-by-row, updates progress
+```
+
+### 13.2 — `src/lib/import/file-parser.ts` (format-agnostic)
 
 ```typescript
-// src/lib/import/costar-parser.ts
 import ExcelJS from 'exceljs'
+import Papa from 'papaparse'
 
-const COLUMN_MAP: Record<string, string> = {
-  'Property Address':    'address',
-  'City':               'city',
-  'State':              'state',
-  'Zip':                'zip',
-  'Property Name':      'deal_name',
-  'Property ID':        'property_id',
-  'Building Class':     'building_class',
-  'Year Built':         'year_built',
-  'Number of Units':    'unit_count',
-  'Property Type':      'property_type',
-  'For Sale Price':     'asking_price',  // written to underwriting table
-  'CoStar Property URL': 'property_link',
+export interface ParsedFile {
+  headers: string[]
+  rows: Record<string, string>[]   // each row keyed by header
 }
 
-export interface ParsedDeal {
-  address?: string; city?: string; state?: string; zip?: string
-  deal_name?: string; property_id?: string
-  building_class?: string; year_built?: number; unit_count?: number
-  property_type?: string; asking_price?: number; property_link?: string
+export async function parseFile(buffer: ArrayBuffer, filename: string): Promise<ParsedFile> {
+  const isCsv = filename.toLowerCase().endsWith('.csv')
+  return isCsv ? parseCsv(buffer) : parseXlsx(buffer)
 }
 
-export async function parseCoStarFile(buffer: ArrayBuffer): Promise<ParsedDeal[]> {
+function parseCsv(buffer: ArrayBuffer): ParsedFile {
+  const text = new TextDecoder().decode(buffer)
+  const result = Papa.parse<Record<string, string>>(text, {
+    header: true, skipEmptyLines: true,
+  })
+  return {
+    headers: result.meta.fields ?? [],
+    rows: result.data,
+  }
+}
+
+async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer)
   const sheet = wb.worksheets[0]
   if (!sheet) throw new Error('No worksheet found in file')
 
   const headers: string[] = []
-  const deals: ParsedDeal[] = []
+  const rows: Record<string, string>[] = []
 
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) {
-      row.eachCell((cell) => headers.push(String(cell.value ?? '')))
+      row.eachCell((cell) => headers.push(String(cell.value ?? '').trim()))
       return
     }
-    const obj: Record<string, unknown> = {}
+    const obj: Record<string, string> = {}
     row.eachCell((cell, colNumber) => {
       const header = headers[colNumber - 1]
-      const mappedKey = COLUMN_MAP[header]
-      if (mappedKey) obj[mappedKey] = cell.value
+      if (header) obj[header] = cell.value == null ? '' : String(cell.value)
     })
-    deals.push(obj as ParsedDeal)
+    rows.push(obj)
   })
 
-  return deals
+  return { headers, rows }
 }
 ```
 
-### Import API Route — File Validation
+### 13.3 — `src/lib/import/mapping.ts` (mapping types)
 
 ```typescript
-// src/app/api/deals/import/route.ts
+// One decision per source column. Stored on import_jobs.column_mapping.
+export type ColumnAction =
+  | { action: 'system'; field: 'deal_name' }   // map to a deals system column
+  | { action: 'email_target' }                 // contributes to deals.outreach_emails[]
+  | { action: 'unit_count' }                    // populates deals.unit_count (max ONE column)
+  | { action: 'field'; key: string }            // existing field_definitions.key
+  | { action: 'new_field'; key: string; label: string; dataType: string }  // create def
+  | { action: 'drop' }                          // ignore
+
+export type ColumnMapping = Record<string, ColumnAction>   // keyed by source header
+
+/** Validates a mapping before the confirm step. */
+export function validateMapping(headers: string[], mapping: ColumnMapping): string[] {
+  const errors: string[] = []
+  const unitCols = headers.filter(h => mapping[h]?.action === 'unit_count')
+  if (unitCols.length > 1) errors.push('Only one column may be designated as Unit Count.')
+  const emailCols = headers.filter(h => mapping[h]?.action === 'email_target')
+  if (emailCols.length === 0) errors.push('At least one column must be the outreach email target.')
+  // deal_name is recommended but not strictly required
+  return errors
+}
+```
+
+> **Email target selection** is not hardcoded — any column (or several) can be designated. Multiple email-target columns are concatenated into the `deals.outreach_emails` text array.
+> **Unit count designation** is required-ish: it powers all per-unit financial metrics. Exactly one column may carry it. If the user designates none, `deals.unit_count` is left null and per-unit metrics simply show "—" until set manually on the underwriting tab.
+
+### 13.4 — Import API Routes
+
+**`POST /api/deals/import`** — upload + parse headers.
+
+```typescript
+// Validates: file present, campaign_id present, size <= 10MB,
+// magic bytes (XLSX = PK\x03\x04 ZIP header; CSV = any text).
+// Parses with parseFile(); creates an import_jobs row with status='mapping',
+// source_headers = parsed headers, total_rows = parsed rows length.
+// Returns: { batchId, headers, sampleRows: rows.slice(0,5) }
+```
+
+```typescript
+// src/app/api/deals/import/route.ts (essentials)
 export async function POST(req: NextRequest) {
-  // CSRF + auth checks first (see Section 11 API Route Patterns)
+  // CSRF + auth checks first
 
   const form = await req.formData()
   const file = form.get('file') as File | null
   const campaignId = form.get('campaign_id') as string | null
+  const portfolioId = form.get('portfolio_id') as string | null   // optional
 
   if (!file || !campaignId) {
     return NextResponse.json({ error: 'file and campaign_id required' }, { status: 400 })
   }
-
-  // Size check
   if (file.size > 10 * 1024 * 1024) {
     return NextResponse.json({ error: 'File exceeds 10MB limit' }, { status: 413 })
   }
 
   const buffer = await file.arrayBuffer()
   const bytes = new Uint8Array(buffer)
-
-  // Magic bytes check: xlsx (ZIP) starts with PK\x03\x04
-  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B &&
-                bytes[2] === 0x03 && bytes[3] === 0x04
-  if (!isZip) {
-    return NextResponse.json({ error: 'File must be a valid .xlsx file' }, { status: 415 })
+  const isXlsx = file.name.toLowerCase().endsWith('.xlsx')
+  if (isXlsx) {
+    const isZip = bytes[0] === 0x50 && bytes[1] === 0x4B &&
+                  bytes[2] === 0x03 && bytes[3] === 0x04
+    if (!isZip) return NextResponse.json({ error: 'File must be a valid .xlsx file' }, { status: 415 })
   }
 
-  let deals: ParsedDeal[]
+  let parsed
   try {
-    deals = await parseCoStarFile(buffer)
+    parsed = await parseFile(buffer, file.name)
   } catch {
-    return NextResponse.json({ error: 'Could not parse file. Ensure it is a valid CoStar export.' }, { status: 422 })
+    return NextResponse.json({ error: 'Could not parse file.' }, { status: 422 })
   }
-
-  if (deals.length === 0) {
+  if (parsed.rows.length === 0) {
     return NextResponse.json({ error: 'No data rows found in file' }, { status: 422 })
   }
 
-  // Create import job, store parsed rows for confirmation step
   const supabase = await createClient()
   const { data: job } = await supabase.from('import_jobs').insert({
     campaign_id: campaignId,
+    portfolio_id: portfolioId,
     user_id: user.id,
-    total_rows: deals.length,
-    status: 'pending',
+    source_headers: parsed.headers,
+    total_rows: parsed.rows.length,
+    status: 'mapping',
   }).select('id').single()
 
-  // Check duplicates and invalids, return preview
-  // import_batch format: "YYYY-MM-DD_{campaignUuid}"
-  const batchTag = `${new Date().toISOString().slice(0, 10)}_${campaignId}`
+  // NOTE: the parsed rows themselves are re-uploaded with the confirm call,
+  // or cached server-side keyed by batchId — do not store full file contents
+  // in import_jobs. Keep only headers + the mapping there.
 
-  // ... duplicate detection, preview generation ...
-
-  return NextResponse.json({ batchId: job!.id, preview: /* ... */ , batchTag })
+  return NextResponse.json({
+    batchId: job!.id,
+    headers: parsed.headers,
+    sampleRows: parsed.rows.slice(0, 5),
+  })
 }
 ```
 
-Confirm route (`POST /api/deals/import/[batchId]/confirm`) triggers a Supabase Edge Function for bulk insert to avoid Vercel's 60s timeout. The Edge Function updates `import_jobs.inserted` + `import_jobs.status` as it processes rows. The client polls `GET /api/deals/import/[batchId]/status` every 2 seconds.
+**`POST /api/deals/import/[batchId]/mapping`** — persist the column mapping.
+
+```typescript
+// Body: { mapping: ColumnMapping }
+// 1. Run validateMapping(headers, mapping); return 422 with errors if any.
+// 2. For every { action: 'new_field' } entry, INSERT a field_definitions row
+//    (key, label, data_type) if the key does not already exist.
+// 3. Save mapping onto import_jobs.column_mapping.
+// 4. Return a preview: applied rows, plus advisory duplicate flags.
+//    Duplicate detection is BEST-EFFORT only: if any mapped dynamic field
+//    looks like an external id (e.g. key 'property_id'), flag rows whose
+//    value already exists for a deal in the same campaign. Never block.
+```
+
+**`POST /api/deals/import/[batchId]/confirm`** — triggers a Supabase Edge Function for bulk insert (avoids Vercel's 60s timeout). For each data row the Edge Function:
+
+1. Inserts a `deals` row — `deal_name` from the mapped system column, `unit_count` from the mapped unit column, `outreach_emails` from the mapped email-target column(s), `campaign_id`, `portfolio_id`, `import_batch = "YYYY-MM-DD_{batchId}"`, `stage='lead'`.
+2. For every `{ action: 'field' | 'new_field' }` column, inserts a `deal_fields` row `(deal_id, field_id, value)`.
+3. Calls `seed_default_checklist(deal_id)`.
+4. Updates `import_jobs.inserted` / `import_jobs.status` as it progresses.
+
+The client polls **`GET /api/deals/import/[batchId]/status`** every 2 seconds.
+
+> **No row is rejected for a missing external identifier.** A row is "Invalid" only if it has no value at all in any mapped column (a fully blank row). Duplicate rows are flagged but still importable — the user decides.
 
 ---
 
-## 12. Zod Validation Schemas
+## 14. Dynamic Fields API
+
+### `GET /api/field-definitions`
+
+Returns all `field_definitions` rows ordered by `sort_order`. Used by `DealTable.tsx` to build dynamic grid columns and by `DynamicFieldPanel.tsx` to render the deal detail.
+
+### `POST /api/field-definitions`
+
+Body: `{ key, label, data_type, show_in_grid? }`. Internal only. Creates a new dynamic field definition (the import wizard also does this implicitly via `new_field` mappings).
+
+### `GET /api/deals/[id]/fields`
+
+Returns the deal's dynamic values as `{ [fieldKey]: { value, label, data_type } }`, joining `deal_fields` to `field_definitions`.
+
+### `PATCH /api/deals/[id]/fields`
+
+Body: `{ [fieldKey]: value }`. For each pair: look up the `field_definitions` row by key, validate/cast `value` against `data_type` (see §15 Zod), then upsert the `deal_fields` row (`unique (deal_id, field_id)`). Internal only.
+
+---
+
+## 15. Zod Validation Schemas
 
 ### `src/lib/validations/auth.schema.ts`
 
@@ -1940,34 +2320,61 @@ export const signupSchema = loginSchema.extend({
 ```typescript
 import { z } from 'zod'
 
-const CURRENT_YEAR = new Date().getFullYear()
-
+// deals now holds only system fields.
 export const createDealSchema = z.object({
   campaign_id: z.string().uuid(),
+  portfolio_id: z.string().uuid().optional().nullable(),
   deal_name: z.string().min(1).max(255),
-  source: z.enum(['direct', 'indirect']),
-  listing_type: z.enum(['on_market', 'off_market']).optional(),
-  property_type: z.enum(['multifamily','retail','office','industrial','mixed_use','other']).optional(),
-  building_class: z.enum(['A','B','C','D','unclassified']).optional(),
-  year_built: z.number().int().min(1800).max(CURRENT_YEAR).optional().nullable(),
+  outreach_emails: z.array(z.string().email()).default([]),
   unit_count: z.number().int().min(1).optional().nullable(),
-  address: z.string().max(255).optional(),
-  city: z.string().max(100).optional(),
-  state: z.string().length(2).toUpperCase().optional(),
-  zip: z.string().regex(/^\d{5}(-\d{4})?$/).optional(),
 })
 
-export const patchDealSchema = createDealSchema.partial().extend({
+export const patchDealSchema = z.object({
+  campaign_id: z.string().uuid().optional(),
+  portfolio_id: z.string().uuid().optional().nullable(),
+  deal_name: z.string().min(1).max(255).optional(),
+  outreach_emails: z.array(z.string().email()).optional(),
+  unit_count: z.number().int().min(1).optional().nullable(),
   stage: z.enum([
-    'lead','outreach','response','document_collection',
-    'underwritability_review','underwriting','scored','call_scheduled',
-    'loi','closed','archived'
+    'lead','outreach','response','underwriting','loi','closed','failed','archived',
   ]).optional(),
   score: z.enum(['very_good','good','bad','very_bad']).optional().nullable(),
   is_archived: z.boolean().optional(),
   archive_reason: z.string().max(500).optional().nullable(),
   internal_notes: z.string().max(10000).optional().nullable(),
   drive_folder_url: z.string().url().optional().nullable(),
+})
+
+// Dynamic field write: value is validated/cast per data_type at runtime.
+export const dynamicFieldPatchSchema = z.record(z.string(), z.union([
+  z.string(), z.number(), z.boolean(), z.null(),
+]))
+```
+
+### `src/lib/validations/portfolio.schema.ts`
+
+```typescript
+import { z } from 'zod'
+
+export const createPortfolioSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+})
+
+export const deletePortfolioSchema = z.object({
+  mode: z.enum(['orphan', 'archive']),
+})
+```
+
+### `src/lib/validations/activity.schema.ts`
+
+```typescript
+import { z } from 'zod'
+
+export const createActivitySchema = z.object({
+  deal_id: z.string().uuid(),
+  type: z.enum(['call', 'voicemail', 'note', 'meeting', 'other']),
+  summary: z.string().min(1).max(2000),
 })
 ```
 
@@ -1990,9 +2397,33 @@ export const createContactSchema = z.object({
 export const patchContactSchema = createContactSchema.partial().omit({ deal_id: true })
 ```
 
+### `src/lib/validations/import.schema.ts`
+
+```typescript
+import { z } from 'zod'
+
+const columnActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('system'), field: z.literal('deal_name') }),
+  z.object({ action: z.literal('email_target') }),
+  z.object({ action: z.literal('unit_count') }),
+  z.object({ action: z.literal('field'), key: z.string().min(1) }),
+  z.object({
+    action: z.literal('new_field'),
+    key: z.string().min(1).regex(/^[a-z0-9_]+$/, 'lowercase, digits, underscores only'),
+    label: z.string().min(1),
+    dataType: z.enum(['text','number','integer','date','boolean','url','currency']),
+  }),
+  z.object({ action: z.literal('drop') }),
+])
+
+export const mappingSchema = z.object({
+  mapping: z.record(z.string(), columnActionSchema),
+})
+```
+
 ---
 
-## 13. Email Templates
+## 16. Email Templates
 
 ```typescript
 // src/lib/email/templates/outreach.tsx
@@ -2000,17 +2431,19 @@ import { Html, Body, Container, Text, Heading } from '@react-email/components'
 
 interface OutreachEmailProps {
   ownerName: string
-  propertyAddress: string
+  propertyLabel: string     // deal_name or a mapped address dynamic field
   senderName: string
   customParagraph?: string
 }
 
-export default function OutreachEmail({ ownerName, propertyAddress, senderName, customParagraph }: OutreachEmailProps) {
+export default function OutreachEmail({
+  ownerName, propertyLabel, senderName, customParagraph,
+}: OutreachEmailProps) {
   return (
     <Html>
       <Body style={{ fontFamily: 'Arial, sans-serif', color: '#1e293b' }}>
         <Container style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
-          <Heading style={{ fontSize: '18px' }}>Regarding {propertyAddress}</Heading>
+          <Heading style={{ fontSize: '18px' }}>Regarding {propertyLabel}</Heading>
           <Text>Dear {ownerName},</Text>
           <Text>{customParagraph ?? 'I am reaching out regarding your property. We are active acquirers in this market and would love to connect.'}</Text>
           <Text>Best regards,<br />{senderName}</Text>
@@ -2021,17 +2454,18 @@ export default function OutreachEmail({ ownerName, propertyAddress, senderName, 
 }
 ```
 
-Render to HTML string for Gmail:
+Render to HTML (note: `render()` is async in `@react-email/render` v1+):
 
 ```typescript
-// render() is async in @react-email/render v1+
 import { render } from '@react-email/render'
 const html = await render(<OutreachEmail {...props} />)
 ```
 
+> `propertyLabel` is `deal_name` if set, otherwise a mapped address dynamic field, otherwise a generic phrase — the system no longer assumes a `property_address` column exists.
+
 ---
 
-## 14. API Route Patterns
+## 17. API Route Patterns
 
 All API routes follow this standard pattern:
 
@@ -2055,9 +2489,11 @@ export async function GET(req: NextRequest) {
     .from('deals')
     .select(`
       *,
-      contacts(*),
       campaigns(name, market),
-      underwriting(underwritability, asking_price),
+      portfolios(id, name),
+      contacts(*),
+      underwriting(underwritability_status, asking_price, proceed_with_loi),
+      deal_fields(value, field_definitions(key, label, data_type)),
       call_briefs(id, call_status, published)
     `)
     .order('created_at', { ascending: false })
@@ -2067,55 +2503,85 @@ export async function GET(req: NextRequest) {
 }
 ```
 
+### Deal Stage Updates
+
+```
+PATCH /api/deals/[id]
+  If body includes `stage`:
+    1. Fetch the deal's current stage.
+    2. Call canTransition(current, requested) from src/lib/stage-machine.ts.
+    3. If !ok → return 422 { error: reason }.
+    4. If requested === 'failed' and current !== 'loi' → 422 (covered by canTransition).
+  If body includes `unit_count`: also recompute per-unit fields on the
+    underwriting row (price_per_unit, purchase_price_per_unit, capex_per_unit).
+  Auth: internal only.
+```
+
+### Portfolio API Routes
+
+```
+POST /api/portfolios
+  Body: { name, description? }   → insert; auth internal only
+
+PATCH /api/portfolios/[id]
+  Body: { name?, description? }  → update; auth internal only
+
+GET /api/portfolios/[id]
+  Returns the portfolio plus its member deals (join on portfolio_id).
+
+DELETE /api/portfolios/[id]
+  Body: { mode: 'orphan' | 'archive' }   (validated by deletePortfolioSchema)
+  See §6.4. Hard-deletes only the portfolio row; deals are orphaned or archived.
+  Auth: internal only.
+```
+
+### Activity Log API Routes
+
+```
+GET /api/deals/[id]/activity
+  Returns activity_log rows for the deal, newest first.
+
+POST /api/deals/[id]/activity
+  Body: { type, summary }   (validated by createActivitySchema)
+  Inserts an activity_log row; logged_by = current user.
+  The touch_last_contacted trigger updates deals.last_contacted_at automatically.
+  Auth: internal only.
+```
+
 ### LOI API Routes
 
 ```
 POST /api/loi
   Body: { deal_id, submitted_at, offered_price }
-  Actions:
-    1. Validate with Zod (deal_id uuid, offered_price positive number)
-    2. Upsert loi_records (unique on deal_id)
-    3. Advance deals.stage to 'loi'
-  Auth: internal only
+  1. Validate with Zod.  2. Upsert loi_records (unique on deal_id).
+  3. Advance deals.stage to 'loi' (via canTransition).
+  Auth: internal only.
 
 PATCH /api/loi/[id]
   Body: { outcome?, final_price?, close_date?, fallen_through_reason?, fallen_through_date? }
-  Actions:
-    1. Update loi_records
-    2. If outcome='deal_reached': advance deal.stage to 'closed'
-    3. If outcome='fallen_through': set deal.is_archived=true,
-       deal.archive_reason='LOI fallen through'
-  Auth: internal only
+  1. Update loi_records.
+  2. outcome='deal_reached' → deal.stage = 'closed'.
+  3. outcome='fallen_through' → deal.stage = 'failed'
+     (this is the ONLY transition that produces 'failed'; do NOT also set
+      is_archived — 'failed' is a distinct terminal state, not an archive).
+  Auth: internal only.
 
 POST /api/loi/[id]/rounds
   Body: { price, party ('buyer'|'seller'), round_date, notes? }
-  Actions:
-    1. Compute next round_num:
-       SELECT COALESCE(MAX(round_num), 0) + 1 FROM loi_rounds WHERE loi_id = $1
-    2. Insert into loi_rounds
-  Auth: internal only
+  round_num = SELECT COALESCE(MAX(round_num),0)+1 FROM loi_rounds WHERE loi_id=$1
+  Auth: internal only.
 
 GET /api/loi/[id]/rounds
-  Returns: all rounds ordered by round_num ASC
-  Auth: internal only
+  Returns all rounds ordered by round_num ASC.  Auth: internal only.
 ```
 
 ### Contact API Routes
 
 ```
-POST /api/contacts
-  Body: { deal_id, name?, company?, title?, email[], phone_office?, phone_cell?, is_primary }
-  Validation: at least one email; if is_primary=true, unset existing primary for same deal first
-  Auth: internal only
-
-PATCH /api/contacts/[id]
-  Body: partial contact fields; same is_primary logic
-  Auth: internal only
-
-DELETE /api/contacts/[id]
-  Guard: cannot delete if is_primary=true AND other contacts exist for same deal
-  Return 409: "Cannot delete primary contact. Reassign primary contact first."
-  Auth: internal only
+POST /api/contacts     Body: contact fields; at least one email; primary handling.
+PATCH /api/contacts/[id]   Partial fields; same is_primary logic.
+DELETE /api/contacts/[id]  409 if deleting the only primary with others existing.
+  All: auth internal only.
 ```
 
 ### Response Classification Flow
@@ -2123,548 +2589,461 @@ DELETE /api/contacts/[id]
 ```
 POST /api/emails/send
   Body: { deal_id, contact_id }
-  Actions:
-    1. CSRF + rate limit check (emailSendRateLimit.limit(userId))
-    2. Load contact, load email template for campaign
-    3. Render React Email template to HTML
-    4. Send via Gmail API
-    5. Insert email_outreach record: { status:'sent', sent_at, gmail_message_id, gmail_thread_id }
-    6. If deal.stage === 'lead': advance to 'outreach'
-  Auth: internal only; return 400 if Gmail not connected
+  1. CSRF + rate limit (emailSendRateLimit.limit(userId)).
+  2. Load contact / outreach emails; load campaign email template.
+  3. Render React Email template to HTML.
+  4. Send via Gmail API.
+  5. Insert email_outreach: { status:'sent', sent_at, gmail_message_id, gmail_thread_id }.
+  6. If deal.stage === 'lead' → advance to 'outreach'.
+  Auth: internal only; return 400 if Gmail not connected.
 
 PATCH /api/emails/[id]
   Allowed body fields:
     response_classification: 'positive'|'neutral'|'negative'|'no_response'
-    thank_you_sent: true  (triggers sending thank-you email and records thank_you_sent_at)
-    declination_sent: true  (triggers sending declination email and records declination_sent_at)
-    conversation_log: string  (plain text, max 5000 chars)
-  Auth: internal only
+      → if 'positive' OR 'neutral' AND deal.stage === 'outreach':
+          advance deal.stage to 'response'.
+    thank_you_sent: true       (sends thank-you email; records thank_you_sent_at)
+    declination_sent: true     (sends declination email; records declination_sent_at)
+    conversation_log: string   (plain text, max 5000 chars)
+  Auth: internal only.
 ```
 
-**Never use the service role key in any API routes that serve user requests.** Use `createAdminClient()` only in: Gmail webhook, `/api/admin/*` routes.
+> **Behaviour change:** a **neutral** reply now also advances the deal to `response` (per the redesign — the pipeline accepts positive *or* neutral responses). The old plan advanced only on positive.
+
+**Never use the service role key in any API route that serves user requests.** Use `createAdminClient()` only in: the Gmail webhook and `/api/admin/*` routes.
 
 ---
 
-## 15. Building the UI — Phase Order
+## 18. Building the UI — Phase Order
 
 Build and verify each phase before moving to the next.
 
 ### Phase A — Auth Shell
 
-1. Build login page per full spec in Section 9.4.
-2. Build signup page (same Turnstile + Zod gate).
-3. Build `/reset-password` stub page: centered card with "Password reset is coming soon."
+1. Build the login page per §11.4.
+2. Build the signup page (same Turnstile + Zod gate).
+3. Build the `/reset-password` stub: centered card "Password reset is coming soon."
 4. Test: unauthenticated visit to `/dashboard` redirects to `/login`.
 
 ### Phase B — Internal Layout & Navigation
 
 ```
-INTERNAL SIDEBAR SPEC:
-- Fixed left sidebar, 240px wide on desktop (≥ 1024px)
-- Collapsible to 60px icon-only rail at < 1024px; chevron toggle at bottom
-- Background: bg-slate-900, border-r border-slate-700
-- Top: app logo (SVG wordmark) + "Acquisition Platform" text (hidden in icon-only mode)
-- Nav items (in order, with lucide-react icons):
-    Dashboard     — LayoutDashboard  — href: /dashboard
-    Deals         — Building2        — href: /deals
-    Campaigns     — Megaphone        — href: /campaigns
-    Import        — Upload           — href: /import
-    Settings      — Settings         — href: /settings
-- Active item: bg-slate-700 rounded-md, left border 2px solid blue-500, text-white
-- Inactive item: text-slate-400, hover:bg-slate-800 hover:text-slate-200
-- Bottom: user avatar (initials fallback circle) + full_name + role badge
-    Role badge: "Internal" (blue-600) | "Client" (purple-600)
-    Clicking → dropdown with "Profile" and "Sign out" (POST /api/auth/logout)
-- Mobile (< 1024px): sidebar becomes a Sheet (shadcn) slide-in drawer;
-    hamburger icon in a top header bar (h-14, bg-white, border-b border-slate-200)
-    triggers the Sheet
-- error.tsx: per Section 7
+INTERNAL SIDEBAR SPEC (Ref: UI.md §4.1):
+- Fixed left sidebar: 220px expanded / 52px collapsed on desktop.
+- Background var(--color-sidebar-bg), border-right var(--color-sidebar-border).
+  Light mode: warm surface tones; dark mode: permanently dark (#0E0E0E).
+- Top: BrandLogo variant="wordmark".
+- Nav items (lucide-react icons, h-4 w-4):
+    Dashboard    — LayoutDashboard  — /dashboard
+    Deals        — Building2        — /deals
+    Portfolios   — FolderKanban     — /portfolios          (NEW)
+    Campaigns    — Megaphone        — /campaigns
+    Import       — Upload           — /import
+    Settings     — Settings         — /settings
+    Client View  — Eye              — /client-view/overview
+- Active item: bg var(--color-sidebar-active), text var(--color-sidebar-text), 500 weight.
+- Inactive: no bg, text var(--color-sidebar-text-muted), hover transitions.
+- Bottom: user avatar + full_name + role badge ("Internal" / "Client").
+- Theme toggle (KNOWN VIOLATION — to be replaced per UI.md §3.5).
+- Mobile (< 1024px): sidebar → Sheet drawer; hamburger in a top header bar.
 ```
 
-### Phase C — Deal List & Pipeline View
+### Phase C — Deal List & Pipeline View (Dynamic Columns)
 
 ```
-DEAL TABLE SPEC:
-Component: src/components/deals/DealTable.tsx
+DEAL TABLE SPEC (Ref: EXCEL_TABLE.md & UI.md):
+Component: src/components/deals/DealTable.tsx — built on the DataGrid.
 
-Columns (default visible; user can toggle via gear icon popover top-right):
-  1. Property Name (deal_name) — clickable → /deals/[id]; max-w-xs truncate
-  2. Address (address, city, state) — single line, text-sm text-slate-500
-  3. Units (unit_count) — right-aligned integer; "—" if null
-  4. Stage — <DealStageBar inline pill /> showing stage name in a colored badge
-  5. Score — <DealScoreBadge /> (see spec below)
-  6. Campaign — campaign.name, text-slate-600
-  7. Date Added (created_at) — "May 14, 2026" format via date-fns
-  8. Actions — kebab menu (MoreHorizontal icon):
-       View → /deals/[id]
-       Archive → confirmation Dialog → PATCH { is_archived: true, archive_reason }
-       Delete → confirmation Dialog → DELETE /api/deals/[id] (permanent)
+Columns are SYSTEM columns + DYNAMIC columns:
+  System (fixed):
+    1. Checkbox            — row selection (fixed left)
+    2. Deal Name           — editable (F2)
+    3. Units               — editable number
+    4. Stage               — <DealStageBar inline pill /> (read-only)
+    5. Score               — <DealScoreBadge /> (read-only)
+    6. Campaign            — campaign.name (F2 popover)
+    7. Portfolio           — portfolio.name or "—" (F2 popover select)
+    8. Last Contacted      — deals.last_contacted_at (read-only, relative date)
+    9. Date Added          — created_at (read-only)
+   10. Actions             — kebab menu (fixed right)
+  Dynamic (runtime):
+    One column per field_definitions row where show_in_grid = true.
+    Built by DealTable from GET /api/field-definitions; each column's
+    accessor reads the deal's joined deal_fields map and its editor casts
+    on save per data_type. Users toggle column visibility via the gear popover.
 
-Column toggle: gear (Settings) icon button, top-right of table, opens Popover with
-  checkboxes for each column; state persisted in localStorage key 'dealTableColumns'
+Interaction (Excel-like): focus cell (arrows/Tab/Enter), range selection
+  (Shift+Arrow / Shift+Click / drag), multi-range (Ctrl+Click), F2 edit,
+  Ctrl+C / Ctrl+V batch patch, Ctrl+D / Ctrl+R fill, drag-resize / dbl-click autofit.
 
-Sorting: click column header; ↑↓ icon indicates direction; default: created_at DESC
+Filters (top bar): Stage, Score, Campaign, Portfolio, import_batch.
 
-Filter bar (above table, flex-wrap gap-2):
-  Campaign:     multi-select <Select>; default "All campaigns"
-  Stage:        multi-select; default "All stages"
-  Score:        multi-select; default "All scores"
-  Listing Type: single select; "All" | "On Market" | "Off Market"
-  State:        multi-select; populated from distinct(state) query
-  Search:       text input with Search icon; 300ms debounce;
-                calls Supabase .textSearch() with type:'websearch' on the FTS index
+Colors (UI.md): row hover var(--color-accent-bg); selected range
+  color-mix(in srgb, var(--color-accent) 15%, var(--color-surface-0));
+  focus border 2px solid var(--color-accent) inset.
 
-Pagination: 50 rows per page; "Showing 1–50 of 234 deals"; Prev/Next buttons
-
-Empty state: <EmptyState icon={Building2} title="No deals found"
-  description="Import properties from CoStar to get started"
-  action={{ label: "Import from CoStar", onClick: () => router.push('/import') }} />
-
-Loading state: 5 skeleton rows, full-width shimmer (animate-pulse bg-slate-100)
-
-Row click: navigate to /deals/[id]; entire row clickable except Actions column
-
-Bulk select: leftmost checkbox column; when 1+ selected, a fixed bottom bar appears:
-  "N selected — [Archive Selected] [Clear]"
-
-DealScoreBadge colors:
-  very_good → bg-green-100 text-green-800 border-green-200 "Very Good"
-  good      → bg-teal-100 text-teal-800 border-teal-200 "Good"
-  bad       → bg-orange-100 text-orange-800 border-orange-200 "Bad"
-  very_bad  → bg-red-100 text-red-800 border-red-200 "Very Bad"
-  null      → bg-slate-100 text-slate-500 "Unscored"
+DealScoreBadge: very_good/good/bad/very_bad → var(--color-score-*); null → neutral.
 ```
 
 ### Phase D — Deal Detail Page (Core UI)
 
-Tabbed interface with 7 tabs. Each tab loads its data independently.
+Tabbed interface. The redesigned tab set:
 
 ```
-TABS: [Overview] [Contacts] [Outreach] [Documents] [Underwriting] [LOI] [Call Brief]
+TABS: [Overview] [Contacts] [Outreach] [Activity] [Documents] [Underwriting] [LOI] [Call Brief]
 ```
 
 #### Overview Tab
 
 ```
-- Property info: deal_name (H1, text-2xl), address block, unit_count, year_built,
-  building_class badge, property_type badge, listing_type badge
-- Stage progress bar (DealStageBar — full spec below)
-- Score badge (DealScoreBadge)
-- Drive folder: if drive_folder_url set → "Open Drive Folder" button (ExternalLink icon)
-  if not set → "Create Drive Folder" button → POST /api/deals/[id]/drive
-- Source + campaign name
-- Internal notes: textarea, auto-saves on blur, 500ms debounce, max 10000 chars
+- Deal name (H1, text-2xl). Property attributes are rendered by
+  <DynamicFieldPanel /> — it lists every field_definitions row with this
+  deal's value (from deal_fields), each editable inline, auto-saving via
+  PATCH /api/deals/[id]/fields. There are NO hardcoded address/zip inputs.
+- Unit count: editable system field (PATCH /api/deals/[id]).
+- Stage progress bar (DealStageBar — see below).
+- Score badge (DealScoreBadge).
+- Portfolio: select to assign/clear portfolio_id.
+- Drive folder: "Open Drive Folder" if set, else "Create Drive Folder".
+- Source + campaign name.
+- Internal notes: textarea, auto-saves on blur (500ms debounce, max 10000 chars).
 
-DEAL STAGE BAR SPEC (DealStageBar.tsx):
-- Horizontal stepper, all 11 stages as labeled steps:
-  Lead → Outreach → Response → Documents → UW Review →
-  Underwriting → Scored → Call Scheduled → LOI → Closed | Archived
-- Completed stages: filled circle bg-green-500, checkmark icon inside, muted label
-- Active stage: filled circle bg-blue-600, bold label below
-- Future stages: empty circle border-slate-300, muted text-slate-400 label
-- Archived: if is_archived=true, hide stepper, show red badge "Archived" + archive_reason
-- Stage controls (below bar, internal users only):
-    "Move to Next Stage" button — advances one step, PATCH /api/deals/[id]
-    "Set Stage" <Select> — jump to any stage (for corrections)
-    Stage change triggers PATCH and optimistic UI update
-- Mobile (< 640px): collapse to "Stage 4 of 11: Documents" text + plain progress bar
+DEAL STAGE BAR SPEC (DealStageBar.tsx, Ref: UI.md §6.2):
+- Horizontal stepper for the 6 progression stages:
+    Lead → Outreach → Response → Underwriting → LOI → Closed
+- Terminal states render distinctly:
+    'failed'   → after the LOI step, a red terminal node "Failed"
+    'archived' → stepper hidden; show a danger badge "Archived" + archive_reason
+- Completed steps: bg var(--color-success-solid), <Check> icon.
+- Active step: bg var(--color-primary).
+- Future steps: transparent bg, 2px solid var(--color-surface-3).
+- Stage controls (internal only, below the bar):
+    "Move to Next Stage" — advances one step via nextStage(); PATCH /api/deals/[id].
+    "Set Stage" <Select> — jump to any stage; the API still validates via
+       canTransition(), so an invalid jump (e.g. → 'failed' pre-LOI) shows a toast error.
+- Mobile (< 640px): collapse to "Stage 4 of 6: Underwriting" text + progress bar.
 ```
 
 #### Contacts Tab
 
 ```
-CONTACTS TAB SPEC:
-- List of contacts for this deal; each row shows:
-    Name, Company/Title, Email(s) (comma-separated), Phone, Primary badge
-- "Add Contact" button → opens Dialog:
-    Name (text), Company (text), Title (text),
-    Email(s): TagInput — type email, press Enter to add multiple
-    Phone Office (text), Phone Cell (text)
-    Primary Contact: Switch toggle
-    Save → POST /api/contacts; refresh list
-- Edit: pencil icon per row → same Dialog pre-filled → PATCH /api/contacts/[id]
-- Delete: trash icon per row → confirm Dialog → DELETE /api/contacts/[id]
-    (blocks if deleting the only primary contact with others existing)
-- If no contacts: EmptyState "No contacts yet" with "Add Contact" CTA
+- List of contacts; each row: Name, Company/Title, Email(s), Phone, Primary badge.
+- "Add Contact" → Dialog (Name, Company, Title, Email TagInput, phones, Primary switch)
+  → POST /api/contacts.
+- Edit (pencil) → prefilled Dialog → PATCH /api/contacts/[id].
+- Delete (trash) → confirm Dialog → DELETE /api/contacts/[id]
+  (blocked if deleting the only primary contact with others existing).
+- Empty: EmptyState "No contacts yet" + "Add Contact" CTA.
 ```
 
 #### Outreach Tab
 
 ```
-OUTREACH TAB SPEC:
-Top section — Email Status:
-  Status badge: Not Sent (grey) | Sent (blue) | Replied (green) |
-                Gmail Error (red) | Invalid Address (orange)
-  If sent or later: "Sent [date]" and "To: [primary contact email]"
+Top — Email Status badge: Not Sent / Sent / Replied / Gmail Error / Invalid Address.
+  If sent: "Sent [date]" + "To: [outreach email]".
 
 Send Outreach Email button:
-  Disabled if: no primary contact with email, or status is not 'not_sent'
-  If Gmail not connected: button disabled, tooltip "Connect Gmail in Settings first"
-    + inline alert: "Gmail not connected. [Connect Gmail →]" (links to /settings)
-  If Gmail connected: opens confirmation Dialog:
-    "Send outreach email to [contact name] at [email]?"
-    Shows subject line + first 200 chars of rendered template body
-    Confirm → POST /api/emails/send → status set to 'sent'
-    If deal.stage === 'lead', advances to 'outreach' automatically
+  Disabled if: no outreach email on file, or status not 'not_sent'.
+  If Gmail not connected: disabled + inline alert linking to /settings.
+  If connected: confirmation Dialog (subject + first 200 chars of body)
+    → POST /api/emails/send → status 'sent'; deal 'lead' → 'outreach'.
 
-Response Classification (visible only when status === 'replied'):
-  "Classify this response:" <Select>:
-    Positive | Neutral | Negative | No Response
-    → PATCH /api/emails/[id] { response_classification }
-  If Positive:
-    → Show "Advance to Document Collection" button (PATCH deal.stage)
-    → Show "Send Thank-You Email" button (PATCH { thank_you_sent: true })
+Response Classification (visible when status === 'replied'):
+  <Select>: Positive | Neutral | Negative | No Response → PATCH /api/emails/[id].
+  If Positive OR Neutral:
+    → deal auto-advances to 'response' (handled server-side).
+    → show "Begin Underwriting" button (PATCH deal.stage → 'underwriting').
+    → show "Send Thank-You Email" button.
   If Negative:
-    → Show "Send Declination Email" button (PATCH { declination_sent: true })
+    → show "Send Declination Email" button.
+    → show "Archive Deal" button (PATCH { stage:'archived', is_archived:true }).
 
-Conversation Log:
-  Textarea, placeholder: "Paste or summarize the email conversation here..."
-  Manually edited by internal team — NOT auto-populated by webhook
-  Auto-saves on blur; character count bottom-right "0 / 5000"
+Conversation Log: textarea, manually edited (NOT webhook-populated),
+  auto-saves on blur, char count "0 / 5000".
 
-Email Thread panel (below):
-  If gmail_thread_id set: "View Full Thread in Gmail" link-button (opens Gmail URL in new tab)
-  No inline thread rendering in Phase 1
+Email Thread: "View Full Thread in Gmail" link if gmail_thread_id set.
 ```
 
-#### Documents Tab
+#### Activity Tab  **(NEW)**
 
 ```
-DOCUMENT CHECKLIST TAB SPEC:
-Layout: two-column on desktop (lg:grid-cols-2), single column on mobile
+ACTIVITY TAB SPEC (ActivityTimeline.tsx):
+- "Log Activity" button → inline form (no Dialog):
+    Type <Select>: Call | Voicemail | Note | Meeting | Other
+    Summary: text input (e.g. "Left voicemail re: pricing")
+    → POST /api/deals/[id]/activity
+- Timeline list below, newest first: each entry shows a type icon,
+  the summary, the logger's name, and a relative timestamp.
+- A small caption at the top shows "Last contacted: [relative date]"
+  sourced from deals.last_contacted_at.
+- Empty: EmptyState "No activity logged yet".
+```
+
+#### Documents Tab  **(redesigned — flexible checklist)**
+
+```
+DOCUMENT CHECKLIST TAB SPEC (DocumentChecklist.tsx):
+Layout: two columns on desktop, single column on mobile.
 
 Left column — Document Collection:
-  Each row: [Checkbox] [Label] [Optional field]   Auto-saves on change (500ms debounce)
-  Documents:
-  1. P&L Collected — checkbox + "Period" text input (e.g. "T12 Jan 2025")
-  2. Rent Roll Collected — checkbox + date picker (type="date", label "As of")
-  3. Offering Memorandum — checkbox only
-  4. Tax Bill — checkbox only
-  5. CapEx Schedule — checkbox only
-  6. Market Report 1–4 — four checkboxes labeled "Market Report 1" through "Market Report 4"
-  Saved via PATCH /api/deals/[id]/documents
+  A list of document_checklist rows for this deal. Each row:
+    [Checkbox: collected] [doc_name] [optional metadata fields] [remove ✕]
+  Default rows are seeded by seed_default_checklist() (P&L, Rent Roll, OM,
+    Tax Bill, CAPEX Schedule, Market Report 1-4) but the list is EDITABLE:
+    "+ Add Document" → input for doc_name → POST a new document_checklist row.
+    Each row's ✕ removes that row (DELETE).
+  Optional metadata (stored in the row's `metadata` jsonb) — e.g. an
+    "Uploaded" date picker or a "Reviewer notes" text field — rendered when
+    the document type calls for it. Auto-saves on change (500ms debounce).
+  Saved via PATCH /api/deals/[id]/documents.
 
-Right column — Confidentiality Agreement:
-  CA Status <Select>:
-    Not Required (default, grey badge)
-    Pending (yellow badge)
-    Signed (blue badge)
-    Approved (green badge)
-  
-  If status is Pending or Signed, show additional fields:
-    Platform: text input (e.g. "Buildout", "CoStar", "CBRE")
-    CA Credential: <Select> populated from ca_credentials table
-      Displays: "[platform] — [username]" — NEVER shows password
-    "+ Add New Credential" button → Dialog:
-      Platform (text, required), Username (text, required),
-      Password (type="password", required), Notes (textarea)
-      Save → POST /api/ca-credentials (server encrypts via store_ca_credential function)
-      On success: refresh the CA Credential <Select>
+Right column — Confidentiality Agreement (deal_ca row):
+  CA Status <Select>: Not Required / Pending / Signed / Approved.
+  If Pending or Signed:
+    Platform text input.
+    CA Credential <Select> populated from ca_credentials ("[platform] — [username]",
+      NEVER the password). "+ Add New Credential" → Dialog (Platform, Username,
+      Password, Notes) → POST /api/ca-credentials (server encrypts via
+      store_ca_credential) → refresh the select.
 
-Drive Folder:
-  If drive_folder_url set: "Open Drive Folder" button (ExternalLink icon)
-  If not set: "Create Drive Folder" button → POST /api/deals/[id]/drive → refresh
+Drive Folder: "Open" if drive_folder_url set, else "Create Drive Folder".
 ```
 
-#### Underwriting Tab
+#### Underwriting Tab  **(redesigned — screening + metrics + approvals)**
 
 ```
-UNDERWRITING FORM TAB SPEC:
-Three cards stacked vertically.
+UNDERWRITING FORM TAB SPEC (UnderwritingForm.tsx + ApprovalPanel.tsx):
+Cards stacked vertically.
 
-Card 1 — Underwritability Screening:
-  Underwritability <Select>: "Underwritable" | "Not Underwritable" | "Maybe"
-  On first save: screened_at = now(), screened_by = current user
-  If "Not Underwritable": show warning banner with "Archive this deal?" button
-    → Dialog with archive_reason textarea → PATCH { is_archived: true, archive_reason, stage: 'archived' }
-  Saved via PATCH /api/deals/[id] + PATCH /api/underwriting (two separate calls)
+Card 1 — Pre-Underwriting Screening:
+  Determines whether the deal is worth underwriting. Fields:
+    Asking Price ($), Price/Unit ($ — auto = asking_price / unit_count, "(auto)"),
+    Population 1mi (int), Population Growth %, Rent Growth %, Vacancy Rate %,
+    Market Price/Unit ($), Delta % (auto = (price_per_unit - market_ppu) /
+      market_ppu × 100; colored: success if < 0, danger if > 0), Cap Rate %.
+  Underwritability Status <Select>: Go | No-Go | Maybe.
+    First save sets screened_at = now(), screened_by = current user.
+    "No-Go" → warning banner with "Archive this deal?"
+      → Dialog with archive_reason → PATCH { stage:'archived', is_archived:true }.
 
-Card 2 — Market Research (3-col grid on desktop, 1-col on mobile):
-  All numeric inputs, formatted with commas on blur
-  - Asking Price ($): currency format
-  - Asking Price/Unit ($): auto-calculated from asking_price ÷ unit_count; shows "(auto)" label
-    Manual override is allowed; removes "(auto)" label
-  - Population 1mi: integer
-  - Population Growth %: decimal (e.g. 3.2)
-  - Rent Growth T12 %: decimal
-  - Rent Growth Forward %: decimal
-  - Vacancy Rate %: decimal
-  - Market Price/Unit ($): currency
-  - Market Delta %: auto-calculated: ((asking_price_per_unit - market_price_per_unit) /
-      market_price_per_unit) × 100; read-only display; colored:
-      green text if value < 0 (below market = good)
-      red text if value > 0 (above market = bad)
-  - Cap Rate %: decimal
-  - Sale Comps Available: Yes/No toggle (Switch)
-  - Rent Comps Available: Yes/No toggle (Switch)
+Card 2 — Underwriting Summary (3-col grid desktop, 1-col mobile):
+  Purchase Price ($), Purchase Price/Unit ($ — auto), CapEx ($),
+  CapEx/Unit ($ — auto), Occupancy %, IRR %, Equity Multiple (shown "2.3×"),
+  Cash-on-Cash %, Projected Profit ($), Notes (textarea).
+  Per-unit "(auto)" fields recompute from deals.unit_count; manual override allowed.
 
-Card 3 — Underwriting Summary:
-  - Purchase Price ($): currency
-  - Purchase Price/Unit ($): auto-calculated; purchase_price ÷ unit_count
-  - CapEx Estimate ($): currency
-  - IRR %: decimal
-  - Equity Multiple: decimal (e.g. 2.3, displayed as "2.3×")
-  - Cash-on-Cash %: decimal
-  - Projected Profit ($): currency
-  - Occupancy %: decimal
-  - Notes: textarea, 5 rows min
+Card 3 — Deal Score:
+  Four radio buttons: Very Good / Good / Bad / Very Bad → var(--color-score-*).
+  "Flag for Client Call" button (visible when score is good/very_good):
+    creates a call_brief (POST /api/calls) and shows a success toast.
+    NOTE: this no longer changes deals.stage (the 'call_scheduled' stage was removed).
 
-Card 4 — Deal Score:
-  Four large radio buttons with colored labels:
-    ◉ Very Good (green-600)  ○ Good (teal-600)  ○ Bad (orange-600)  ○ Very Bad (red-600)
-  Selecting a score: if deal.stage is currently 'underwriting', auto-advances to 'scored'
-  "Flag for Client Call" button: visible only when score is 'good' or 'very_good'
-    Clicking: creates a call_brief record (POST /api/calls with deal_id)
-              advances deal.stage to 'call_scheduled'
-              shows success toast "Deal flagged for client call"
+Card 4 — Approval & Review Tracking (ApprovalPanel.tsx):
+  proceed_with_loi: a clear Yes/No control — the formal go/no-go to issue an LOI.
+  UW Analyst <Select> (profiles, internal) + UW Completion Date (date).
+  Reviewer 1 <Select> + Review 1 Date.
+  Reviewer 2 <Select> + Review 2 Date.
+  When proceed_with_loi = Yes, surface a "Create LOI" shortcut to the LOI tab.
 
-Save behavior:
-  Single "Save Underwriting" button at bottom of form
-  Validates: percentages 0–100, prices > 0
-  Shows field-level errors inline; success toast on save
+Save: single "Save Underwriting" button. Validates percentages 0-100,
+  prices > 0. Field-level inline errors; success toast.
+  Writes go to PATCH /api/underwriting (+ PATCH /api/deals/[id] for stage/score).
 ```
 
 #### LOI Tab
 
 ```
 LOI TAB SPEC:
-If no LOI record yet: EmptyState "No LOI submitted" + "Create LOI" button
+No LOI yet → EmptyState "No LOI submitted" + "Create LOI".
 
-Create LOI Dialog:
-  Submitted Date: date picker
-  Offered Price ($): currency input
-  Submit → POST /api/loi
+Create LOI Dialog: Submitted Date, Offered Price ($) → POST /api/loi
+  (advances deal to 'loi').
 
 LOI Record Display:
-  Submitted date, Offered price
-  Outcome <Select>: In Progress | Deal Reached | Fallen Through
-  If "Deal Reached": show Final Price ($) + Close Date fields
-    → PATCH /api/loi/[id] { outcome, final_price, close_date }
-    → deal.stage advances to 'closed'
-  If "Fallen Through": show Reason textarea + Date
-    → PATCH /api/loi/[id] { outcome, fallen_through_reason, fallen_through_date }
-    → deal.is_archived = true, archive_reason = 'LOI fallen through'
+  Submitted date, Offered price.
+  Outcome <Select>: In Progress | Deal Reached | Fallen Through.
+    "Deal Reached" → Final Price + Close Date → PATCH /api/loi/[id]
+       → deal.stage = 'closed'.
+    "Fallen Through" → Reason textarea + Date → PATCH /api/loi/[id]
+       → deal.stage = 'failed'  (the only path to 'failed').
 
-Counter-Offer Rounds section (below main LOI card):
-  Table: Round # | Party | Price | Date | Notes
-  "Add Round" button → inline form (no Dialog):
-    Party: <Select> "Buyer" | "Seller"
-    Price ($), Date, Notes
-    → POST /api/loi/[id]/rounds
-    → refresh rounds table
+Counter-Offer Rounds (below): table Round # | Party | Price | Date | Notes.
+  "Add Round" → inline form (Party select, Price, Date, Notes) → POST /api/loi/[id]/rounds.
 ```
 
 #### Call Brief Tab
 
 ```
 CALL BRIEF TAB SPEC (internal view):
-If no call_brief record: EmptyState "No brief created" + "Create Brief" button
-  → POST /api/calls { deal_id } → creates record with published=false, call_status='pending'
+No brief → EmptyState "No brief created" + "Create Brief"
+  → POST /api/calls { deal_id } (published=false, call_status='pending').
 
-Once brief exists:
-  Summary Text: large textarea, min-h-[200px]
-    placeholder: "Write a plain-English summary of this deal for the client call..."
-    auto-saves on blur
-
-  Published toggle (<Switch>):
-    OFF: grey label "Draft — not visible to client"
-    ON: green label "Published — client can see this"
-    Toggling ON: shows confirmation Dialog:
-      "Publish this brief? The client will see it immediately."
-      Confirm → PATCH /api/calls/[id] { published: true, published_at: now() }
-
-  Call Status badge (read-only for internal):
-    Pending (yellow) | Completed (green) | Cancelled (red)
-
-  Client Notes (read-only for internal):
-    Shows text entered by client, or "No notes yet" in muted text
+Once it exists:
+  Summary Text: large textarea (min-h-[200px]), auto-saves on blur.
+  Published toggle (<Switch>): OFF "Draft — not visible to client";
+    ON "Published" — toggling ON shows a confirm Dialog
+    → PATCH /api/calls/[id] { published:true, published_at: now() }.
+  Call Status badge (read-only): Pending / Completed / Cancelled.
+  Client Notes (read-only): client's text or "No notes yet".
 ```
 
-### Phase E — Import Wizard
+### Phase E — Import Wizard  **(redesigned — 5 steps)**
 
 ```
-COSTAR IMPORT WIZARD SPEC:
-Component: src/components/import/CoStarImportWizard.tsx
-Route: /import
-Stepper: 4 steps (Step 1 → 2 → 3 → 4), shown as horizontal progress bar at top
+IMPORT WIZARD SPEC (ImportWizard.tsx, route /import):
+Stepper: 5 steps shown as a horizontal progress bar.
 
 Step 1 — Upload:
-  Campaign <Select>: required; loads from GET /api/campaigns
-  File input: drag-and-drop zone (dashed border, Upload icon, "Drop .xlsx file or click to browse")
-  Shows selected filename + size after selection
-  "Preview Import" button → disabled until both campaign and file selected
-  → POST /api/deals/import (multipart/form-data)
+  Campaign <Select> (required, from GET /api/campaigns).
+  Portfolio <Select> (optional, from GET /api/portfolios).
+  File input: drag-and-drop zone, ".xlsx or .csv".
+  "Parse File" → POST /api/deals/import → returns { batchId, headers, sampleRows }.
 
-Step 2 — Preview:
-  Table columns: Property Name | Address | City | State | Units | Building Class | Year Built | Status
-  Status column values:
-    "New" — bg-green-100 text-green-800 badge — will be inserted
-    "Duplicate" — bg-yellow-100 text-yellow-800 badge — property_id already in this campaign; will be SKIPPED
-    "Invalid" — bg-red-100 text-red-800 badge — missing required fields; will be skipped;
-      tooltip on badge shows which fields are missing
-  Summary bar above table:
-    "142 properties parsed: 128 new · 10 duplicates · 4 invalid"
-  Table is read-only (no editing)
-  Pagination: 25 rows per page (reuse DealTable pagination component)
-  "Import [N] New Properties" button (N = new count only)
-    → disabled if new count is 0
+Step 2 — Map Columns (ColumnMapper.tsx):
+  A row per source header. Each row shows the header, a sample value, and an
+  action <Select>:
+    • Deal Name (system)
+    • Email Target  (may be chosen on multiple columns)
+    • Unit Count    (may be chosen on exactly one column)
+    • Existing Field → secondary <Select> of field_definitions
+    • New Field     → inline inputs: label, key (auto-slugged), data type
+    • Drop
+  Live validation banner (validateMapping): warns if 0 email-target columns
+  or >1 unit-count column. "Continue" disabled while errors exist.
 
-Step 3 — Importing (loading):
-  Progress bar: updated by polling GET /api/deals/import/[batchId]/status every 2s
-  "Importing... 45 of 128"
-  Cannot navigate away (browser beforeunload warning)
+Step 3 — Confirm Targets:
+  A read-only summary: which column is Deal Name, which column(s) are Email
+  Targets, which column is Unit Count, the list of dynamic fields that will be
+  created or populated, and which columns are dropped. "Looks good" →
+  POST /api/deals/import/[batchId]/mapping (creates new field_definitions,
+  saves the mapping, returns preview).
 
-Step 4 — Success:
-  "Import complete. 128 deals added to [Campaign Name]."
-  Two buttons:
-    "View Deals" → /deals?import_batch=[batchTag]  (pre-filtered)
-    "Import Another File" → resets wizard to Step 1
+Step 4 — Preview:
+  Table of rows to be inserted, columns reflecting the mapping. Status column:
+    "New" (success badge) — will be inserted.
+    "Duplicate" (warning badge) — advisory only; an external-id-like field
+       value already exists in this campaign. STILL importable — a checkbox
+       lets the user include or exclude duplicates.
+    "Empty" (danger badge) — a fully blank row; auto-excluded.
+  Summary bar: "142 rows · 130 new · 8 duplicates · 4 empty".
+  "Import [N] Rows" → POST /api/deals/import/[batchId]/confirm.
+
+Step 5 — Importing → Success:
+  Progress bar polls GET /api/deals/import/[batchId]/status every 2s
+  ("Importing... 45 of 130"); beforeunload warning while running.
+  On done: "Import complete. 130 deals added to [Campaign Name]."
+    "View Deals" → /deals?import_batch=[batchTag]
+    "Import Another File" → resets to Step 1.
 ```
 
-### Phase F — Internal Dashboard
+### Phase F — Portfolios  **(NEW)**
 
 ```
-DASHBOARD PAGE SPEC:
-Server component. Fetches: get_pipeline_summary() + recent deal counts.
+PORTFOLIOS PAGE SPEC (/portfolios):
+Page title "Portfolios", subtitle "Optional groupings of deals".
 
-Layout: page header "Dashboard" + subtitle current date
+"New Portfolio" → Dialog (Name required, Description optional) → POST /api/portfolios.
 
-FunnelMetrics component:
-  Vertical SVG funnel, 7 stages:
-    Leads → Emails Sent → Responses → Underwritten → Scored Good → LOI → Closed
-  Each stage: trapezoid width proportional to count (max width at Leads = 100%)
-  Stage shows: name, absolute count, conversion % from prior stage
-    e.g. "Responses: 47 (31% of Emails Sent)"
-  Colors: gradient from blue-600 (top) to green-600 (bottom)
-  Click a stage segment → navigate to /deals?stage=[stageName]
-  Tooltip on hover: exact numbers + conversion vs. prior stage + conversion vs. Leads
-  No animation in Phase 1
-  Props: <FunnelMetrics data={pipelineSummary} /> — data fetched in server component
+Portfolio cards grid (PortfolioCard.tsx): each card shows name, description,
+  deal count, and a kebab menu (Edit / Delete).
+  Card click → /portfolios/[id].
 
-KPIScorecard component (3×2 grid, 2×3 on mobile):
-  6 cards; each card: metric name, current value (large, font-bold), target (small, below),
-  delta vs. target (green ↑ or red ↓), 7-day sparkline (recharts LineChart, no axes)
-  KPIs:
-    1. Total Leads       count(deals)                             Target: — (no target)
-    2. Emails Sent       count(email_outreach status='sent')      Target: — (no target)
-    3. Response Rate     replied / sent × 100%                    Target: campaigns.target_response_rate_pct
-    4. Underwritten      count(stage ≥ underwriting)              Target: — (no target)
-    5. Good Deals        count(score in good,very_good)           Target: — (no target)
-    6. LOIs Submitted    count(stage in loi,closed)               Target: campaigns.target_loi_count
-  Card border: green if value ≥ target; red if value < target; grey if no target
-  Sparkline data: daily counts from a query grouping by created_at::date for last 7 days
+PORTFOLIO DETAIL (/portfolios/[id]):
+  Header: portfolio name + edit pencil.
+  A DealTable filtered to portfolio_id = this portfolio (reuses Phase C grid).
+  "Add Deals" → multi-select dialog of unassigned deals → PATCH portfolio_id.
 
-PipelineTable component:
-  Table showing campaign rows × stage columns; cell = count of deals in that stage
-  Source: get_pipeline_summary() data
-  Row click: filters deal list to that campaign
+DELETE PORTFOLIO (DeletePortfolioDialog.tsx):
+  Triggered from the kebab "Delete". The dialog REQUIRES the user to choose:
+    ◉ Orphan the deals — "Deals stay on the board, ungrouped."
+    ○ Archive the deals — "Deals are archived with reason 'Portfolio Deleted'."
+  A notice lists any member deals at/past LOI that will be left untouched.
+  Confirm → DELETE /api/portfolios/[id] { mode }.
 ```
 
-### Phase G — Client Dashboard
+### Phase G — Internal Dashboard
 
 ```
-CLIENT OVERVIEW PAGE SPEC (/overview):
-Page title: "Active Deals"
-Subtitle: "Properties your team is actively pursuing"
+DASHBOARD PAGE SPEC (/dashboard):
+Server component. Fetches get_pipeline_summary() + recent deal counts.
+Header "Dashboard" + current-date subtitle.
 
-Funnel summary strip (read-only, 3 numbers in a horizontal bar):
-  Deals Reviewed | Currently Active | LOIs Submitted
-  Source: aggregated from call_briefs + deals (client-visible only)
+FunnelMetrics: vertical SVG funnel, 7 stages:
+  Leads → Emails Sent → Responses → Underwritten → Scored Good → LOI → Closed.
+  Each stage: trapezoid width proportional to count; name, count, conversion %
+  from the prior stage. Click a segment → /deals?stage=[stage]. No animation in Phase 1.
 
-Deal cards grid (2-col desktop, 1-col mobile):
-  Each card: <ClientDealCard />
-    Property Name (bold)
-    Address (text-sm text-slate-500)
-    Score badge (Good / Very Good only)
-    Unit count + year built
-    Stage badge (simplified: "In Underwriting", "Offer Submitted", "Call Scheduled")
-    Card is not clickable (no detail page for clients in Phase 1)
+KPIScorecard (3×2 grid): 6 cards, each with metric name, value, target,
+  delta vs target, 7-day sparkline (recharts LineChart, no axes):
+    1. Total Leads        2. Emails Sent        3. Response Rate (target: campaign)
+    4. Underwritten       5. Good Deals         6. LOIs Submitted (target: campaign)
+  Card border: green if value ≥ target, red if below, grey if no target.
 
-Empty state: "No active deals yet. Your team will notify you when deals are ready."
-
-CLIENT CALLS PAGE SPEC (/calls):
-Page title: "Call Queue"
-Subtitle: "Review these deals before your call with the team"
-
-Active briefs list (published=true, call_status='pending', ordered by flagged_at DESC):
-  Each card:
-    Property name (bold) + address
-    Score badge
-    Summary text (full text, not truncated)
-    Call Status dropdown: Pending → Completed | Cancelled
-      → PATCH /api/calls/[id] { call_status } (client_notes + call_status only)
-    Client Notes: textarea, auto-saves on blur
-    "Mark as Done" button: sets call_status='completed'
-
-Completed calls section (call_status='completed' or 'cancelled'):
-  Collapsible accordion at bottom of page, default collapsed
-  Title: "Completed Calls ([N])"
-  Same card layout but read-only
-
-Empty state: "No calls queued yet. Your team will notify you."
+PipelineTable: campaign rows × stage columns; cell = deal count. Source:
+  get_pipeline_summary() — which now also returns failed_count, so the table
+  may show a "Failed" column alongside "Closed".
 ```
 
-### Phase H — Settings Page
+### Phase H — Client Dashboard
+
+```
+CLIENT OVERVIEW (/overview):
+Title "Active Deals", subtitle "Properties your team is actively pursuing".
+Funnel summary strip (3 numbers): Deals Reviewed | Currently Active | LOIs Submitted.
+Deal cards grid (ClientDealCard.tsx): Deal name, key dynamic fields (e.g. address —
+  read from deal_fields via the client-readable RLS policy), Score badge
+  (Good/Very Good only), unit count, simplified stage badge
+  ("In Underwriting", "Offer Submitted"). Not clickable in Phase 1.
+Empty: "No active deals yet. Your team will notify you when deals are ready."
+
+CLIENT CALLS (/calls):
+Title "Call Queue", subtitle "Review these deals before your call with the team".
+Active briefs (published=true, call_status='pending', flagged_at DESC): each card
+  shows property name, score, full summary, a Call Status dropdown
+  (Pending → Completed | Cancelled), a Client Notes textarea (auto-saves on blur),
+  and a "Mark as Done" button → PATCH /api/calls/[id] { call_status, client_notes }.
+Completed Calls: collapsible accordion at the bottom, read-only.
+Empty: "No calls queued yet. Your team will notify you."
+```
+
+### Phase I — Settings Page
 
 ```
 SETTINGS PAGE SPEC:
 
-Section 1 — Gmail Connection:
-  If not connected:
-    Alert: "Gmail not connected" (yellow) + "Connect Gmail" button → GET /api/auth/google
-  If connected:
-    Green badge "Gmail Connected" + email address
-    "Disconnect" button → DELETE google_tokens row for current user
+Section 1 — Gmail Connection: Connect / Disconnect Gmail (per §12).
 
 Section 2 — Campaign Management (internal only):
-  Table: Campaign Name | Market | Listing Type | Email Template | Status | Actions
-  "New Campaign" button → Dialog:
-    Name (text, required), Market/State (text), Listing Type (select),
-    Email Template (select: Outreach | Thank You | Declination),
-    Subject Template (text, with variable hint)
-    → POST /api/campaigns
-  Edit (pencil) → same Dialog prefilled → PATCH /api/campaigns/[id]
-  Deactivate toggle → PATCH { is_active: false }
+  Table: Name | Market | Listing Type | Email Template | Status | Actions.
+  "New Campaign" → Dialog → POST /api/campaigns; Edit → PATCH; Deactivate toggle.
 
 Section 3 — Email Template Editor (internal only):
-  Campaign selector: <Select> which campaign to edit
-  Template key selector: <Select> — only 'outreach' is editable in Phase 1
-  Subject line input: "Acquisition Inquiry — {{property_address}}"
-  Body textarea: plain text with variable placeholders:
-    {{owner_name}}, {{property_address}}, {{sender_name}}, {{custom_paragraph}}
-  Variable reference panel (right side on desktop):
-    {{owner_name}}         — Primary contact name
-    {{property_address}}   — Full address
-    {{sender_name}}        — Logged-in user's full_name
-    {{custom_paragraph}}   — Custom body text for this campaign
-  "Preview" button → Dialog showing rendered email with sample data
-  "Save Template" button → PATCH /api/campaigns/[id] { email_template, email_subject_template }
-  Note: React Email .tsx files provide the HTML wrapper;
-        DB stores only the customizable subject and body paragraph
+  Campaign selector + template-key selector ('outreach' editable in Phase 1).
+  Subject line input + body textarea with variables:
+    {{owner_name}}, {{property_label}}, {{sender_name}}, {{custom_paragraph}}.
+  (Note: {{property_label}} replaces the old {{property_address}} — the system
+   no longer assumes an address column exists.)
+  "Preview" Dialog with sample data; "Save Template" → PATCH /api/campaigns/[id].
 
-Section 4 — User Management (internal only):
-  Table: Name | Email | Role | Status | Actions
-  Status: "Active" (green) | "Invited" (yellow, awaiting signup)
-  Actions: "Change Role" (select) | "Remove" (danger)
-  "Invite User" button → Dialog:
-    Email (required), Full Name (required)
-    Role: <Select> Internal | Client
-    If Client: "Organization" text input → saved to profiles.client_org
-    "Send Invite" → POST /api/admin/invite
-      (calls supabase.auth.admin.inviteUserByEmail() via SUPABASE_SERVICE_ROLE_KEY — server only)
-      Invited user receives Supabase magic-link email; sets password on first login
-  Remove → DELETE /api/admin/users/[id] (calls supabase.auth.admin.deleteUser())
-  Role change → PATCH /api/admin/users/[id]:
-    Updates profiles.role AND auth.users.raw_app_meta_data.role (keeps JWT in sync)
+Section 4 — Field Definitions (internal only)  **(NEW)**:
+  Table of all field_definitions: Label | Key | Data Type | Show in Grid | Actions.
+  Lets the team rename labels, change data types, and toggle show_in_grid
+  without re-importing. "New Field" → Dialog → POST /api/field-definitions.
+
+Section 5 — User Management (internal only):
+  Table: Name | Email | Role | Status | Actions.
+  "Invite User" → Dialog (Email, Full Name, Role; Organization if Client)
+    → POST /api/admin/invite (supabase.auth.admin.inviteUserByEmail via service role).
+  Remove → DELETE /api/admin/users/[id]; Role change → PATCH /api/admin/users/[id]
+    (updates BOTH profiles.role AND auth.users.raw_app_meta_data.role).
 ```
 
 ---
 
-## 16. Database Seed
+## 19. Database Seed
 
 ```sql
--- supabase/seed.sql
--- Run with: npx supabase db reset  (local only)
+-- supabase/seed.sql — run with: npx supabase db reset (local only)
 
 -- Internal test user: test-internal@example.com / Password123!
 insert into auth.users (id, email, encrypted_password, email_confirmed_at,
@@ -2672,9 +3051,8 @@ insert into auth.users (id, email, encrypted_password, email_confirmed_at,
 values (
   'aaaaaaaa-0000-0000-0000-000000000001',
   'test-internal@example.com',
-  crypt('Password123!', gen_salt('bf')),
-  now(),
-  '{"role": "internal"}',
+  crypt('Password123!'::text, gen_salt('bf'::text)),
+  now(), '{"role": "internal"}',
   '{"full_name": "Internal Tester", "role": "internal"}'
 );
 
@@ -2684,9 +3062,8 @@ insert into auth.users (id, email, encrypted_password, email_confirmed_at,
 values (
   'aaaaaaaa-0000-0000-0000-000000000002',
   'test-client@example.com',
-  crypt('Password123!', gen_salt('bf')),
-  now(),
-  '{"role": "client"}',
+  crypt('Password123!'::text, gen_salt('bf'::text)),
+  now(), '{"role": "client"}',
   '{"full_name": "CEO Client", "role": "client"}'
 );
 
@@ -2695,173 +3072,226 @@ insert into public.campaigns (id, name, market, listing_type, email_template,
   email_subject_template, is_active)
 values (
   'cccccccc-0000-0000-0000-000000000001',
-  'NJ Multifamily Q1 2026',
-  'NJ',
-  'off_market',
-  'outreach',
-  'Acquisition Inquiry — {{property_address}}',
-  true
+  'NJ Multifamily Q1 2026', 'NJ', 'off_market', 'outreach',
+  'Acquisition Inquiry -- {{property_label}}', true
 );
 
--- Seed 3 sample deals (spread across stages for UI testing)
-insert into public.deals (id, campaign_id, deal_name, address, city, state, zip,
-  unit_count, building_class, stage, score, property_type, source, created_by)
+-- Seed portfolio
+insert into public.portfolios (id, name, description)
+values (
+  'eeeeeeee-0000-0000-0000-000000000001',
+  'Northern NJ Value-Add', 'Pilot grouping for value-add multifamily.'
+);
+
+-- Seed dynamic field definitions
+insert into public.field_definitions (id, key, label, data_type, show_in_grid, sort_order)
 values
-  ('dddddddd-0001-0000-0000-000000000001',
-   'cccccccc-0000-0000-0000-000000000001',
-   'Oak Park Apartments', '123 Oak St', 'Newark', 'NJ', '07102',
-   48, 'B', 'underwriting', 'good', 'multifamily', 'indirect',
+  ('ffff0001-0000-0000-0000-000000000001', 'street_address', 'Street Address', 'text', true, 10),
+  ('ffff0002-0000-0000-0000-000000000001', 'city',           'City',           'text', true, 20),
+  ('ffff0003-0000-0000-0000-000000000001', 'state',          'State',          'text', true, 30),
+  ('ffff0004-0000-0000-0000-000000000001', 'zip',            'Zip',            'text', false, 40),
+  ('ffff0005-0000-0000-0000-000000000001', 'costar_url',     'CoStar URL',     'url',  false, 50),
+  ('ffff0006-0000-0000-0000-000000000001', 'property_id',    'CoStar Property ID', 'text', false, 60);
+
+-- Seed deals (system fields only) spread across the new lifecycle
+insert into public.deals (id, campaign_id, portfolio_id, deal_name,
+  outreach_emails, unit_count, stage, score, created_by)
+values
+  ('dddddddd-0001-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001',
+   'eeeeeeee-0000-0000-0000-000000000001', 'Oak Park Apartments',
+   '{"owner1@example.com"}', 48, 'underwriting', 'good',
    'aaaaaaaa-0000-0000-0000-000000000001'),
-  ('dddddddd-0002-0000-0000-000000000001',
-   'cccccccc-0000-0000-0000-000000000001',
-   'Riverside Heights', '456 River Rd', 'Jersey City', 'NJ', '07305',
-   72, 'A', 'call_scheduled', 'very_good', 'multifamily', 'indirect',
+  ('dddddddd-0002-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001',
+   'eeeeeeee-0000-0000-0000-000000000001', 'Riverside Heights',
+   '{"owner2@example.com"}', 72, 'loi', 'very_good',
    'aaaaaaaa-0000-0000-0000-000000000001'),
-  ('dddddddd-0003-0000-0000-000000000001',
-   'cccccccc-0000-0000-0000-000000000001',
-   'Maple Court', '789 Maple Ave', 'Trenton', 'NJ', '08608',
-   24, 'C', 'lead', null, 'multifamily', 'indirect',
+  ('dddddddd-0003-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001',
+   null, 'Maple Court',
+   '{"owner3@example.com"}', 24, 'lead', null,
    'aaaaaaaa-0000-0000-0000-000000000001');
+
+-- Seed dynamic field values for the deals
+insert into public.deal_fields (deal_id, field_id, value)
+values
+  ('dddddddd-0001-0000-0000-000000000001', 'ffff0001-0000-0000-0000-000000000001', '123 Oak St'),
+  ('dddddddd-0001-0000-0000-000000000001', 'ffff0002-0000-0000-0000-000000000001', 'Newark'),
+  ('dddddddd-0001-0000-0000-000000000001', 'ffff0003-0000-0000-0000-000000000001', 'NJ'),
+  ('dddddddd-0002-0000-0000-000000000001', 'ffff0001-0000-0000-0000-000000000001', '456 River Rd'),
+  ('dddddddd-0002-0000-0000-000000000001', 'ffff0002-0000-0000-0000-000000000001', 'Jersey City'),
+  ('dddddddd-0002-0000-0000-000000000001', 'ffff0003-0000-0000-0000-000000000001', 'NJ'),
+  ('dddddddd-0003-0000-0000-000000000001', 'ffff0001-0000-0000-0000-000000000001', '789 Maple Ave'),
+  ('dddddddd-0003-0000-0000-000000000001', 'ffff0002-0000-0000-0000-000000000001', 'Trenton'),
+  ('dddddddd-0003-0000-0000-000000000001', 'ffff0003-0000-0000-0000-000000000001', 'NJ');
+
+-- Seed default checklists
+select public.seed_default_checklist('dddddddd-0001-0000-0000-000000000001');
+select public.seed_default_checklist('dddddddd-0002-0000-0000-000000000001');
+select public.seed_default_checklist('dddddddd-0003-0000-0000-000000000001');
 ```
 
 ---
 
-## 17. Error Handling & Observability
+## 20. Error Handling & Observability
 
-- Wrap all API routes in try/catch; return `{ error: string }` with appropriate HTTP status.
-- Client-side: use `sonner` toast for user-facing errors and success messages.
-- Log Gmail errors (invalid address, API quota exceeded) to `email_outreach.error_message`.
-- Use `console.error` in development; wire `pino` logger in production.
-- Database constraint violations (duplicate property_id) return 409 Conflict.
-- Import jobs that fail write error details to `import_jobs.error_log` array.
-
----
-
-## 18. Security Checklist
-
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` imported ONLY in `src/lib/supabase/admin.ts`; never in any component or user-facing API route
-- [ ] `createAdminClient()` used ONLY in: `/api/emails/webhook`, `/api/admin/*`
-- [ ] All user-facing queries use `createClient()` (anon key) — RLS handles scoping automatically
-- [ ] CSRF origin check in all POST/PATCH/DELETE API routes
-- [ ] Turnstile verified server-side (not just client-side) before auth operations
-- [ ] Rate limiting applied to login (5/15min/IP) and email send (100/day/user)
-- [ ] Google tokens stored in DB, never in localStorage or cookies
-- [ ] CA credential passwords stored as `pgp_sym_encrypt` ciphertext — never plaintext
-- [ ] CA credentials table never queried in any client-facing API route
-- [ ] `.env.local` in `.gitignore`
-- [ ] `GOOGLE_CLIENT_SECRET`, `TURNSTILE_SECRET_KEY`, `DB_ENCRYPTION_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — all server-only (no `NEXT_PUBLIC_` prefix)
-- [ ] All API routes validate input with Zod before touching the database
-- [ ] File uploads: magic bytes checked (not just Content-Type header), size capped at 10MB
-- [ ] CSP headers configured in `next.config.ts`
-- [ ] Gmail webhook verifies Google Pub/Sub JWT before processing
-- [ ] `pipeline_summary` is a security-definer function with internal-role gate — not an unprotected view
-- [ ] Client role update on `call_briefs` whitelists only `call_status` and `client_notes` at API layer
-- [ ] User role change via `/api/admin/users/[id]` updates BOTH `profiles.role` AND `auth.users.raw_app_meta_data.role`
+- Wrap all API routes in try/catch; return `{ error: string }` with an appropriate status.
+- Client-side: use `sonner` toast for errors and success.
+- Log Gmail errors to `email_outreach.error_message`.
+- `console.error` in development; wire `pino` in production.
+- Invalid stage transitions return 422 with the `canTransition` reason.
+- Import jobs that fail write details to `import_jobs.error_log`.
 
 ---
 
-## 19. Testing Checklist (manual, per phase)
+## 21. Security Checklist
+
+- [ ] `SUPABASE_SERVICE_ROLE_KEY` imported ONLY in `src/lib/supabase/admin.ts`.
+- [ ] `createAdminClient()` used ONLY in `/api/emails/webhook` and `/api/admin/*`.
+- [ ] All user-facing queries use `createClient()` (anon key) — RLS scopes data.
+- [ ] CSRF origin check in all POST/PATCH/DELETE routes.
+- [ ] Turnstile verified server-side before auth operations.
+- [ ] Rate limiting on login (5/5min/IP) and email send (100/day/user).
+- [ ] Google tokens stored in DB, never localStorage/cookies.
+- [ ] CA passwords stored as `pgp_sym_encrypt` ciphertext — never plaintext.
+- [ ] `ca_credentials` never queried in a client-facing route.
+- [ ] `.env.local` in `.gitignore`; all secrets server-only (no `NEXT_PUBLIC_`).
+- [ ] All routes validate input with Zod before touching the DB.
+- [ ] Dynamic field writes cast `value` per `data_type` — never trust raw input.
+- [ ] Stage writes always pass through `canTransition()` server-side.
+- [ ] `'failed'` is rejected server-side unless the current stage is `loi`.
+- [ ] Portfolio DELETE never hard-deletes deals — only orphans or archives.
+- [ ] File uploads: magic bytes checked (XLSX), size capped at 10MB.
+- [ ] CSP headers configured in `next.config.ts`.
+- [ ] Gmail webhook verifies the Google Pub/Sub JWT.
+- [ ] `get_pipeline_summary` is a security-definer function with an internal-role gate.
+- [ ] Client `call_briefs` PATCH whitelists only `call_status` and `client_notes`.
+- [ ] User role change updates BOTH `profiles.role` AND `auth.users.raw_app_meta_data.role`.
+
+---
+
+## 22. Testing Checklist (manual, per phase)
 
 **Auth:**
-- [ ] Login with wrong credentials returns 401 error message
-- [ ] Login with missing/invalid Turnstile token blocked server-side (return 400)
-- [ ] Login rate limit: 6th attempt within 15 min returns 429
-- [ ] Logged-in client cannot access `/dashboard` (redirected to `/overview`)
-- [ ] Logged-in internal user cannot access `/overview` (redirected to `/dashboard`)
+- [ ] Wrong credentials → 401; missing/invalid Turnstile → 400; 6th login in 5 min → 429.
+- [ ] Client cannot reach `/dashboard`; internal cannot reach `/overview`.
 
-**Deals:**
-- [ ] CoStar import creates deal records with correct import_batch tag (`YYYY-MM-DD_{uuid}`)
-- [ ] Duplicate Property ID in same campaign is flagged as "Duplicate", not inserted
-- [ ] Stage progression saves correctly and optimistically updates UI
-- [ ] Deal score "Good" → deal appears in client `/overview` page
-- [ ] Archiving a deal removes it from client view
+**Deals & Stages:**
+- [ ] Import creates deals with the correct `import_batch` tag.
+- [ ] Setting `stage='failed'` on a non-`loi` deal returns 422.
+- [ ] LOI outcome `fallen_through` sets `stage='failed'` (not archived).
+- [ ] LOI outcome `deal_reached` sets `stage='closed'`.
+- [ ] Archiving a pre-LOI deal sets `stage='archived'`, `is_archived=true`.
+- [ ] A neutral email reply advances the deal to `response`.
+
+**Flexible Schema / Import:**
+- [ ] A file with no external ID column imports successfully.
+- [ ] A brand-new source column can be mapped to a new dynamic field; a
+      `field_definitions` row is created and the value lands in `deal_fields`.
+- [ ] Designating two columns as Unit Count is blocked at validation.
+- [ ] Designating zero email-target columns is blocked at validation.
+- [ ] A CSV file imports as readily as an XLSX file.
+- [ ] Duplicate rows are flagged but still importable when the user opts in.
+
+**Portfolios:**
+- [ ] Deleting a portfolio with "Orphan" sets member deals' `portfolio_id` to null.
+- [ ] Deleting with "Archive" sets pre-LOI member deals to `archived` with
+      reason "Portfolio Deleted"; at/past-LOI deals are left untouched.
+- [ ] No portfolio deletion ever hard-deletes a deal row.
+
+**Activity:**
+- [ ] Logging a call updates `deals.last_contacted_at`.
 
 **Client Dashboard:**
-- [ ] Client sees only Good/Very Good non-archived deals
-- [ ] Client cannot access `/deals`, `/import`, `/campaigns`, `/dashboard` (redirected)
-- [ ] Client can mark a call as complete and leave notes; internal user sees notes as read-only
-- [ ] Client PATCH to call_brief cannot set `published=false`
-
-**Gmail:**
-- [ ] Connect Gmail → tokens saved to `google_tokens`; Gmail watch registered
-- [ ] Send outreach email → `email_outreach.status='sent'`, `gmail_message_id` stored
-- [ ] Webhook fires on reply → `status` updated to `'replied'`, `responded_at` set
-- [ ] Webhook with invalid JWT returns 401
+- [ ] Client sees only Good/Very Good non-archived deals and their dynamic fields.
+- [ ] Client can mark a call complete and leave notes; internal sees notes read-only.
 
 **Security:**
-- [ ] Direct POST to `/api/emails/send` from different origin returns 403 (CSRF)
-- [ ] `GET /api/pipeline-summary` as client user returns empty (role gate)
-- [ ] `GET /api/ca-credentials` is not accessible (internal-only RLS)
+- [ ] Cross-origin POST to `/api/emails/send` returns 403.
+- [ ] `GET` of pipeline summary as a client returns empty.
 
 ---
 
-## 20. Deployment Notes
+## 23. Deployment Notes
 
-### Vercel (recommended)
+### Vercel
 
 ```bash
 npm i -g vercel
 vercel
 ```
 
-Set all env vars in Vercel Dashboard → Project → Settings → Environment Variables.
+Set all env vars in Vercel → Project → Settings → Environment Variables.
 
-Add `vercel.json` for Gmail watch cron:
+`vercel.json` for the Gmail watch cron:
 
 ```json
 {
   "crons": [
-    {
-      "path": "/api/auth/google/refresh-watch",
-      "schedule": "0 12 */6 * *"
-    }
+    { "path": "/api/auth/google/refresh-watch", "schedule": "0 12 */6 * *" }
   ]
 }
 ```
 
 ### Supabase Production
 
-- Enable Point-in-Time Recovery in Supabase project settings.
-- Complete the Gmail Pub/Sub setup per Section 10.4 before first Gmail connection.
+- Enable Point-in-Time Recovery.
+- Complete the Gmail Pub/Sub setup per §12.4 before the first Gmail connection.
+- The bulk-import Edge Function must be deployed (`npx supabase functions deploy`).
 
 ### Post-deploy
 
 ```bash
-npx supabase db push            # apply migrations to production
-npm run db:types                 # regenerate types against production schema
+npx supabase db push     # apply migrations
+npm run db:types          # regenerate types
 ```
 
 ---
 
-## 21. Future Expansion Points
+## 24. Future Expansion Points
 
 Do not build these in Phase 1. The architecture supports them cleanly:
 
-- **Email open tracking** — add `opened_at` to `email_outreach`, use tracking pixel via API route
-- **Automated follow-up sequences** — `follow_up_sequences` table + Supabase pg_cron
-- **DocuSign CA signing** — extend `ca_credentials` with DocuSign envelope ID
-- **Financial projections PDF** — export button on underwriting tab, Puppeteer Edge Function
-- **Multi-tenant / multi-client** — add `organization_id` FK to campaigns + deals; update RLS
-- **Mobile app** — Supabase Realtime + same API routes work for React Native
-- **Full Gmail thread inline rendering** — fetch thread body in outreach tab (currently just link)
-- **Password reset flow** — Supabase `resetPasswordForEmail` on `/reset-password` page
+- **Email open tracking** — add `opened_at` to `email_outreach`, tracking pixel.
+- **Automated follow-up sequences** — `follow_up_sequences` table + Supabase pg_cron.
+- **Typed dynamic-field storage** — add typed value columns to `deal_fields` if
+  query performance on casts becomes a concern.
+- **Per-portfolio analytics** — roll up `get_pipeline_summary()` by `portfolio_id`.
+- **DocuSign CA signing** — extend `ca_credentials` with a DocuSign envelope ID.
+- **Multi-tenant** — add `organization_id` FK to campaigns + deals; update RLS.
+- **Mobile app** — Supabase Realtime + the same API routes.
+- **Full Gmail thread inline rendering** — fetch the thread body in the Outreach tab.
+- **Password reset flow** — Supabase `resetPasswordForEmail` on `/reset-password`.
 
 ---
 
-## 22. Final Agent Instructions
+## 25. Final Agent Instructions
 
-1. Read this entire PLAN.md before writing any code.
+1. Read this entire PLAN.md, UI.md, and EXCEL_TABLE.md before writing any code.
 2. Collect all `.env.local` values from the user via 🛑 stop points.
 3. Run `npx supabase db push` and verify with `npx supabase db diff --linked` (must output nothing).
 4. Generate types with `npm run db:types` immediately after migrations.
-5. Build and test each Phase (A→H) before moving to the next.
-6. Never use `createAdminClient()` in any user-facing route — only in webhook and admin routes.
-7. Never use `req.ip` — read IP from `x-forwarded-for` header instead.
-8. Do not invent npm package APIs — check the README if uncertain.
-9. Do not skip Turnstile server-side verification on login/signup.
-10. All state-changing API routes (POST/PATCH/DELETE) must include the CSRF origin check.
-11. The `render()` function from `@react-email/render` is async — always `await` it.
-12. `supabase gen types` uses `--project-ref`, not `--project-id`.
-13. Do NOT use `supabase migration up` — use `supabase db push` only.
-14. import_batch format is `YYYY-MM-DD_{campaignUuid}` — generate with `new Date().toISOString().slice(0, 10) + '_' + campaignId`.
-15. building_class enum values are `A, B, C, D, unclassified` — NOT A, B, C, F.
+5. Build and test each Phase (A→I) before moving to the next.
+6. There is ONE `deals` table and NO separate "Leads" entity — every record starts at `stage='lead'`.
+7. The `deals` table holds ONLY system fields. All other property data goes in `deal_fields`; never add ad-hoc property columns to `deals`.
+8. The deal lifecycle has 8 stages: `lead, outreach, response, underwriting, loi, closed, failed, archived`. The old intermediate stages are gone.
+9. `'failed'` is valid ONLY as a transition from `'loi'`. Enforce this server-side via `canTransition()`; return 422 otherwise.
+10. Any deal removed from the pipeline before LOI must be `archived`, never `failed`.
+11. The import engine is column-agnostic — NO hardcoded column map. The user maps every source column at import time.
+12. `gen_random_uuid()` is the only primary key. External identifiers (e.g. `property_id`) are plain dynamic fields and are never required; imports without one must not break.
+13. Exactly ONE column may be designated Unit Count; at least one column must be the email target. Validate before confirm.
+14. Portfolio deletion must prompt orphan-vs-archive and NEVER hard-delete deals.
+15. Logging an `activity_log` row updates `deals.last_contacted_at` via trigger — do not set it manually.
+16. The `document_checklist` is flexible: rows can be added/removed per deal.
+17. The `underwriting` table carries screening fields, output fields, AND approval fields (`proceed_with_loi`, analyst, two reviewers + dates).
+18. A positive OR neutral email reply advances the deal to `'response'`.
+19. Never use `createAdminClient()` in any user-facing route — only the webhook and admin routes.
+20. Never use `req.ip` — read IP from `x-forwarded-for`.
+21. `render()` from `@react-email/render` is async — always `await` it.
+22. `supabase gen types` uses `--project-ref`, not `--project-id`.
+23. Do NOT use `supabase migration up` — use `supabase db push` only.
+24. `import_batch` format is `YYYY-MM-DD_{importJobUuid}`.
+25. There is NO `src/middleware.ts`. Use `src/proxy.ts` (Next.js 16 proxy); the function is exported as `proxy()`, not `middleware()`.
+26. Do NOT add more `next-themes` usage — the current root-layout usage is a known UI.md violation, to be replaced with an inline `<script>` + `localStorage`.
+27. NEVER use Tailwind palette colors. ONLY `var(--color-*)` tokens from `globals.css`.
+28. Tailwind CSS v4 with `@tailwindcss/postcss`. There is NO `tailwind.config.ts`; tokens live in `@theme inline` in `globals.css`.
+29. The DataGrid must support runtime-generated dynamic columns sourced from `field_definitions`.
+30. The sidebar uses `--color-sidebar-*` CSS variables — warm tones in light mode, permanently dark in dark mode.
