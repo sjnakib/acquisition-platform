@@ -6,13 +6,17 @@ export const pageHeadings = {
   deals: {
     title: 'Deals',
   },
+  portfolios: {
+    title: 'Portfolios',
+    description: 'Group deals into portfolios for organized tracking',
+  },
   campaigns: {
     title: 'Campaigns',
     description: 'Manage your outreach campaigns',
   },
   import: {
     title: 'Import Properties',
-    description: 'Upload an Excel file from CoStar to import new deals into the pipeline.',
+    description: 'Upload an Excel or CSV file to import new deals into the pipeline.',
   },
   settings: {
     title: 'Settings',

@@ -77,7 +77,7 @@ export function CoStarImportWizard() {
     setServerError(null);
     const formData = new FormData();
     formData.append('file', data.file);
-    formData.append('campaignId', data.campaignId);
+    formData.append('campaign_id', data.campaignId);
     try {
       const res = await fetch('/api/deals/import', { method: 'POST', body: formData });
       if (res.ok) {
@@ -97,7 +97,7 @@ export function CoStarImportWizard() {
     const res = await fetch(`/api/deals/import/${batchId}/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaignId: getValues('campaignId'), deals: previewData }),
+      body: JSON.stringify({ campaign_id: getValues("campaignId"), deals: previewData }),
     });
     if (res.ok) { setStep(3); }
     else {
@@ -158,10 +158,6 @@ export function CoStarImportWizard() {
             </div>
             <ImportPreviewTable data={previewData} />
             {serverError && <p className="text-sm" style={errText}>{serverError}</p>}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
-              <Button onClick={onConfirmImport}>Confirm Import</Button>
-            </div>
           </div>
         )}
 

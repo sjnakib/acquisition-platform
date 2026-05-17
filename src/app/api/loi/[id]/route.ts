@@ -13,17 +13,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
-    const { data: loi } = await supabase.from('loi_records').update(body).eq('id', id).select().single()
+    const { data: loi, error } = await supabase.from('loi_records').update(body).eq('id', id).select().single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!loi) return NextResponse.json({ error: 'LOI not found' }, { status: 404 })
 
     if (body.outcome === 'deal_reached') {
       await supabase.from('deals').update({ stage: 'closed' }).eq('id', loi.deal_id)
     } else if (body.outcome === 'fallen_through') {
-      await supabase.from('deals').update({
-        is_archived: true,
-        archive_reason: 'LOI fallen through',
-        stage: 'archived',
-      }).eq('id', loi.deal_id)
+      // v2: fallen_through → failed (NOT archived)
+      await supabase.from('deals').update({ stage: 'failed' }).eq('id', loi.deal_id)
     }
 
     return NextResponse.json(loi)

@@ -24,9 +24,9 @@ export default function DashboardPage() {
  const [loading, setLoading] = useState(true)
 
  useEffect(() => {
- fetch('/api/deals')
+ fetch('/api/deals?limit=10000')
  .then((r) => r.json())
- .then((deals: Array<Record<string, unknown>>) => {
+ .then((json: { data: Array<Record<string, unknown>>; total: number }) => { const deals = (json.data ?? []) as Array<Record<string, unknown>>
  // Aggregate deals by campaign for pipeline metrics
  const byCampaign = new Map<string, {
  campaign_name: string; market: string; leads: number; emails_sent: number

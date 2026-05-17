@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { canTransition, type DealStage } from '@/lib/stage-machine'
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -27,8 +28,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       allowedFields.conversation_log = body.conversation_log.slice(0, 5000)
     }
 
-    const { data, error } = await supabase.from('email_outreach').update(allowedFields).eq('id', id).select().single()
+    const { data, error } = await supabase.from('email_outreach').update(allowedFields).eq('id', id).select('*, deals(stage)').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Advance to 'response' on positive or neutral classification
+    if (body.response_classification === 'positive' || body.response_classification === 'neutral') {
+      const deals = data.deals as { stage: string } | null
+      const dealStage = deals?.stage
+      if (dealStage === 'outreach') {
+        const transition = canTransition('outreach' as DealStage, 'response' as DealStage)
+        if (transition.ok) {
+          await supabase.from('deals').update({ stage: 'response' }).eq('id', data.deal_id)
+        }
+      }
+    }
+
     return NextResponse.json(data)
   } catch (err) {
     console.error('Email patch error:', err)

@@ -9,11 +9,7 @@ import { Badge } from '@/components/ui/badge'
 interface Deal {
   id: string
   deal_name: string | null
-  address: string | null
-  city: string | null
-  state: string | null
   unit_count: number | null
-  year_built: number | null
   score: string | null
 }
 
@@ -34,13 +30,8 @@ const scoreLabel: Record<string, string> = {
 const columns: ColumnDef<Deal>[] = [
   { key: 'deal_name', header: 'Property Name', minWidth: 160, sortable: true,
     render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.deal_name ?? 'Untitled'}</span> },
-  { key: 'address', header: 'Address', minWidth: 180, sortable: true,
-    accessor: (r) => [r.address, r.city, r.state].filter(Boolean).join(', '),
-    render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{[r.address, r.city, r.state].filter(Boolean).join(', ') || '—'}</span> },
   { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true,
     render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{r.unit_count ?? '—'}</span> },
-  { key: 'year_built', header: 'Year Built', align: 'right', width: 100, sortable: true,
-    render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{r.year_built ?? '—'}</span> },
   { key: 'score', header: 'Score', width: 110, sortable: true,
     render: (r) => {
       if (!r.score) return <Badge variant="neutral">Unscored</Badge>
@@ -56,9 +47,9 @@ export default function ActiveDealsTable() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/deals')
+    fetch('/api/deals?limit=1000')
       .then((r) => r.json())
-      .then((data) => setDeals(data))
+      .then((json) => setDeals(json.data ?? []))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])

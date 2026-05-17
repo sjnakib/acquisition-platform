@@ -4,6 +4,7 @@ import { emailSendRateLimit } from '@/lib/rate-limit'
 import { sendEmail } from '@/lib/google/gmail'
 import { render } from '@react-email/render'
 import OutreachEmail from '@/lib/email/templates/outreach'
+import { canTransition, type DealStage } from '@/lib/stage-machine'
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,17 +34,19 @@ export async function POST(req: NextRequest) {
     const { data: deal } = await supabase.from('deals').select('*, campaigns(*)').eq('id', deal_id).single()
     if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
+    const propertyLabel = deal.deal_name ?? 'property'
+
     const html = await render(
       OutreachEmail({
         ownerName: contact.name ?? 'Owner',
-        propertyAddress: deal.address ?? 'property',
+        propertyAddress: propertyLabel,
         senderName: user.email ?? 'Team',
       })
     )
 
     let result: { messageId: string; threadId: string }
     try {
-      result = await sendEmail(user.id, contact.email[0]!, `Acquisition Inquiry — ${deal.address ?? 'property'}`, html)
+      result = await sendEmail(user.id, contact.email[0]!, `Acquisition Inquiry — ${propertyLabel}`, html)
     } catch (err: unknown) {
       const status = err instanceof Error && err.message?.includes('not found') ? 'invalid_address' : 'gmail_error'
       await supabase.from('email_outreach').insert({
@@ -61,14 +64,17 @@ export async function POST(req: NextRequest) {
       contact_id,
       status: 'sent',
       sent_at: new Date().toISOString(),
-      subject: `Acquisition Inquiry — ${deal.address ?? 'property'}`,
+      subject: `Acquisition Inquiry — ${propertyLabel}`,
       template_used: 'outreach',
       gmail_message_id: result.messageId,
       gmail_thread_id: result.threadId,
     }).select().single()
 
     if (deal.stage === 'lead') {
-      await supabase.from('deals').update({ stage: 'outreach' }).eq('id', deal_id)
+      const transition = canTransition('lead' as DealStage, 'outreach' as DealStage)
+      if (transition.ok) {
+        await supabase.from('deals').update({ stage: 'outreach' }).eq('id', deal_id)
+      }
     }
 
     return NextResponse.json(outreach)
