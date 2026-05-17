@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react'
+import { Check, XCircle } from 'lucide-react'
 
 interface DealStageBarProps {
   stage: string
@@ -7,12 +7,32 @@ interface DealStageBarProps {
 }
 
 const STAGES = [
-  'lead', 'outreach', 'response', 'document_collection', 'underwritability_review',
-  'underwriting', 'scored', 'call_scheduled', 'loi', 'closed',
+  'lead', 'outreach', 'response', 'underwriting', 'loi', 'closed',
 ]
 
+const STAGE_LABELS: Record<string, string> = {
+  lead: 'Lead',
+  outreach: 'Outreach',
+  response: 'Response',
+  underwriting: 'Underwriting',
+  loi: 'LOI',
+  closed: 'Closed',
+  failed: 'Failed',
+  archived: 'Archived',
+}
+
 export function DealStageBar({ stage, isArchived, archiveReason }: DealStageBarProps) {
-  if (isArchived) {
+  if (stage === 'failed') {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}>
+          <XCircle className="h-3 w-3" /> Failed
+        </span>
+      </div>
+    )
+  }
+
+  if (isArchived || stage === 'archived') {
     return (
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}>
@@ -51,7 +71,7 @@ export function DealStageBar({ stage, isArchived, archiveReason }: DealStageBarP
                   color: isActive ? 'var(--color-accent-muted)' : isCompleted ? 'var(--color-success-text)' : 'var(--color-text-tertiary)',
                 }}
               >
-                {s.replace(/_/g, ' ')}
+                {STAGE_LABELS[s] ?? s}
               </span>
             </div>
             {i < STAGES.length - 1 && (

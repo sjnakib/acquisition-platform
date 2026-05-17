@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { patchDealSchema } from '@/lib/validations/deal.schema'
+import { canTransition, type DealStage } from '@/lib/stage-machine'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,12 +15,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .select(`
         *,
         campaigns(*),
+        portfolios(id, name),
         contacts(*),
         underwriting(*),
         call_briefs(*),
         loi_records(*),
         document_checklist(*),
-        email_outreach(*)
+        email_outreach(*),
+        deal_fields(value, field_definitions(key, label, data_type))
       `)
       .eq('id', id)
       .single()
@@ -48,6 +51,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const parsed = patchDealSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
+    }
+
+    // Stage transition validation
+    if (parsed.data.stage) {
+      const { data: deal } = await supabase.from('deals').select('stage').eq('id', id).single()
+      if (deal) {
+        const result = canTransition(deal.stage as DealStage, parsed.data.stage as DealStage)
+        if (!result.ok) {
+          return NextResponse.json({ error: result.reason }, { status: 422 })
+        }
+      }
+    }
+
+    // If unit_count changed, recompute per-unit fields on underwriting
+    if (parsed.data.unit_count !== undefined) {
+      const { data: deal } = await supabase.from('deals').select('unit_count').eq('id', id).single()
+      const oldUnitCount = deal?.unit_count as number | null
+      if (oldUnitCount && oldUnitCount !== parsed.data.unit_count) {
+        const { data: uw } = await supabase.from('underwriting').select('*').eq('deal_id', id).single()
+        if (uw) {
+          const updates: Record<string, number> = {}
+          const newCount = parsed.data.unit_count ?? 1
+          if (uw.asking_price != null) updates.price_per_unit = (uw.asking_price as number) / newCount
+          if (uw.purchase_price != null) updates.purchase_price_per_unit = (uw.purchase_price as number) / newCount
+          if (uw.capex != null) updates.capex_per_unit = (uw.capex as number) / newCount
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('underwriting').update(updates).eq('deal_id', id)
+          }
+        }
+      }
     }
 
     const { data, error } = await supabase

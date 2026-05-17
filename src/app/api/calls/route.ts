@@ -9,7 +9,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from('call_briefs')
-      .select('*, deals(deal_name, address, city, state, score)')
+      .select('*, deals(deal_name, score)')
       .order('flagged_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -39,8 +39,7 @@ export async function POST(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    await supabase.from('deals').update({ stage: 'call_scheduled' }).eq('id', deal_id)
-
+    // v2: no call_scheduled stage — call briefs no longer change deal stage
     return NextResponse.json(data)
   } catch (err) {
     console.error('Call create error:', err)

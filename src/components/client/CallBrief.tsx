@@ -9,9 +9,6 @@ interface CallBriefProps {
     client_notes: string | null
     deals?: {
       deal_name: string | null
-      address: string | null
-      city: string | null
-      state: string | null
       score: string | null
     }
   }
@@ -30,7 +27,6 @@ export function CallBrief({ brief }: CallBriefProps) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <h3 className="font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>{brief.deals?.deal_name ?? 'Deal'}</h3>
-          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{[brief.deals?.address, brief.deals?.city, brief.deals?.state].filter(Boolean).join(', ')}</p>
         </div>
         <Badge variant={statusVariant[brief.call_status] ?? 'neutral'} size="sm">{brief.call_status}</Badge>
       </div>

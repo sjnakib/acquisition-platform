@@ -12,9 +12,6 @@ interface Call {
   summary_text: string | null
   deals: {
     deal_name: string | null
-    address: string | null
-    city: string | null
-    state: string | null
     score: string | null
   } | null
 }
@@ -40,7 +37,7 @@ export default function CallQueueTable() {
   useEffect(() => {
     fetch('/api/calls')
       .then((r) => r.json())
-      .then((data) => setCalls(data))
+      .then((data) => setCalls(Array.isArray(data) ? data : []))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
@@ -49,9 +46,6 @@ export default function CallQueueTable() {
     { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,
       accessor: (r) => r.deals?.deal_name ?? '',
       render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.deals?.deal_name ?? 'Untitled'}</span> },
-    { key: 'address', header: 'Address', minWidth: 160, sortable: true,
-      accessor: (r) => [r.deals?.address, r.deals?.city, r.deals?.state].filter(Boolean).join(', '),
-      render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{[r.deals?.address, r.deals?.city, r.deals?.state].filter(Boolean).join(', ') || '—'}</span> },
     { key: 'score', header: 'Score', width: 110, sortable: true,
       accessor: (r) => r.deals?.score ?? '',
       render: (r) => {

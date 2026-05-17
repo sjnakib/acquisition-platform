@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, Building2, Megaphone, Upload, Settings,
+  LayoutDashboard, Building2, Megaphone, Upload, Settings, FolderKanban,
 } from 'lucide-react'
 import { clientNavItems } from '@/lib/navigation'
 import Sidebar from '@/components/shared/Sidebar'
@@ -16,6 +16,7 @@ const internalClientViewItems = clientNavItems.map((item) => ({
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   { label: 'Deals', icon: Building2, href: '/deals' },
+  { label: 'Portfolios', icon: FolderKanban, href: '/portfolios' },
   { label: 'Campaigns', icon: Megaphone, href: '/campaigns' },
   { label: 'Import', icon: Upload, href: '/import' },
   { label: 'Settings', icon: Settings, href: '/settings' },

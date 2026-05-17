@@ -25,16 +25,16 @@ export type Database = {
       listing_type: 'on_market' | 'off_market'
       deal_source: 'direct' | 'indirect'
       email_template_key: 'outreach' | 'thank_you' | 'declination'
-      deal_stage: 'lead' | 'outreach' | 'response' | 'document_collection' | 'underwritability_review' | 'underwriting' | 'scored' | 'call_scheduled' | 'loi' | 'closed' | 'archived'
+      deal_stage: 'lead' | 'outreach' | 'response' | 'underwriting' | 'loi' | 'closed' | 'failed' | 'archived'
       deal_score: 'very_good' | 'good' | 'bad' | 'very_bad'
-      property_type: 'multifamily' | 'retail' | 'office' | 'industrial' | 'mixed_use' | 'other'
-      building_class: 'A' | 'B' | 'C' | 'D' | 'unclassified'
       email_status: 'not_sent' | 'sent' | 'invalid_address' | 'gmail_error' | 'replied'
       response_classification: 'positive' | 'neutral' | 'negative' | 'no_response'
       ca_status: 'not_required' | 'pending' | 'signed' | 'approved'
-      underwritability: 'underwritable' | 'not_underwritable' | 'maybe'
+      underwritability: 'go' | 'no_go' | 'maybe'
       call_status: 'pending' | 'completed' | 'cancelled'
       loi_outcome: 'in_progress' | 'deal_reached' | 'fallen_through'
+      field_data_type: 'text' | 'number' | 'integer' | 'date' | 'boolean' | 'url' | 'currency'
+      activity_type: 'call' | 'voicemail' | 'note' | 'meeting' | 'other'
     }
     CompositeTypes: Record<string, never>
   }

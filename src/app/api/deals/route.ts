@@ -13,26 +13,30 @@ export async function GET(req: NextRequest) {
     const stage = searchParams.get('stage')
     const score = searchParams.get('score')
     const search = searchParams.get('search')
+    const limit = Math.min(parseInt(searchParams.get('limit') ?? '100', 10) || 100, 1000)
+    const offset = parseInt(searchParams.get('offset') ?? '0', 10) || 0
 
     let query = supabase
       .from('deals')
       .select(`
         *,
         campaigns(name, market),
-        underwriting(underwritability, asking_price, asking_price_per_unit),
+        portfolios(id, name),
+        underwriting(underwritability_status, asking_price, price_per_unit),
         email_outreach(id, status, response_classification),
         call_briefs(id, call_status, published)
-      `)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
 
     if (campaignId) query = query.eq('campaign_id', campaignId)
     if (stage) query = query.eq('stage', stage)
     if (score) query = query.eq('score', score)
     if (search) query = query.textSearch('deal_name', search, { type: 'websearch' })
 
-    const { data, error } = await query
+    const { data, error, count } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+    return NextResponse.json({ data, total: count ?? 0 })
   } catch (err) {
     console.error('Deals list error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

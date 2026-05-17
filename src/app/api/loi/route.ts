@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { canTransition, type DealStage } from '@/lib/stage-machine'
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,6 +13,14 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { deal_id, submitted_at, offered_price } = await req.json()
+
+    const { data: deal } = await supabase.from('deals').select('stage').eq('id', deal_id).single()
+    if (deal) {
+      const result = canTransition(deal.stage as DealStage, 'loi' as DealStage)
+      if (!result.ok) {
+        return NextResponse.json({ error: result.reason }, { status: 422 })
+      }
+    }
 
     const { data, error } = await supabase.from('loi_records').upsert(
       { deal_id, submitted_at, offered_price },
