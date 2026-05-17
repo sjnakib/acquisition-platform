@@ -6,7 +6,9 @@
       "Bash(npx supabase *)",
       "Bash(curl *)",
       "PowerShell($env:SUPABASE_ACCESS_TOKEN = \"sbp_0c93a1b0e64a2c1d14a70f642a32548d447b1213\"; npx supabase db push --linked 2>&1)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.items\\(\\) if k in ['scripts','devDependencies']}, indent=2\\)\\)\")",
+      "Bash(node -e \"console.log\\(JSON.stringify\\(require\\('./package.json'\\).devDependencies\\)\\)\")"
     ]
   }
 }

@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm run dev          # dev server at localhost:3000
+npm run build        # production build
 npm run lint         # ESLint (only automated check — no test/typecheck scripts)
 npm run db:types     # regenerate Supabase types (--project-ref, not --project-id)
 npm run db:push      # push migrations to linked Supabase project
@@ -43,35 +44,81 @@ Seed users: `test-internal@example.com` / `test-client@example.com` both with `P
 
 RLS is sole access control for user-facing queries. `createAdminClient()` bypasses RLS.
 
-### API route pattern (30 routes)
+### API route pattern (30+ routes in `src/app/api/`)
 
 ```
 auth check → CSRF origin check (mutations) → Zod validation → Supabase (anon-key, RLS)
 ```
 
+API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, loi, turnstile, underwriting.
+
 ### Key libraries
 
-- `@tanstack/react-query@^5` — `ReactQueryProvider` is default export with module-level `new QueryClient()`
-- `react-hook-form` + `zod` + `@hookform/resolvers`
+- `@tanstack/react-query@^5` — `ReactQueryProvider` is default export with module-level `new QueryClient()` (NOT wrapped in `useState`)
+- `react-hook-form` + `zod` + `@hookform/resolvers` — forms; validation schemas in `src/lib/validations/`
 - `exceljs` for CoStar import (NOT `xlsx`)
 - `googleapis` + `google-auth-library` for Gmail/Drive
 - `@upstash/ratelimit` + `@upstash/redis` for rate limiting
 - `react-turnstile` for Cloudflare Turnstile CAPTCHA
+- `immer` for immutable state updates (DataGrid)
+- `@tanstack/react-virtual` for DataGrid virtualization
+- `date-fns` for date formatting
+- `sonner` for toast notifications
+- `lucide-react` for icons
+- `@react-email/components` + `@react-email/render` for email templates
 
 ### CSP headers
 
 Defined in `next.config.ts`. Adding external APIs/scripts/iframes → update CSP there.
 
-## Critical gotchas
+### Theme & design system
 
-- Next.js 16 has breaking changes from what you know. Read `node_modules/next/dist/docs/` before writing code.
-- `supabase migration up` doesn't exist — use `supabase db push`.
-- `supabase gen types` uses `--project-ref` not `--project-id`; output is broken — `src/lib/supabase/types.ts` is a manual placeholder.
-- Hooks live in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`.
-- `vercel.json` missing (needed for Gmail watch cron).
-- Upstash Redis required locally for rate limiting.
-- No test infrastructure exists — only lint check available.
+- **CSS variable system** — components use `var(--color-*)` tokens (see `UI.md`). No raw hex, no Tailwind palette colors (`bg-slate-*`, `text-blue-*`), no `prefers-color-scheme`.
+- Light mode default, opt-in dark via `.dark` class on `<html>`.
+- **Do NOT use `next-themes`** despite it being in `package.json` and root layout importing it — the `UI.md` spec takes precedence (inline `<script>` + `localStorage` key `acq_theme`).
+- Sidebar is always-dark (`#0E0E0E`), does NOT participate in theming.
+- Animation via `tw-animate-css` plugin.
+
+### Database (Supabase/Postgres)
+
+- **15 migrations** in `supabase/migrations/` (0001–0015, all applied). Tables: users (managed by Supabase Auth), contacts, deals, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker.
+- RLS policies in migration 0013 enforce: internal role sees all; client role sees only good/very_good non-archived deals + published call briefs.
+- `get_my_role()` function (migration 0015) used for role checks.
+- Seed data in `supabase/seed.sql`.
+
+## Component structure
+
+Components live in `src/components/` by domain: `ui/` (shadcn-style primitives), `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`.
+
+## Key reference docs (read before building)
+
+| Doc | Content |
+|---|---|
+| `PLAN.md` (2867 lines) | Sequential build plan, schema details, Supabase API patterns |
+| `UI.md` (493 lines) | Full design system: color tokens, dimensions, theme rules, remediation debt |
+| `EXCEL_TABLE.md` (728 lines) | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
+| `docs/architecture/overview.md` | System overview |
+| `docs/architecture/database.md` | Database design, RLS, schema |
+| `docs/guides/` | Various dev guides, API conventions |
+| `docs/architecture/ui.md` | UI architecture decisions |
 
 ## Implementation gaps
 
-Many components built but not wired to pages. See AGENTS.md "Implementation Status" section for specifics. Before implementing new features, check if the component already exists but isn't connected.
+Many components built but NOT wired to pages. See AGENTS.md "Implementation Status" section. Before implementing new features, check `src/components/` — the component may exist but be disconnected. Notable gaps:
+- Dashboard shows "coming soon" — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` built but unused
+- Deal detail page: 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`
+- Import wizard uses mock data, no preview table, no progress polling
+- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx` have hardcoded Tailwind palette colors — need remediation to use CSS var tokens
+- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI.md spec
+
+## Critical gotchas
+
+- **Next.js 16** has breaking changes from training data. Read `node_modules/next/dist/docs/` before writing code.
+- `supabase migration up` doesn't exist — use `supabase db push`.
+- `supabase gen types` uses `--project-ref` not `--project-id`; output is broken — `src/lib/supabase/types.ts` is a manual placeholder.
+- Hooks live in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
+- `vercel.json` missing (needed for Gmail watch cron).
+- Upstash Redis required locally for rate limiting.
+- No test infrastructure exists — only lint check (`npm run lint`).
+- Hooks: `useAuth.ts`, `useCallQueue.ts`, `useCampaigns.ts`, `useColumnWidths.ts`, `useDeals.ts`, `useGridInteraction.ts`.
+- Company brand config in `src/lib/brand.ts`.
