@@ -85,9 +85,9 @@ export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelecti
         render: (r) => <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)' }}>{formatDate(r.created_at)}</span> },
     ]
 
-    // Dynamic columns from field_definitions
+    // Dynamic columns from field_definitions — show ALL imported fields
     if (fieldDefs) {
-      for (const fd of fieldDefs.filter(f => f.show_in_grid)) {
+      for (const fd of fieldDefs) {
         base.push({
           key: fd.key,
           header: fd.label,

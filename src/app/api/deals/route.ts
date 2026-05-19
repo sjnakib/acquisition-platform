@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
         *,
         campaigns(name, market),
         portfolios(id, name),
+        deal_fields(value, field_definitions(key, label, data_type)),
         underwriting(underwritability_status, asking_price, price_per_unit),
         email_outreach(id, status, response_classification),
         call_briefs(id, call_status, published)

@@ -46,19 +46,20 @@ Seed users: `test-internal@example.com` / `test-client@example.com` both with `P
 
 RLS is sole access control for user-facing queries. `createAdminClient()` bypasses RLS.
 
-### API route pattern (30+ routes in `src/app/api/`)
+### API route pattern (37 route files in `src/app/api/`)
 
 ```
 auth check → CSRF origin check (mutations) → Zod validation → Supabase (anon-key, RLS)
 ```
 
-API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, loi, turnstile, underwriting.
+API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, field-definitions, loi, portfolios, turnstile, underwriting.
 
 ### Key libraries
 
 - `@tanstack/react-query@^5` — `ReactQueryProvider` is default export with module-level `new QueryClient()` (NOT wrapped in `useState`)
 - `react-hook-form` + `zod` + `@hookform/resolvers` — forms; validation schemas in `src/lib/validations/`
 - `exceljs` for CoStar import (NOT `xlsx`)
+- `papaparse` for CSV parsing in import flow
 - `googleapis` + `google-auth-library` for Gmail/Drive
 - `@upstash/ratelimit` + `@upstash/redis` for rate limiting
 - `react-turnstile` for Cloudflare Turnstile CAPTCHA
@@ -68,6 +69,8 @@ API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, d
 - `sonner` for toast notifications
 - `lucide-react` for icons
 - `@react-email/components` + `@react-email/render` for email templates
+- `use-debounce` for debounced inputs/hooks
+- `fast-check` for property-based testing (devDependency)
 
 ### CSP headers
 
@@ -83,9 +86,12 @@ Defined in `next.config.ts`. Adding external APIs/scripts/iframes → update CSP
 
 ### Database (Supabase/Postgres)
 
-- **15 migrations** in `supabase/migrations/` (0001–0015, all applied). Tables: users (managed by Supabase Auth), contacts, deals, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker.
+- **17 migrations** in `supabase/migrations/` (0001–0017, all applied). 0016 is the v2 schema transform (11-stage → 8-stage `deal_stage` enum, fixed columns → dynamic `deal_fields`).
+- **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
+- Key tables: users (managed by Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios.
 - RLS policies in migration 0013 enforce: internal role sees all; client role sees only good/very_good non-archived deals + published call briefs.
 - `get_my_role()` function (migration 0015) used for role checks.
+- Enums (8-stage): `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
 - Seed data in `supabase/seed.sql`.
 
 ## Component structure
@@ -121,5 +127,8 @@ Many components built but NOT wired to pages. See AGENTS.md "Implementation Stat
 - `vercel.json` missing (needed for Gmail watch cron).
 - Upstash Redis required locally for rate limiting.
 - Vitest configured (`vitest.config.ts`, node env, globals) but no test files written yet.
-- Hooks: `useAuth.ts`, `useCallQueue.ts`, `useCampaigns.ts`, `useColumnWidths.ts`, `useDeals.ts`, `useGridInteraction.ts`.
+- Hooks (7): `useAuth.ts`, `useCallQueue.ts`, `useCampaigns.ts`, `useColumnWidths.ts`, `useDeals.ts`, `useGridInteraction.ts`, `usePortfolios.ts`.
 - Company brand config in `src/lib/brand.ts`.
+- Centralized page headings in `src/lib/page-headings.ts`.
+- Deals API response now includes `deal_fields` with nested `field_definitions` join. New code touching deals should include this join for property data.
+- DataGrid `DealTable` now renders ALL `field_definitions` columns (not just `show_in_grid`).
