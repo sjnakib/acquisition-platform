@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Mail, Target, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DealTable } from '@/components/deals/DealTable'
-import { PaginationControls } from '@/components/shared/PaginationControls'
+import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
+import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 
 interface Campaign {
@@ -145,9 +146,26 @@ export default function CampaignDetailPage() {
   const params = useParams()
   const id = params.id as string
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [tab, setTab] = useState<'details' | 'leads'>('leads')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
+  const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState('created_at')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
+  const [allSelected, setAllSelected] = useState(false)
+  const [gridKey, setGridKey] = useState(0)
+
+  // Debounced search
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
+  }, [search])
 
   const { data: campaign, isLoading: campaignLoading } = useQuery<Campaign>({
     queryKey: ['campaigns', id],
@@ -159,10 +177,15 @@ export default function CampaignDetailPage() {
   })
 
   const { data: dealsData, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
-    queryKey: ['deals', { campaign_id: id, page, pageSize }],
+    queryKey: ['deals', { campaign_id: id, page, pageSize, search: debouncedSearch, sort: sortKey, order: sortDir }],
     queryFn: async () => {
       const offset = (page - 1) * pageSize
-      const res = await fetch(`/api/deals?campaign_id=${encodeURIComponent(id)}&limit=${pageSize}&offset=${offset}`)
+      const params = new URLSearchParams({
+        campaign_id: id, limit: String(pageSize), offset: String(offset),
+        sort: sortKey, order: sortDir,
+      })
+      if (debouncedSearch) params.set('search', debouncedSearch)
+      const res = await fetch(`/api/deals?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch deals')
       return res.json()
     },
@@ -191,6 +214,14 @@ export default function CampaignDetailPage() {
 
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
+
+  // Clamp page if sort/filter reduced total pages below current page
+  useEffect(() => {
+    if (deals.length === 0 && total > 0 && page > 1) {
+      const maxPage = Math.ceil(total / pageSize)
+      setPage(Math.min(page, maxPage))
+    }
+  }, [deals.length, total, page, pageSize])
 
   if (campaignLoading) {
     return <div className="flex justify-center py-20"><LoadingSpinner size="page" /></div>
@@ -330,28 +361,66 @@ export default function CampaignDetailPage() {
           </div>
         ) : (
           <div className="flex flex-col" style={{ height: '100%' }}>
-            {!dealsLoading && (
-              <div className="mb-2 flex-shrink-0">
-                <PaginationControls
-                  page={page}
-                  pageSize={pageSize}
-                  total={total}
-                  onPageChange={setPage}
-                  onPageSizeChange={(v) => { setPageSize(v); setPage(1) }}
-                />
-              </div>
-            )}
             <div className="flex-1 min-h-0">
               <DealTable
+                key={gridKey}
                 deals={deals}
                 loading={dealsLoading}
                 fieldDefs={fieldDefs}
                 emptyAction={{ label: 'Import Deals', onClick: () => router.push('/import') }}
+                fillHeight
+                totalRows={total}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p) => { setPage(p); setAllSelected(false) }}
+                onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
+                allRowsSelected={allSelected}
+                onSelectionChange={(ids) => { if (allSelected && ids.size === 0) setAllSelected(false) }}
+                serverSide
+                serverSortKey={sortKey}
+                serverSortDir={sortDir}
+                onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
+                onSelectAll={() => setAllSelected(true)}
+                topToolbar={{
+                  recordLabel: 'deal',
+                  onAdd: () => router.push('/import'),
+                  onDelete: async (ids) => {
+                    if (allSelected) {
+                      setPendingDeleteIds([])
+                      setDeleteOpen(true)
+                    } else {
+                      setPendingDeleteIds(Array.from(ids))
+                      setDeleteOpen(true)
+                    }
+                  },
+                  searchValue: search,
+                  onSearchChange: setSearch,
+                }}
               />
             </div>
           </div>
         )}
       </div>
+
+      <DeleteDealDialog
+        dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
+        open={deleteOpen}
+        allSelected={allSelected}
+        totalCount={total}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          if (!open) { setPendingDeleteIds([]); setAllSelected(false) }
+        }}
+        onConfirm={async () => {
+          if (allSelected) {
+            await deleteAllDeals({ campaign_id: id, search: debouncedSearch || undefined })
+          } else {
+            await batchDeleteDeals(pendingDeleteIds)
+          }
+          setGridKey((k) => k + 1)
+          queryClient.invalidateQueries({ queryKey: ['deals', { campaign_id: id }] })
+        }}
+      />
     </div>
   )
 }

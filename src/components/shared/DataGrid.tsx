@@ -2,9 +2,10 @@
 
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
 import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 import type { CellAddress, CellRange } from '@/lib/types/grid'
 import { isInAnyRange, cellAddressEqual, rangeNormalize } from '@/lib/types/grid'
@@ -39,7 +40,53 @@ interface DataGridProps<T> {
   editComponents?: Record<number, (props: { value: string; rowIndex: number; onChange: (val: string) => void; onCommit: () => void; onDiscard: () => void; cellEl?: HTMLElement | null }) => React.ReactNode>
   selectedRowIds?: Set<string>
   onSelectionChange?: (ids: Set<string>) => void
+  fillHeight?: boolean
   bulkActions?: (selectedCount: number) => React.ReactNode
+  /** When true, the header checkbox shows "all rows across pages" selected state. */
+  allRowsSelected?: boolean
+  /** Fires when user clicks header checkbox while all visible rows are already selected. */
+  onSelectAll?: () => void
+  /** When true, data is pre-sorted by the server. Client-side sorting is skipped. */
+  serverSide?: boolean
+  /** Controlled sort key (only meaningful with serverSide). */
+  serverSortKey?: string | null
+  /** Controlled sort direction (only meaningful with serverSide). */
+  serverSortDir?: 'asc' | 'desc'
+  /** Fires when user clicks a column header to sort. Parent should refetch. */
+  onSortChange?: (key: string, dir: 'asc' | 'desc') => void
+  /** Selection toolbar — quick icon-only action buttons */
+  selectionActions?: { id: string; icon: React.ReactNode; label: string; onClick: (ids: string[]) => void }[]
+  /** Selection toolbar — 3-dot dropdown menu actions */
+  selectionMenuActions?: { id: string; label: string; onClick: (ids: string[]) => void }[]
+  /** Built-in pagination. Omit to hide (pagination managed externally). */
+  totalRows?: number
+  page?: number
+  pageSize?: number
+  onPageChange?: (page: number) => void
+  onPageSizeChange?: (pageSize: number) => void
+  pageSizes?: number[]
+  /** Top toolbar — actions, search, filters. Omit to hide. */
+  topToolbar?: {
+    recordLabel?: string
+    onAdd?: () => void
+    onDelete?: (ids: string[]) => void
+    actions?: { id: string; icon: React.ReactNode; label: string; onClick: () => void }[]
+    searchValue?: string
+    onSearchChange?: (value: string) => void
+    searchPlaceholder?: string
+    menuActions?: { id: string; label: string; onClick: () => void }[]
+  }
+  /** Column filters shown in top toolbar. Each renders as a dropdown. */
+  filters?: {
+    id: string
+    label: string
+    options: { value: string; label: string }[]
+    value: string | null
+    onChange: (value: string | null) => void
+  }[]
+  /** External search/filter chip count. Render badge on filter button. */
+  activeFilterCount?: number
+  onClearFilters?: () => void
 }
 
 const CHECKBOX_COL_W = 40
@@ -50,9 +97,10 @@ const S = {
   footerH: 32,
   checkboxW: CHECKBOX_COL_W,
   rowNumW: 44,
-  headerBg: 'var(--color-surface-1)',
-  headerText: 'var(--color-text-tertiary)',
-  headerBorder: 'var(--color-surface-3)',
+  headerBg: 'var(--color-surface-3)',
+  headerText: 'var(--color-text-secondary)',
+  headerBorder: 'var(--color-surface-2)',
+  headerTextActive: 'var(--color-text-primary)',
   rowEvenBg: 'var(--color-surface-0)',
   rowOddBg: 'var(--color-surface-1)',
   rowBorder: 'var(--color-surface-2)',
@@ -120,17 +168,12 @@ const RowRenderer = memo(function RowRendererInner<T>({
         className="flex-shrink-0 sticky left-0 z-20 flex items-center justify-center border-r select-none"
         style={{
           width: S.checkboxW, height: S.rowH,
-          borderColor: S.rowBorder, background: 'transparent',
+          borderColor: S.rowBorder, background: rowBg,
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <label className="flex items-center justify-center cursor-pointer" style={{ width: 18, height: 18 }}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            className="sr-only"
-            onChange={() => onCheckboxToggle(rowIndex)}
-          />
+        <label className="flex items-center justify-center cursor-pointer" style={{ width: 18, height: 18 }} onClick={(e) => { e.preventDefault(); onCheckboxToggle(rowIndex) }}>
+          {/* selection toggled via label onClick — avoids controlled-checkbox timing quirks */}
           <div
             className="flex items-center justify-center rounded transition-colors"
             style={{
@@ -147,7 +190,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
       {/* Row number */}
       <div
         className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 text-[11px] border-r select-none tabular-nums"
-        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: 'transparent', color: S.rowNumText }}
+        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: rowBg, color: S.rowNumText }}
       >
         {rowIndex + 1}
       </div>
@@ -275,6 +318,750 @@ const RowRenderer = memo(function RowRendererInner<T>({
   return true
 })
 
+/** Page-size selector with "Custom…" option. */
+function PageSizeSelector({
+  pageSize, pageSizes, onPageSizeChange,
+}: {
+  pageSize: number
+  pageSizes: number[]
+  onPageSizeChange?: (size: number) => void
+}) {
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customValue, setCustomValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const isCustom = !pageSizes.includes(pageSize)
+
+  const options = isCustom
+    ? [...pageSizes, pageSize].sort((a, b) => a - b)
+    : pageSizes
+
+  useEffect(() => {
+    if (customOpen) {
+      setCustomValue(String(pageSize))
+      setTimeout(() => inputRef.current?.select(), 0)
+    }
+  }, [customOpen, pageSize])
+
+  const applyCustom = () => {
+    const n = parseInt(customValue, 10)
+    if (n >= 1 && n <= 5000) {
+      onPageSizeChange?.(n)
+    }
+    setCustomOpen(false)
+  }
+
+  const largeThreshold = 500
+  const isLarge = parseInt(customValue, 10) > largeThreshold
+
+  return (
+    <div className="flex items-center gap-1.5 text-[12px] relative" style={{ color: 'var(--color-text-tertiary)' }}>
+      <span>Rows</span>
+      {customOpen ? (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="number"
+            min={1}
+            max={5000}
+            value={customValue}
+            onChange={(e) => setCustomValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); if (e.key === 'Escape') setCustomOpen(false) }}
+            onBlur={applyCustom}
+            className="w-[64px] h-[28px] px-2 rounded-md bg-transparent border-none outline-none text-[12px] tabular-nums"
+            style={{
+              color: 'var(--color-text-primary)',
+              fontFamily: 'var(--font-jetbrains-mono)',
+              background: 'var(--color-surface-0)',
+              border: `1.5px solid ${isLarge ? 'var(--color-warning, #f59e0b)' : 'var(--accent)'}`,
+              boxShadow: isLarge ? '0 0 0 3px var(--color-warning-bg, #fef3c7)' : '0 0 0 3px var(--color-accent-bg)',
+            }}
+          />
+          {isLarge && (
+            <div
+              className="absolute bottom-full left-0 mb-1 px-2 py-0.5 rounded text-[10px] whitespace-nowrap z-50"
+              style={{
+                background: 'var(--color-warning, #f59e0b)',
+                color: '#000',
+                fontWeight: 500,
+              }}
+            >
+              Rendering may slow down
+              <div
+                className="absolute top-full left-3 -mt-px"
+                style={{
+                  width: 0, height: 0,
+                  borderLeft: '4px solid transparent',
+                  borderRight: '4px solid transparent',
+                  borderTop: `4px solid var(--color-warning, #f59e0b)`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <Select
+          value={String(pageSize)}
+          onValueChange={(v) => {
+            if (v === 'custom') { setCustomOpen(true); return }
+            onPageSizeChange?.(Number(v))
+          }}
+        >
+          <SelectTrigger className="h-[28px] w-[72px] text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((ps) => (
+              <SelectItem key={ps} value={String(ps)}>{ps}</SelectItem>
+            ))}
+            <SelectItem value="custom">Custom…</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  )
+}
+
+/** Unified bottom toolbar — row count, selection actions, pagination. */
+function Toolbar({
+  sortedDataLength,
+  sortKey,
+  sortColumnHeader,
+  defaultSortKey,
+  selectedCount,
+  selectedIds,
+  selectionActions,
+  selectionMenuActions,
+  bulkActions,
+  onClearSelection,
+  pagination,
+}: {
+  sortedDataLength: number
+  sortKey: string | null
+  sortColumnHeader: string | undefined
+  defaultSortKey?: string
+  selectedCount: number
+  selectedIds: string[]
+  selectionActions?: { id: string; icon: React.ReactNode; label: string; onClick: (ids: string[]) => void }[]
+  selectionMenuActions?: { id: string; label: string; onClick: (ids: string[]) => void }[]
+  bulkActions?: (selectedCount: number) => React.ReactNode
+  onClearSelection: () => void
+  pagination?: {
+    totalRows: number
+    page: number
+    pageSize: number
+    onPageChange: (page: number) => void
+    onPageSizeChange?: (pageSize: number) => void
+    pageSizes: number[]
+  }
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  const tb = {
+    h: 40,
+    bg: 'var(--color-surface-1)',
+    border: 'var(--color-surface-2)',
+    text: 'var(--color-text-tertiary)',
+    textPrimary: 'var(--color-text-primary)',
+    accent: 'var(--accent)',
+    accentBg: 'var(--color-accent-bg)',
+  } as const
+
+  const btnBase = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    height: 28, width: 28, borderRadius: 'var(--radius-sm)',
+    border: 'none', cursor: 'pointer', flexShrink: 0,
+    background: 'transparent', color: tb.text,
+    transition: 'background 120ms, color 120ms',
+  } as const
+
+  return (
+    <div
+      className="flex items-center border-t select-none gap-2"
+      style={{ height: tb.h, background: tb.bg, borderColor: tb.border, padding: '0 8px 0 12px' }}
+    >
+      {/* Left — row count or selection info */}
+      <div className="flex items-center gap-2 flex-shrink-0" style={{ minWidth: 0 }}>
+        {selectedCount > 0 ? (
+          <>
+            <button
+              onClick={onClearSelection}
+              style={btnBase}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              title="Clear selection"
+            >
+              <Check className="h-3.5 w-3.5" style={{ color: tb.accent }} strokeWidth={3} />
+            </button>
+            <span className="text-[12px] font-medium whitespace-nowrap" style={{ color: tb.textPrimary }}>
+              {selectedCount.toLocaleString()} selected
+            </span>
+          </>
+        ) : (
+          <span className="text-[12px] whitespace-nowrap" style={{ color: tb.text, fontFamily: 'var(--font-jetbrains-mono)' }}>
+            {sortedDataLength.toLocaleString()} row{sortedDataLength !== 1 ? 's' : ''}
+            {sortedDataLength > 0 && sortKey && sortKey !== defaultSortKey && (
+              <span style={{ color: 'var(--color-text-secondary)' }}>
+                {' · sorted by '}{sortColumnHeader ?? sortKey}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+
+      {/* Center — quick action buttons + 3-dot menu (only when selection active) */}
+      {selectedCount > 0 && (
+        <div className="flex items-center gap-0.5 flex-1 justify-center">
+          {selectionActions?.map((a) => (
+            <button
+              key={a.id}
+              style={btnBase}
+              onClick={() => a.onClick(selectedIds)}
+              title={a.label}
+              onMouseEnter={(e) => { e.currentTarget.style.background = tb.accentBg; e.currentTarget.style.color = tb.accent }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tb.text }}
+            >
+              {a.icon}
+            </button>
+          ))}
+          {bulkActions?.(selectedCount)}
+          {selectionMenuActions && selectionMenuActions.length > 0 && (
+            <div ref={menuRef} className="relative">
+              <button
+                style={btnBase}
+                onClick={() => setMenuOpen(!menuOpen)}
+                title="More actions"
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+                onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = 'transparent' }}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+              {menuOpen && (
+                <div
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 rounded-lg shadow-lg py-1 z-50 min-w-[140px]"
+                  style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-3)' }}
+                >
+                  {selectionMenuActions.map((m) => (
+                    <button
+                      key={m.id}
+                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                      onClick={() => { m.onClick(selectedIds); setMenuOpen(false) }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Right — pagination */}
+      {pagination && (
+        <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+          <PageSizeSelector
+            pageSize={pagination.pageSize}
+            pageSizes={pagination.pageSizes}
+            onPageSizeChange={(v) => pagination.onPageSizeChange?.(v)}
+          />
+          <PaginationPages
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.totalRows}
+            onPageChange={pagination.onPageChange}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Compact page-number controls with a central page-input. */
+function PaginationPages({
+  page, pageSize, total, onPageChange,
+}: {
+  page: number
+  pageSize: number
+  total: number
+  onPageChange: (p: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const end = Math.min(page * pageSize, total)
+
+  const pages = useMemo(() => {
+    const p: (number | '...')[] = []
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
+        p.push(i)
+      } else if (p[p.length - 1] !== '...') {
+        p.push('...')
+      }
+    }
+    return p
+  }, [page, totalPages])
+
+  const btnStyle = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    height: 26, minWidth: 26, padding: '0 4px', borderRadius: 'var(--radius-sm)',
+    border: 'none', cursor: 'pointer', fontSize: 12, flexShrink: 0,
+    background: 'transparent', color: 'var(--color-text-secondary)',
+    fontFamily: 'var(--font-jetbrains-mono)',
+    transition: 'background 120ms',
+  } as const
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <span className="text-[11px] mr-1" style={{ color: 'var(--color-text-tertiary)' }}>
+        {start.toLocaleString()}–{end.toLocaleString()} of {total.toLocaleString()}
+      </span>
+      <button
+        style={btnStyle}
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+        onMouseEnter={(e) => { if (page > 1) e.currentTarget.style.background = 'var(--color-surface-2)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+      </button>
+      {pages.map((p, i) =>
+        p === '...' ? (
+          <span key={`dots-${i}`} className="px-0.5 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>…</span>
+        ) : p === page ? (
+          <PageInput
+            key={`page-input`}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+          />
+        ) : (
+          <button
+            key={p}
+            style={btnStyle}
+            onClick={() => onPageChange(p)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        style={btnStyle}
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+        onMouseEnter={(e) => { if (page < totalPages) e.currentTarget.style.background = 'var(--color-surface-2)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
+/** Controlled page-number input — keystroke-filtered via onKeyDown, clamped on blur. */
+function PageInput({
+  page, totalPages, onPageChange,
+}: {
+  page: number
+  totalPages: number
+  onPageChange: (p: number) => void
+}) {
+  const [value, setValue] = useState(String(page))
+  const [focused, setFocused] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Sync display when page changes externally (prev/next clicks)
+  useEffect(() => {
+    if (!focused) setValue(String(page))
+  }, [page, focused])
+
+  const commit = useCallback((v: string) => {
+    const n = parseInt(v, 10)
+    if (!isNaN(n) && n >= 1 && n <= totalPages && n !== page) {
+      onPageChange(n)
+    } else {
+      setValue(String(page))
+    }
+  }, [page, totalPages, onPageChange])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const allowed = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Tab']
+
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit(value)
+      inputRef.current?.blur()
+      return
+    }
+    if (e.key === 'Escape') {
+      setValue(String(page))
+      inputRef.current?.blur()
+      return
+    }
+
+    // Reject non-numeric keys (allow navigation + delete keys)
+    if (!/^\d$/.test(e.key) && !allowed.includes(e.key)) {
+      e.preventDefault()
+    }
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Safety net: strip any non-digits that slipped through (paste, IME, etc.)
+    const cleaned = e.target.value.replace(/\D/g, '')
+    if (cleaned.length <= 6) setValue(cleaned)
+  }
+
+  const handleBlur = () => {
+    setFocused(false)
+    commit(value)
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="numeric"
+      value={value}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      onFocus={() => setFocused(true)}
+      onBlur={handleBlur}
+      className="text-center outline-none rounded-sm"
+      title={`Page ${page} of ${totalPages}`}
+      style={{
+        height: 26, width: 36,
+        padding: 0,
+        background: 'var(--color-surface-0)',
+        border: '1px solid var(--color-surface-3)',
+        color: 'var(--color-text-primary)',
+        fontSize: 12, fontWeight: 500,
+        fontFamily: 'var(--font-jetbrains-mono)',
+        borderRadius: 'var(--radius-sm)',
+      }}
+    />
+  )
+}
+
+/** Top toolbar — search on left, actions + filters + 3-dot menu on right. */
+function TopToolbar({
+  recordLabel = 'record',
+  selectedCount,
+  selectedIds,
+  onAdd,
+  onDelete,
+  onClearSelection,
+  onClearSort,
+  sortKey,
+  sortColumnHeader,
+  defaultSortKey,
+  actions,
+  menuActions,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  filters,
+  activeFilterCount,
+  onClearFilters,
+}: {
+  recordLabel?: string
+  selectedCount: number
+  selectedIds: string[]
+  onAdd?: () => void
+  onDelete?: (ids: string[]) => void
+  onClearSelection: () => void
+  onClearSort?: () => void
+  sortKey?: string | null
+  sortColumnHeader?: string
+  defaultSortKey?: string
+  actions?: { id: string; icon: React.ReactNode; label: string; onClick: () => void }[]
+  menuActions?: { id: string; label: string; onClick: () => void }[]
+  searchValue?: string
+  onSearchChange?: (value: string) => void
+  searchPlaceholder?: string
+  filters?: { id: string; label: string; options: { value: string; label: string }[]; value: string | null; onChange: (value: string | null) => void }[]
+  activeFilterCount?: number
+  onClearFilters?: () => void
+}) {
+  const [searchFocused, setSearchFocused] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  const st = {
+    h: 44,
+    bg: 'var(--color-surface-0)',
+    border: 'var(--color-surface-2)',
+    textMuted: 'var(--color-text-tertiary)',
+    text: 'var(--color-text-secondary)',
+    accent: 'var(--accent)',
+    accentBg: 'var(--color-accent-bg)',
+    danger: 'var(--color-danger, #ef4444)',
+    dangerBg: 'var(--color-danger-bg, #fef2f2)',
+  } as const
+
+  const iconButton = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    height: 30, width: 30, borderRadius: 'var(--radius-sm)',
+    border: 'none', cursor: 'pointer', flexShrink: 0,
+    fontSize: 12, fontWeight: 500,
+    background: 'transparent', color: st.text,
+    transition: 'background 120ms, color 120ms',
+  } as const
+
+  const hoverBg = (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'var(--color-surface-2)' }
+  const resetBg = (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.background = 'transparent' }
+
+  return (
+    <div
+      className="flex items-center border-b select-none gap-2"
+      style={{ height: st.h, background: st.bg, borderColor: st.border, padding: '0 6px' }}
+    >
+      {/* ── Left: Search bar (prominent, always outlined) ── */}
+      {onSearchChange != null ? (
+        <div
+          className="flex items-center gap-1.5 px-3 rounded-md transition-all flex-shrink-0"
+          style={{
+            height: 32, width: '100%', maxWidth: 400,
+            background: searchFocused ? 'var(--color-surface-1)' : 'var(--color-surface-0)',
+            border: searchFocused
+              ? `1.5px solid ${st.accent}`
+              : `1.5px solid var(--color-surface-3)`,
+            boxShadow: searchFocused ? `0 0 0 3px ${st.accentBg}` : 'none',
+          }}
+        >
+          <Search className="h-3.5 w-3.5 flex-shrink-0" style={{ color: searchFocused ? st.accent : st.textMuted }} />
+          <input
+            ref={inputRef}
+            type="text"
+            value={searchValue ?? ''}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            placeholder={searchPlaceholder ?? `Search ${recordLabel}s...`}
+            className="flex-1 bg-transparent border-none outline-none text-[13px] min-w-0"
+            style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}
+          />
+          {searchValue && (
+            <button
+              onClick={() => { onSearchChange(''); inputRef.current?.focus() }}
+              style={{ ...iconButton, width: 20, height: 20, borderRadius: '50%' }}
+              onMouseEnter={hoverBg}
+              onMouseLeave={resetBg}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      ) : (
+        <div />
+      )}
+
+      {/* Dynamic spacer — pushes actions to far right */}
+      <div className="flex-1" />
+
+      {/* ── Right: Action buttons + 3-dot menu + filters ── */}
+      <div className="flex items-center gap-0.5 flex-shrink-0">
+        {/* Clear sort — only when user changed from default */}
+        {sortKey && sortKey !== defaultSortKey && onClearSort && (
+          <button
+            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
+            onClick={onClearSort}
+            title={`Clear sort (${sortColumnHeader ?? sortKey})`}
+            onMouseEnter={hoverBg}
+            onMouseLeave={resetBg}
+          >
+            <ArrowUpDown className="h-3 w-3" />
+            <span className="text-[11px]">Clear sort</span>
+          </button>
+        )}
+
+        {/* Clear selection */}
+        {selectedCount > 0 && (
+          <button
+            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
+            onClick={onClearSelection}
+            onMouseEnter={hoverBg}
+            onMouseLeave={resetBg}
+          >
+            <X className="h-3 w-3" />
+            <span className="text-[11px]">Clear selection</span>
+          </button>
+        )}
+
+        {/* Delete */}
+        {onDelete && (
+          <button
+            style={{
+              ...iconButton,
+              width: 'auto', padding: '0 8px', gap: 3,
+              background: selectedCount > 0 ? st.dangerBg : 'transparent',
+              color: selectedCount > 0 ? st.danger : st.text,
+              opacity: selectedCount > 0 ? 1 : 0.3,
+              pointerEvents: selectedCount > 0 ? 'auto' : 'none',
+            }}
+            onClick={() => onDelete(selectedIds)}
+            title={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}
+            onMouseEnter={(e) => {
+              if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = '#FFF' }
+            }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
+          >
+            <Trash2 className="h-3 w-3" />
+            <span className="text-[11px]">Delete {recordLabel}</span>
+          </button>
+        )}
+
+        {/* Add */}
+        {onAdd && (
+          <button
+            style={{ ...iconButton, width: 'auto', padding: '0 10px', gap: 5, background: st.accent, color: 'var(--color-text-inverse)' }}
+            onClick={onAdd}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9' }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>New {recordLabel}</span>
+          </button>
+        )}
+
+        {/* Custom icon actions */}
+        {actions?.map((a) => (
+          <button
+            key={a.id}
+            style={iconButton}
+            onClick={a.onClick}
+            title={a.label}
+            onMouseEnter={hoverBg}
+            onMouseLeave={resetBg}
+          >
+            {a.icon}
+          </button>
+        ))}
+
+        {/* 3-dot menu — always visible, icon only */}
+        <div ref={menuRef} className="relative">
+          <button
+            style={iconButton}
+            onClick={() => setMenuOpen(!menuOpen)}
+            title="More actions"
+            onMouseEnter={hoverBg}
+            onMouseLeave={(e) => { if (!menuOpen) resetBg(e) }}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute top-full right-0 mt-1 rounded-lg shadow-lg py-1 z-50 min-w-[150px]"
+              style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-3)' }}
+            >
+              {(menuActions && menuActions.length > 0
+                ? menuActions.map((m) => (
+                    <button
+                      key={m.id}
+                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                      onClick={() => { m.onClick(); setMenuOpen(false) }}
+                    >
+                      {m.label}
+                    </button>
+                  ))
+                : [
+                    { id: 'export', label: 'Export CSV' },
+                    { id: 'archive', label: 'Archive all' },
+                    { id: 'columns', label: 'Manage columns' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      {m.label}
+                    </button>
+                  ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Divider — before filters */}
+        {filters?.length ? (
+          <div className="w-px h-5 mx-1 flex-shrink-0" style={{ background: st.border }} />
+        ) : null}
+
+        {/* Filter dropdowns */}
+        {filters?.map((f) => (
+          <Select
+            key={f.id}
+            value={f.value ?? 'all'}
+            onValueChange={(v) => f.onChange(v === 'all' ? null : v)}
+          >
+            <SelectTrigger
+              className="h-[28px] text-[12px] gap-1"
+              style={{
+                minWidth: 70, maxWidth: 120,
+                borderColor: f.value ? st.accent : 'var(--color-surface-3)',
+                background: f.value ? st.accentBg : 'transparent',
+                color: f.value ? st.accent : st.text,
+              }}
+            >
+              <SlidersHorizontal className="h-3 w-3 flex-shrink-0" />
+              <SelectValue placeholder={f.label} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All {f.label}</SelectItem>
+              {f.options.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ))}
+
+        {/* Clear all filters */}
+        {onClearFilters && (activeFilterCount ?? 0) > 0 && (
+          <button
+            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3, color: st.textMuted }}
+            onClick={onClearFilters}
+            title="Clear all filters"
+            onMouseEnter={(e) => { e.currentTarget.style.color = st.text }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = st.textMuted }}
+          >
+            <X className="h-3 w-3" />
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DataGrid<T>({
   columns,
   data,
@@ -286,6 +1073,7 @@ export function DataGrid<T>({
   emptyAction,
   rowHeight = S.rowH,
   maxHeight = 520,
+  fillHeight = false,
   className,
   editableColumns,
   onCellEdit,
@@ -293,10 +1081,30 @@ export function DataGrid<T>({
   selectedRowIds: controlledSelectedRowIds,
   onSelectionChange,
   bulkActions,
+  allRowsSelected = false,
+  onSelectAll,
+  serverSide = false,
+  serverSortKey,
+  serverSortDir = 'desc',
+  onSortChange,
+  selectionActions,
+  selectionMenuActions,
+  totalRows,
+  page,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+  pageSizes = [25, 50, 100, 250],
+  topToolbar,
+  filters,
+  activeFilterCount,
+  onClearFilters,
 }: DataGridProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [internalSortKey, setInternalSortKey] = useState<string | null>(null)
+  const [internalSortDir, setInternalSortDir] = useState<'asc' | 'desc'>('asc')
+  const sortKey = serverSide ? (serverSortKey ?? null) : internalSortKey
+  const sortDir = serverSide ? serverSortDir : internalSortDir
   const { widths: columnWidths, setWidth: setColumnWidth, autoFitColumn, autoFitSelected } = useColumnWidths()
   const [resizeIndicatorX, setResizeIndicatorX] = useState<number | null>(null)
   const resizingRef = useRef<{
@@ -313,7 +1121,7 @@ export function DataGrid<T>({
   const resolvedSelectedIds = isControlled ? controlledSelectedRowIds! : internalSelectedIds
 
   const sortedData = useMemo(() => {
-    if (!sortKey) return data
+    if (serverSide || !sortKey) return data
     const col = columns.find((c) => c.key === sortKey)
     if (!col) return data
     const getter = col.accessor ?? ((r: T) => (r as Record<string, unknown>)[col.key] as string | number | null | undefined)
@@ -323,7 +1131,19 @@ export function DataGrid<T>({
       const cmp = va < vb ? -1 : va > vb ? 1 : 0
       return sortDir === 'desc' ? -cmp : cmp
     })
-  }, [data, sortKey, sortDir, columns])
+  }, [serverSide, data, sortKey, sortDir, columns])
+
+  // Refs hold latest values so toggleRowSelection stays stable across selection changes.
+  // Without this, RowRenderer memo comparator skips re-render for unselected rows,
+  // leaving them with a stale toggleRowSelection closure that captures old resolvedSelectedIds.
+  const selRef = useRef(resolvedSelectedIds)
+  selRef.current = resolvedSelectedIds
+  const sortedRef = useRef(sortedData)
+  sortedRef.current = sortedData
+  const rowKeyRef = useRef(rowKey)
+  rowKeyRef.current = rowKey
+  const onSelChangeRef = useRef(onSelectionChange)
+  onSelChangeRef.current = onSelectionChange
 
   const allSelected = sortedData.length > 0 && resolvedSelectedIds.size === sortedData.length
   const someSelected = resolvedSelectedIds.size > 0 && !allSelected
@@ -358,7 +1178,7 @@ export function DataGrid<T>({
     overscan: 15,
   })
 
-  const pageSize = useMemo(() => {
+  const virtualPageSize = useMemo(() => {
     if (!scrollRef.current) return 20
     const h = scrollRef.current.getBoundingClientRect().height
     return Math.ceil(h / S.rowH)
@@ -501,7 +1321,7 @@ export function DataGrid<T>({
   const interactConfig = {
     rowCount: sortedData.length,
     colCount: columns.length,
-    pageSize,
+    pageSize: virtualPageSize,
     data: sortedData,
     editableColumns: editableColumns ?? new Set(),
     excludeColIndices,
@@ -523,41 +1343,65 @@ export function DataGrid<T>({
   const { state, dispatch } = interaction
 
   const toggleRowSelection = useCallback((rowIndex: number) => {
-    const id = rowKey(sortedData[rowIndex]!, rowIndex)
-    const next = new Set(resolvedSelectedIds)
+    const id = rowKeyRef.current(sortedRef.current[rowIndex]!, rowIndex)
+    const next = new Set(selRef.current)
     if (next.has(id)) {
       next.delete(id)
     } else {
       next.add(id)
     }
     if (!isControlled) setInternalSelectedIds(next)
-    onSelectionChange?.(next)
+    onSelChangeRef.current?.(next)
     // Spec §4.8: clicking checkbox does NOT affect selectionRanges
-  }, [resolvedSelectedIds, sortedData, rowKey, isControlled, onSelectionChange])
+  }, [isControlled])
+
+  // Tracks whether onSelectAll fired but parent hasn't re-rendered with allRowsSelected=true yet.
+  const selectAllPendingRef = useRef(false)
 
   const toggleAllRows = useCallback(() => {
-    if (resolvedSelectedIds.size === sortedData.length) {
+    // Parent batched setState from prior onSelectAll may not have committed yet.
+    // If we called onSelectAll and allRowsSelected is still false, treat this click as deselect.
+    if (selectAllPendingRef.current && !allRowsSelected) {
+      selectAllPendingRef.current = false
       const next = new Set<string>()
       if (!isControlled) setInternalSelectedIds(next)
-      onSelectionChange?.(next)
-    } else {
-      const next = new Set(sortedData.map((r, i) => rowKey(r, i)))
-      if (!isControlled) setInternalSelectedIds(next)
-      onSelectionChange?.(next)
+      onSelChangeRef.current?.(next)
+      return
     }
-  }, [resolvedSelectedIds, sortedData, rowKey, isControlled, onSelectionChange])
+
+    const sel = selRef.current
+    const rows = sortedRef.current
+    if (allRowsSelected || (sel.size === rows.length && rows.length > 0)) {
+      // All rows (across pages or on page) → deselect everything
+      selectAllPendingRef.current = false
+      const next = new Set<string>()
+      if (!isControlled) setInternalSelectedIds(next)
+      onSelChangeRef.current?.(next)
+    } else {
+      // Nothing or partial → select all on page
+      selectAllPendingRef.current = false
+      const next = new Set(rows.map((r, i) => rowKeyRef.current(r, i)))
+      if (!isControlled) setInternalSelectedIds(next)
+      onSelChangeRef.current?.(next)
+    }
+  }, [allRowsSelected, isControlled, onSelectAll])
 
   const onSort = useCallback((key: string) => {
+    if (serverSide) {
+      const newDir = sortKey === key && sortDir === 'asc' ? 'desc' : 'asc'
+      onSortChange?.(key, newDir)
+      return
+    }
     if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      setInternalSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
-      setSortDir('asc')
+      setInternalSortDir('asc')
       if (!isControlled) setInternalSelectedIds(new Set())
       onSelectionChange?.(new Set())
       dispatch({ type: 'CLEAR_SELECTION' })
     }
-    setSortKey(key)
-  }, [sortKey, isControlled, onSelectionChange, dispatch])
+    setInternalSortKey(key)
+  }, [serverSide, sortKey, sortDir, isControlled, onSelectionChange, onSortChange, dispatch])
 
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -724,26 +1568,8 @@ export function DataGrid<T>({
     dispatch({ type: 'SET_DRAFT', value: val })
   }, [dispatch])
 
-  if (!loading && sortedData.length === 0) {
-    return (
-      <div className={`rounded-lg border ${className ?? ''}`} style={{ borderColor: S.containerBorder, background: S.rowEvenBg }}>
-        <div className="flex flex-col items-center justify-center py-16 text-[13px] select-none gap-3" style={{ color: S.cellText }}>
-          <span>{emptyMessage}</span>
-          {emptyAction && (
-            <button
-              onClick={emptyAction.onClick}
-              className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
-              style={{ background: 'var(--color-accent)', color: '#fff' }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9' }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-            >
-              {emptyAction.label}
-            </button>
-          )}
-        </div>
-      </div>
-    )
-  }
+  const hasActiveFilter = (topToolbar?.searchValue && topToolbar.searchValue.length > 0) || (filters?.some((f) => f.value != null)) || false
+  const showEmptyState = !loading && sortedData.length === 0
 
   const sortIcon = (col: ColumnDef<T>) => {
     const isSorted = sortKey === col.key
@@ -763,14 +1589,44 @@ export function DataGrid<T>({
   return (
     <div
       ref={gridRef}
-      className={`rounded-lg border overflow-hidden relative ${className ?? ''}`}
+      className={`rounded-lg border overflow-hidden relative ${fillHeight ? 'h-full flex flex-col' : ''} ${className ?? ''}`}
       style={{ borderColor: S.containerBorder, background: S.rowEvenBg }}
       suppressHydrationWarning
     >
+      {/* Top toolbar — actions, search, filters */}
+      {topToolbar && (
+        <TopToolbar
+          recordLabel={topToolbar.recordLabel}
+          selectedCount={resolvedSelectedIds.size}
+          selectedIds={[...resolvedSelectedIds]}
+          onAdd={topToolbar.onAdd}
+          onDelete={topToolbar.onDelete}
+          onClearSelection={() => {
+            const next = new Set<string>()
+            if (!isControlled) setInternalSelectedIds(next)
+            onSelectionChange?.(next)
+          }}
+          actions={topToolbar.actions}
+          menuActions={topToolbar.menuActions}
+          onClearSort={serverSide
+            ? () => onSortChange?.('', 'desc')
+            : () => { setInternalSortKey(null); setInternalSortDir('asc') }}
+          sortKey={sortKey}
+          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
+          defaultSortKey="created_at"
+          searchValue={topToolbar.searchValue}
+          onSearchChange={topToolbar.onSearchChange}
+          searchPlaceholder={topToolbar.searchPlaceholder}
+          filters={filters}
+          activeFilterCount={activeFilterCount}
+          onClearFilters={onClearFilters}
+        />
+      )}
+
       <div
         ref={scrollRef}
         className="overflow-auto"
-        style={{ maxHeight }}
+        style={fillHeight ? { flex: '1 1 0', minHeight: 0 } : { maxHeight }}
         suppressHydrationWarning
       >
         <div
@@ -791,23 +1647,27 @@ export function DataGrid<T>({
               style={{ width: S.checkboxW, height: S.headerH, background: S.headerBg, borderColor: S.headerBorder }}
               onClick={(e) => e.stopPropagation()}
             >
-              <label className="flex items-center justify-center cursor-pointer" style={{ width: 18, height: 18 }}>
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  className="sr-only"
-                  onChange={toggleAllRows}
-                />
+              <label
+                className="flex items-center justify-center cursor-pointer"
+                style={{ width: 18, height: 18 }}
+                title={allRowsSelected || allSelected ? 'All rows selected. Click to clear.' : 'Select all on page'}
+                onClick={(e) => { e.preventDefault(); toggleAllRows() }}
+              >
                 <div
                   className="flex items-center justify-center rounded transition-colors"
                   style={{
                     width: 16, height: 16,
-                    border: `1.5px solid ${allSelected || someSelected ? S.accent : 'var(--color-surface-3)'}`,
-                    background: allSelected ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
+                    border: `1.5px solid ${allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) || someSelected ? S.accent : 'var(--color-text-tertiary)'}`,
+                    background: allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
                   }}
                 >
-                  {allSelected && <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />}
-                  {someSelected && <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />}
+                  {allRowsSelected && resolvedSelectedIds.size > 0 ? (
+                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
+                  ) : allSelected ? (
+                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
+                  ) : someSelected ? (
+                    <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
+                  ) : null}
                 </div>
               </label>
             </div>
@@ -884,8 +1744,40 @@ export function DataGrid<T>({
           </div>
 
           {/* Body */}
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {loading
+          <div style={{ height: showEmptyState ? 120 : virtualizer.getTotalSize(), position: 'relative' }}>
+            {showEmptyState ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 select-none" style={{ color: S.cellText }}>
+                <span className="text-[13px]">
+                  {hasActiveFilter
+                    ? `No results for '${topToolbar?.searchValue ?? ''}'`
+                    : emptyMessage}
+                </span>
+                {hasActiveFilter ? (
+                  <button
+                    onClick={() => {
+                      topToolbar?.onSearchChange?.('')
+                      onClearFilters?.()
+                    }}
+                    className="text-[12px] font-medium px-3 py-1 rounded-md transition-colors"
+                    style={{ color: 'var(--accent)', background: 'var(--color-accent-bg)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-accent)'; e.currentTarget.style.color = '#fff' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
+                  >
+                    Clear filter
+                  </button>
+                ) : emptyAction ? (
+                  <button
+                    onClick={emptyAction.onClick}
+                    className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
+                    style={{ background: 'var(--color-accent)', color: '#fff' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+                  >
+                    {emptyAction.label}
+                  </button>
+                ) : null}
+              </div>
+            ) : loading
               ? virtualizer.getVirtualItems().map((vi) => (
                   <div
                     key={vi.key}
@@ -1013,52 +1905,28 @@ export function DataGrid<T>({
         </div>
       )}
 
-      {/* Footer */}
-      {!loading && (
-        <div
-          className="flex items-center px-3 border-t text-[11px] select-none"
-          style={{ height: S.footerH, background: S.footerBg, borderColor: S.footerBorder, color: S.rowNumText, fontFamily: 'var(--font-jetbrains-mono)' }}
-        >
-          {sortedData.length.toLocaleString()} row{sortedData.length !== 1 ? 's' : ''}
-          {sortKey && (
-            <span style={{ color: S.cellText }}>
-              {' · sorted by '}{columns.find((c) => c.key === sortKey)?.header ?? sortKey}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Bulk actions bar */}
-      {resolvedSelectedIds.size > 0 && (
-        <div
-          className="flex items-center justify-between px-4 border-t select-none"
-          style={{
-            height: 44,
-            background: 'var(--color-accent-bg)',
-            borderColor: S.accent,
+      {/* Toolbar — row count / selection actions / pagination */}
+      <Toolbar
+          sortedDataLength={sortedData.length}
+          sortKey={sortKey}
+          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
+          defaultSortKey="created_at"
+          selectedCount={resolvedSelectedIds.size}
+          selectedIds={[...resolvedSelectedIds]}
+          selectionActions={selectionActions}
+          selectionMenuActions={selectionMenuActions}
+          bulkActions={bulkActions}
+          onClearSelection={() => {
+            const next = new Set<string>()
+            if (!isControlled) setInternalSelectedIds(next)
+            onSelectionChange?.(next)
           }}
-        >
-          <span className="text-[13px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-            {resolvedSelectedIds.size} selected
-          </span>
-          <div className="flex items-center gap-2">
-            {bulkActions?.(resolvedSelectedIds.size)}
-            <button
-              onClick={() => {
-                const next = new Set<string>()
-                if (!isControlled) setInternalSelectedIds(next)
-                onSelectionChange?.(next)
-              }}
-              className="text-[12px] font-medium px-3 py-1.5 rounded transition-colors"
-              style={{ color: 'var(--color-text-secondary)', background: 'var(--color-surface-1)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)' }}
-            >
-              Clear selection
-            </button>
-          </div>
-        </div>
-      )}
+          pagination={
+            totalRows != null && page != null && pageSize != null && onPageChange
+              ? { totalRows, page, pageSize, onPageChange, onPageSizeChange, pageSizes }
+              : undefined
+          }
+        />
 
       {/* Resize drag indicator */}
       {resizeIndicatorX !== null && (

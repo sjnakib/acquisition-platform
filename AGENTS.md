@@ -19,6 +19,7 @@ Next.js 16 — APIs, conventions, and file structure differ from training data. 
 **Gotcha:** `supabase migration up` does NOT exist (CLI v2). Use `supabase db push`.
 **Gotcha:** `supabase gen types` uses `--project-ref` (NOT `--project-id`). Output redirection is broken — `src/lib/supabase/types.ts` is a manual placeholder with real enums but `Record<string, unknown>` for table rows. No Supabase client file passes the `Database` type param.
 **Gotcha:** No test files exist yet. Vitest is configured (`vitest.config.ts`, node env, globals) but suite is empty.
+**Gotcha:** No `typecheck` / `tsc` script in `package.json`. Run `npx tsc --noEmit` manually for type validation.
 
 ## Auth & Routing
 
@@ -38,7 +39,8 @@ Next.js 16 — APIs, conventions, and file structure differ from training data. 
 ## Architecture
 
 - **Supabase layer:** `src/lib/supabase/` — `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (session refresh), `admin.ts` (service role), `types.ts` (manual placeholder).
-- **Hooks:** `src/lib/hooks/` (7 files): `useAuth`, `useCampaigns`, `useCallQueue`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`.
+- **Hooks:** `src/lib/hooks/` (7 files): `useAuth`, `useCampaigns`, `useCallQueue`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`. Only `useGridInteraction`, `useColumnWidths`, and `usePortfolios` are currently imported — the other 4 are skeleton/placeholder.
+- **`src/lib/stage-machine.ts`** — source of truth for deal stage transitions. `canTransition()` enforces: `failed` only after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
 - **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.
 - **Tailwind CSS v4** with `@tailwindcss/postcss` — no `tailwind.config.ts`. `tw-animate-css` plugin.
@@ -79,5 +81,6 @@ Components may already exist in `src/components/` — check before building.
 - Import wizard: **fully wired** — upload → preview → confirm → poll status (3-step flow with `CoStarImportWizard`).
 - Client calls page: missing `client_notes` textarea.
 - `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx`: hardcoded Tailwind palette colors (`text-slate-*`, `bg-blue-600`, `bg-white`, etc.) — need `var(--color-*)` remediation (see `docs/architecture/ui.md`).
+- `deals/[id]/page.tsx`: deal detail tabs all show placeholder JSON — not wired to any tab components. Also uses hardcoded Tailwind classes (`bg-white`, `border-slate-200`, `text-slate-*`).
 - Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI spec (mandates inline `<script>` + `localStorage`). Do NOT add more `next-themes` usage.
 - `DataGrid.tsx` (~47KB) + `useGridInteraction` (~39KB): Excel-like virtualized table with dynamic columns, multi-cell selection, F2 editing, copy/paste.

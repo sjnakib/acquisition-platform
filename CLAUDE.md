@@ -16,6 +16,8 @@ npm run db:types     # regenerate Supabase types (--project-ref, not --project-i
 npm run db:push      # push migrations to linked Supabase project
 npm run db:push:local
 npm run db:reset     # reset + re-seed local DB
+npx tsc --noEmit      # type check (no typecheck script in package.json)
+npm run test -- -t "name"  # run single test matching "name"
 ```
 
 ## Architecture (60-second version)
@@ -132,3 +134,6 @@ Many components built but NOT wired to pages. See AGENTS.md "Implementation Stat
 - Centralized page headings in `src/lib/page-headings.ts`.
 - Deals API response now includes `deal_fields` with nested `field_definitions` join. New code touching deals should include this join for property data.
 - DataGrid `DealTable` now renders ALL `field_definitions` columns (not just `show_in_grid`).
+- `src/lib/stage-machine.ts` — `canTransition()` is source of truth for deal stage transitions. `failed` only valid after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
+- `.env.example` has all required env vars (5 groups: Supabase, Turnstile, Google OAuth, App, Upstash).
+- `next.config.ts` `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
