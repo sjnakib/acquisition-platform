@@ -37,6 +37,38 @@ interface DealTableProps {
   selectedRowIds?: Set<string>
   onSelectionChange?: (ids: Set<string>) => void
   emptyAction?: { label: string; onClick: () => void }
+  maxHeight?: number | string
+  fillHeight?: boolean
+  className?: string
+  // Pagination (built into DataGrid toolbar)
+  totalRows?: number
+  page?: number
+  pageSize?: number
+  onPageChange?: (page: number) => void
+  onPageSizeChange?: (pageSize: number) => void
+  // Selection toolbar actions
+  selectionActions?: { id: string; icon: React.ReactNode; label: string; onClick: (ids: string[]) => void }[]
+  selectionMenuActions?: { id: string; label: string; onClick: (ids: string[]) => void }[]
+  // Top toolbar
+  topToolbar?: {
+    recordLabel?: string
+    onAdd?: () => void
+    onDelete?: (ids: string[]) => void
+    actions?: { id: string; icon: React.ReactNode; label: string; onClick: () => void }[]
+    menuActions?: { id: string; label: string; onClick: () => void }[]
+    searchValue?: string
+    onSearchChange?: (value: string) => void
+    searchPlaceholder?: string
+  }
+  filters?: { id: string; label: string; options: { value: string; label: string }[]; value: string | null; onChange: (value: string | null) => void }[]
+  activeFilterCount?: number
+  onClearFilters?: () => void
+  allRowsSelected?: boolean
+  onSelectAll?: () => void
+  serverSide?: boolean
+  serverSortKey?: string | null
+  serverSortDir?: 'asc' | 'desc'
+  onSortChange?: (key: string, dir: 'asc' | 'desc') => void
 }
 
 const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
@@ -50,7 +82,7 @@ const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent
   archived: 'neutral',
 }
 
-export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelectionChange, emptyAction }: DealTableProps) {
+export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className, totalRows, page, pageSize, onPageChange, onPageSizeChange, selectionActions, selectionMenuActions, topToolbar, filters, activeFilterCount, onClearFilters, allRowsSelected, onSelectAll, serverSide, serverSortKey, serverSortDir, onSortChange }: DealTableProps) {
   const router = useRouter()
 
   const getFieldValue = useCallback((deal: Deal, key: string): string => {
@@ -85,9 +117,9 @@ export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelecti
         render: (r) => <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)' }}>{formatDate(r.created_at)}</span> },
     ]
 
-    // Dynamic columns from field_definitions
+    // Dynamic columns from field_definitions — show ALL imported fields
     if (fieldDefs) {
-      for (const fd of fieldDefs.filter(f => f.show_in_grid)) {
+      for (const fd of fieldDefs) {
         base.push({
           key: fd.key,
           header: fd.label,
@@ -116,6 +148,26 @@ export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelecti
       selectedRowIds={selectedRowIds}
       onSelectionChange={onSelectionChange}
       emptyAction={emptyAction}
+      maxHeight={maxHeight}
+      fillHeight={fillHeight}
+      className={className}
+      totalRows={totalRows}
+      page={page}
+      pageSize={pageSize}
+      onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
+      selectionActions={selectionActions}
+      selectionMenuActions={selectionMenuActions}
+      topToolbar={topToolbar}
+      filters={filters}
+      activeFilterCount={activeFilterCount}
+      onClearFilters={onClearFilters}
+      allRowsSelected={allRowsSelected}
+      onSelectAll={onSelectAll}
+      serverSide={serverSide}
+      serverSortKey={serverSortKey}
+      serverSortDir={serverSortDir}
+      onSortChange={onSortChange}
     />
   )
 }

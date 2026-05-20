@@ -21,7 +21,7 @@ export const usePortfolio = (id: string) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('portfolios')
-        .select('*, deals(*)')
+        .select('*, deals(*, deal_fields(value, field_definitions(key, label, data_type)))')
         .eq('id', id)
         .single()
       if (error) throw error

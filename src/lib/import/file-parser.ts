@@ -33,16 +33,39 @@ async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedFile> {
 
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) {
-      row.eachCell((cell) => headers.push(String(cell.value ?? '').trim()))
+      row.eachCell((cell) => headers.push(String(extractCellValue(cell) ?? '').trim()))
       return
     }
     const obj: Record<string, string> = {}
     row.eachCell((cell, colNumber) => {
       const header = headers[colNumber - 1]
-      if (header) obj[header] = cell.value == null ? '' : String(cell.value)
+      if (header) obj[header] = extractCellValue(cell) ?? ''
     })
     rows.push(obj)
   })
 
   return { headers, rows }
+}
+
+function extractCellValue(cell: ExcelJS.Cell): string | null {
+  const val = cell.value
+  if (val == null) return null
+
+  // Formula cells: { formula: string, result: any } or { sharedFormula: string, result: any }
+  if (typeof val === 'object' && 'result' in val) {
+    return formatValue(val.result)
+  }
+
+  return formatValue(val)
+}
+
+function formatValue(val: ExcelJS.CellValue): string {
+  if (val == null) return ''
+  if (val instanceof Date) return val.toISOString().slice(0, 10)
+  if (typeof val === 'object') {
+    // RichText: array of { text, ... }
+    if (Array.isArray(val)) return val.map((v) => (typeof v === 'object' && 'text' in v ? v.text : String(v))).join('')
+    return String(val)
+  }
+  return String(val)
 }

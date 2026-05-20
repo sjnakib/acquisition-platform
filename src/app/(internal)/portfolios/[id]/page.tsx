@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,12 +10,29 @@ import { DeletePortfolioDialog } from '@/components/portfolios/DeletePortfolioDi
 import { usePortfolio, useDeletePortfolio } from '@/lib/hooks/usePortfolios'
 import { DealTable } from '@/components/deals/DealTable'
 
+interface FieldDef {
+  id: string
+  key: string
+  label: string
+  data_type: string
+  show_in_grid: boolean
+  sort_order: number
+}
+
 export default function PortfolioDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const { data: portfolio, isLoading } = usePortfolio(id)
   const deletePortfolio = useDeletePortfolio()
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([])
+
+  useEffect(() => {
+    fetch('/api/field-definitions')
+      .then((r) => r.json())
+      .then((data) => setFieldDefs(Array.isArray(data) ? data : []))
+      .catch(() => setFieldDefs([]))
+  }, [])
 
   if (isLoading) return <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>
   if (!portfolio) return <EmptyState title="Portfolio not found" />
@@ -52,7 +69,7 @@ export default function PortfolioDetailPage() {
         <EmptyState title="No deals in this portfolio" />
       ) : (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <DealTable deals={deals as any} />
+        <DealTable deals={deals as any} fieldDefs={fieldDefs} />
       )}
 
       <DeletePortfolioDialog

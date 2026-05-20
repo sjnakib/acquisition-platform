@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createCampaignSchema } from '@/lib/validations/campaign.schema'
 
 export async function GET() {
   try {
@@ -31,8 +32,12 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
+    const parsed = createCampaignSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
+    }
     const { data, error } = await supabase.from('campaigns').insert({
-      ...body,
+      ...parsed.data,
       created_by: user.id,
     }).select().single()
 
