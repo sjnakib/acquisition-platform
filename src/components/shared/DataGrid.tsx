@@ -1371,14 +1371,14 @@ export function DataGrid<T>({
 
     const sel = selRef.current
     const rows = sortedRef.current
-    if (allRowsSelected || (sel.size === rows.length && rows.length > 0)) {
-      // All rows (across pages or on page) → deselect everything
+    if (sel.size > 0) {
+      // Any selection (partial, all page, all across pages) → deselect
       selectAllPendingRef.current = false
       const next = new Set<string>()
       if (!isControlled) setInternalSelectedIds(next)
       onSelChangeRef.current?.(next)
     } else {
-      // Nothing or partial → select all on page
+      // Nothing selected → select all on page
       selectAllPendingRef.current = false
       const next = new Set(rows.map((r, i) => rowKeyRef.current(r, i)))
       if (!isControlled) setInternalSelectedIds(next)
