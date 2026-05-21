@@ -3,9 +3,11 @@
 import { useState, useMemo, useRef, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Mail, Target, BarChart3 } from 'lucide-react'
+import { Mail, Target, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Breadcrumb } from '@/components/shared/Breadcrumb'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealTable } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
@@ -89,6 +91,7 @@ function StageBar({ deals }: { deals: Pick<Deal, 'stage'>[] }) {
 
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string; campaignId: string }> }) {
   const { id: projectId, campaignId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<'details' | 'leads'>('leads')
@@ -115,8 +118,6 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       return res.json()
     },
   })
-
-  const backUrl = `/projects/${projectId}/campaigns`
 
   const { data: dealsData, isLoading: dealsLoading } = useQuery<{ data: Deal[]; total: number }>({
     queryKey: ['deals', { campaign_id: campaignId, project_id: projectId, page, pageSize, search: debouncedSearch, sort: sortKey, order: sortDir }],
@@ -169,10 +170,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 130px)' }}>
-      <div className="flex items-center gap-2 flex-shrink-0 mb-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push(backUrl)} className="h-8 w-8">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <Breadcrumb
+        items={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/campaigns` },
+          { label: 'Campaigns', href: `/projects/${projectId}/campaigns` },
+          { label: campaign.name },
+        ]}
+      />
+
+      <div className="flex items-center gap-2 flex-shrink-0 mb-3 mt-1">
         <h1 className="text-[17px] font-medium tracking-[-0.02em] truncate" style={{ fontFamily: 'var(--font-dm-sans)', color: 'var(--color-text-primary)' }}>
           {campaign.name}
         </h1>

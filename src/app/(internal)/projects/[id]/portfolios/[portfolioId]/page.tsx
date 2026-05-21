@@ -2,10 +2,12 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { Breadcrumb } from '@/components/shared/Breadcrumb'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DeletePortfolioDialog } from '@/components/portfolios/DeletePortfolioDialog'
 import { usePortfolio, useDeletePortfolio } from '@/lib/hooks/usePortfolios'
 import { DealTable } from '@/components/deals/DealTable'
@@ -14,6 +16,7 @@ interface FieldDef { id: string; key: string; label: string; data_type: string; 
 
 export default function PortfolioDetailPage({ params }: { params: Promise<{ id: string; portfolioId: string }> }) {
   const { id: projectId, portfolioId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const { data: portfolio, isLoading } = usePortfolio(portfolioId)
   const deletePortfolio = useDeletePortfolio()
@@ -43,10 +46,16 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="max-w-5xl">
-      <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.push(backUrl)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <Breadcrumb
+        items={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/portfolios` },
+          { label: 'Portfolios', href: `/projects/${projectId}/portfolios` },
+          { label: portfolio.name as string },
+        ]}
+      />
+
+      <div className="flex items-center gap-3 mb-6 mt-3">
         <div className="flex-1">
           <h1 className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>{portfolio.name as string}</h1>
           {(portfolio.description as string) && (

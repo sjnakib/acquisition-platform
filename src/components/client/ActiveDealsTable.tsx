@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
@@ -42,7 +43,7 @@ const columns: ColumnDef<Deal>[] = [
   },
 ]
 
-export default function ActiveDealsTable({ projectId }: { projectId?: string }) {
+export default function ActiveDealsTable({ projectId, breadcrumb }: { projectId?: string; breadcrumb?: BreadcrumbItem[] }) {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -59,7 +60,7 @@ export default function ActiveDealsTable({ projectId }: { projectId?: string }) 
 
   return (
     <div>
-      <PageHeader title={pageHeadings.activeDeals.title} description={pageHeadings.activeDeals.description} />
+      <PageHeader title={pageHeadings.activeDeals.title} description={pageHeadings.activeDeals.description} breadcrumb={breadcrumb} />
       <DataGrid
         columns={columns}
         data={deals}

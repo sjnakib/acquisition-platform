@@ -31,7 +31,7 @@ npm run test -- -t "name"  # run single test matching "name"
 
 Three route groups: `(auth)`, `(internal)`, `(client)`. Proxy gates:
 - Unauthenticated → `/login`
-- Authenticated on auth pages → role home (`/dashboard` or `/overview`)
+- Authenticated on auth pages → `/projects` (both roles)
 - Wrong role → redirect to correct home
 - Layout guards in `(internal)/layout.tsx` and `(client)/layout.tsx` reinforce this
 
@@ -48,13 +48,13 @@ Seed users: `test-internal@example.com` / `test-client@example.com` both with `P
 
 RLS is sole access control for user-facing queries. `createAdminClient()` bypasses RLS.
 
-### API route pattern (37 route files in `src/app/api/`)
+### API route pattern (41 route files in `src/app/api/`)
 
 ```
 auth check → CSRF origin check (mutations) → Zod validation → Supabase (anon-key, RLS)
 ```
 
-API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, field-definitions, loi, portfolios, turnstile, underwriting.
+API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, field-definitions, loi, portfolios, projects, turnstile, underwriting.
 
 ### Key libraries
 
@@ -88,9 +88,9 @@ Defined in `next.config.ts`. Adding external APIs/scripts/iframes → update CSP
 
 ### Database (Supabase/Postgres)
 
-- **18 migrations** in `supabase/migrations/` (0001–0018, all applied). 0016 is the v2 schema transform (11-stage → 8-stage `deal_stage` enum, fixed columns → dynamic `deal_fields`). 0018 is `increase_max_rows`.
+- **22 migrations** in `supabase/migrations/` (0001–0022, all applied). 0016 is the v2 schema transform (11-stage → 8-stage `deal_stage` enum, fixed columns → dynamic `deal_fields`). 0019–0022 add projects/sponsors tables and project-scoped RLS.
 - **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
-- Key tables: users (managed by Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios.
+- Key tables: users (managed by Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors.
 - RLS policies in migration 0013 enforce: internal role sees all; client role sees only good/very_good non-archived deals + published call briefs.
 - `get_my_role()` function (migration 0015) used for role checks.
 - Enums (8-stage): `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
@@ -113,12 +113,12 @@ Components live in `src/components/` by domain: `ui/` (shadcn-style primitives),
 
 ## Implementation gaps
 
-Many components built but NOT wired to pages. See AGENTS.md "Implementation Status" section. Before implementing new features, check `src/components/` — the component may exist but be disconnected. Notable gaps:
-- Deal detail page: 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`
+See AGENTS.md "Implementation Status" section for current state. Before implementing new features, check `src/components/` — the component may exist but be disconnected. Notable gaps:
 - Settings: campaign management is placeholder
-- Client calls page: missing `client_notes` textarea
 - `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx` have hardcoded Tailwind palette colors — need remediation to use CSS var tokens
 - Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates `docs/architecture/ui.md` spec
+
+Resolved: Dashboard wired with real components (FunnelMetrics, KPIScorecard, etc). Deal detail page 7 tabs wired to proper components. Import wizard fully wired (3-step flow). Client calls page has `client_notes` textarea.
 
 ## Critical gotchas
 

@@ -20,33 +20,34 @@ Next.js 16.2.6 — APIs, conventions, and file structure differ from training da
 
 **Gotcha:** `supabase migration up` does NOT exist (CLI v2). Use `supabase db push`.
 **Gotcha:** `supabase gen types` uses `--project-ref` (NOT `--project-id`). Output redirection is broken — `src/lib/supabase/types.ts` is a manual placeholder with real enums but `Record<string, unknown>` for table rows. No Supabase client file passes the `Database` type param.
-**Gotcha:** No test files exist yet. Vitest is configured but suite is empty.
+**Gotcha:** No test files exist. Vitest is configured but suite is empty.
 **Gotcha:** `vercel.json` missing (needed for Gmail watch cron).
 
 ## Auth & Routing
 
 - **No `src/middleware.ts`.** `src/proxy.ts` handles session + role routing (Next.js 16 proxy pattern). API routes excluded from matcher.
-- **Route groups:** `(auth)` — login/signup/logout/reset-password, `(internal)` — team views + `/client-view`, `(client)` — CEO/client views.
-- **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → role home (`/dashboard` or `/overview`); wrong role → redirect to correct home. Layout guards in `(internal)/layout.tsx` and `(client)/layout.tsx` reinforce this.
-- **`app/page.tsx`** just `redirect('/login')`.
+- **Route groups:** `(auth)` — login/signup/logout/reset-password, `(internal)` — team views, `(client)` — CEO/client views.
+- **`/projects`** is the primary route (project list + `[id]` workspace). `src/app/projects/page.tsx` is outside route groups — shared entry for both roles. Internal goes to `/projects/[id]/dashboard`; client goes to `/projects/[id]/overview`. Legacy routes (`/dashboard`, `/deals`, `/portfolios`, `/campaigns`, `/import`, `/settings`, `/client-view`, `/overview`, `/calls`) still exist in route groups but proxy redirects them → `/projects`.
+- **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect to correct home. Layout guards in `(internal)/layout.tsx` and `(client)/layout.tsx` reinforce this.
+- **`src/app/page.tsx`** just `redirect('/login')`.
 - **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
-## API Routes (37 route files in `src/app/api/`)
+## API Routes (41 route files in `src/app/api/`)
 
 Pattern: auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
 
-Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, turnstile, underwriting.
+Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting.
 
 - **`createAdminClient()`** (service role) ONLY used in Gmail webhook and `/api/admin/*` routes.
 - **`get_my_role()`** SQL function (migration 0015) used for role checks in API routes.
 
 ## Database
 
-- **18 migrations** in `supabase/migrations/` (0001–0018, all applied). 0016 is the v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0018 is `increase_max_rows`.
+- **22 migrations** in `supabase/migrations/` (0001–0022, all applied). 0016 is the v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 add projects/sponsors tables and project-scoped RLS.
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **Enums (8-stage):** `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` is only valid after `loi`; before LOI use `archived`. See `src/lib/supabase/types.ts` for all 14 enums.
 - **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
-- **Key tables:** users (Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios.
+- **Key tables:** users (Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors.
 - Deals API response includes `deal_fields` with nested `field_definitions` join. New code touching deals should include this join for property data.
 
 ## Architecture
@@ -74,7 +75,7 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 
 - **Tailwind CSS v4** with `@tailwindcss/postcss` — no `tailwind.config.ts`. `tw-animate-css` plugin.
 - **CSS variables:** All components must use `var(--color-*)` tokens. Raw hex, Tailwind palette colors, `prefers-color-scheme` prohibited.
-- **Do NOT use `next-themes`** — root layout violates UI spec (mandates inline `<script>` + `localStorage` key `acq_theme`). Do NOT add more `next-themes` usage.
+- **Do NOT use `next-themes`** — root layout uses inline `<script>` + `localStorage` key `acq_theme`. `next-themes` remains in `package.json` but is unused. Do NOT add more `next-themes` usage.
 - Light default, opt-in dark via `.dark` class. Sidebar always-dark (`#0E0E0E`), no theming.
 - **`src/lib/brand.ts`** — brand config (name: 'Acquire'). **`src/lib/page-headings.ts`** — centralized page heading titles/descriptions.
 - Full spec: `docs/architecture/ui.md`.
@@ -101,11 +102,8 @@ Supabase (URL, anon key, service role, project ID), Turnstile (site + secret), G
 ## Implementation Status (Known Gaps)
 
 - Dashboard: **wired up** — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` all used. Data aggregated client-side from `/api/deals`.
-- Deal detail (`/deals/[id]`): 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`, etc.
+- Deal detail (`/projects/[id]/deals/[dealId]`): **now wired** — 7 tabs (Overview, Contacts, Outreach, Documents, Underwriting, LOI, Call Brief) all connected to proper components. ActivityTimeline integrated in Overview tab.
 - Settings: Gmail connect works; campaign management is placeholder.
 - Import wizard: **fully wired** — upload → preview → confirm → poll status (3-step flow with `CoStarImportWizard`).
-- Client calls page: missing `client_notes` textarea.
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx`: hardcoded Tailwind palette colors — need `var(--color-*)` remediation.
-- `deals/[id]/page.tsx`: deal detail tabs all show placeholder JSON — not wired to any tab components. Also uses hardcoded Tailwind classes.
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI spec.
-- `DataGrid.tsx` (~47KB) + `useGridInteraction` (~39KB): Excel-like virtualized table with dynamic columns, multi-cell selection, F2 editing, copy/paste. Renders ALL `field_definitions` columns (not just `show_in_grid`).
+- Client calls page: **now has** `client_notes` textarea in CallQueueTable (saves on blur).
+- `DataGrid.tsx` (~47KB) + `useGridInteraction` (~39KB): Excel-like virtualized table with dynamic columns, multi-cell selection, F2 editing, copy/paste. Dynamic columns respect `show_in_grid` flag on `field_definitions`.

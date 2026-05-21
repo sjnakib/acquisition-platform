@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { pageHeadings } from '@/lib/page-headings'
 
 export default function SettingsPage() {
@@ -29,13 +30,9 @@ export default function SettingsPage() {
               <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
                 Gmail not connected
               </div>
-              <a
-                href="/api/auth/google"
-                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 active:scale-[0.98] h-[34px] px-[14px] text-[13px]"
-                style={{ background: 'var(--accent)', color: '#FFFFFF' }}
-              >
-                Connect Gmail
-              </a>
+              <Button asChild>
+                <a href="/api/auth/google">Connect Gmail</a>
+              </Button>
             </div>
           )}
         </div>

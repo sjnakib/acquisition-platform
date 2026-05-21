@@ -3,12 +3,26 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { useTheme } from 'next-themes'
 import {
   ChevronLeft, ChevronRight, Menu, LogOut, User, X, Sun, Moon,
 } from 'lucide-react'
 import type { NavItem } from '@/lib/navigation'
 import { BrandLogo } from '@/components/shared/BrandLogo'
+
+function getStoredTheme(): 'light' | 'dark' {
+  try {
+    return localStorage.getItem('acq_theme') === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
+
+function setStoredTheme(theme: 'light' | 'dark') {
+  try {
+    localStorage.setItem('acq_theme', theme)
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  } catch { /* noop */ }
+}
 
 interface NavSection {
   label: string
@@ -34,12 +48,24 @@ const s = (v: string) => `var(--color-sidebar-${v})`
 export default function Sidebar({ navSections, profile, collapsed, onToggleCollapse, onLogout }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [theme, setThemeState] = useState<'light' | 'dark'>('light')
   const [mounted, setMounted] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
-  const { theme, setTheme } = useTheme()
 
-  useEffect(() => { setMounted(true) }, [])
+  // Required: defer localStorage read to client to avoid hydration mismatch
+  /* eslint-disable */
+  useEffect(() => {
+    setThemeState(getStoredTheme())
+    setMounted(true)
+  }, [])
+  /* eslint-enable */
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setThemeState(next)
+    setStoredTheme(next)
+  }
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -124,14 +150,14 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         {/* Theme toggle */}
         <div className="px-2 pb-1">
           <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={toggleTheme}
             className={`flex items-center gap-3 h-[34px] w-full mx-0.5 rounded-md text-[13px] transition-all duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
             style={{ color: s('text') }}
             onMouseEnter={(e) => { e.currentTarget.style.background = s('hover') }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           >
             {mounted && (theme === 'dark' ? <Sun className="h-4 w-4 flex-shrink-0" /> : <Moon className="h-4 w-4 flex-shrink-0" />)}
-            {!collapsed && (mounted ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : 'Theme')}
+            {!collapsed && mounted && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
           </button>
         </div>
 
@@ -209,7 +235,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            onClick={toggleTheme}
             style={{ color: 'var(--color-text-secondary)' }}
           >
             {mounted && (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />)}
@@ -221,7 +247,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
+          <div className="fixed inset-0" style={{ background: 'var(--color-overlay)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
           <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: s('bg'), borderRight: `1px solid ${s('border')}` }}>
             <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
               <div style={{ color: s('text-active') }}>
@@ -257,12 +283,12 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
             </nav>
             <div className="px-2 pb-1">
               <button
-                onClick={() => { setTheme(theme === 'dark' ? 'light' : 'dark'); setMobileOpen(false) }}
+                onClick={() => { toggleTheme(); setMobileOpen(false) }}
                 className="flex items-center gap-3 h-[34px] w-full px-3 mx-0.5 rounded-md text-[13px] transition-colors duration-150"
                 style={{ color: s('text') }}
               >
                 {mounted && (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />)}
-                {mounted ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : 'Theme'}
+                {mounted && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
               </button>
             </div>
             <div className="p-2 border-t" style={{ borderColor: s('border') }}>

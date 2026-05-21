@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { DealTable } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 
 interface Deal {
@@ -32,6 +33,7 @@ const SEARCH_DEBOUNCE_MS = 300
 
 export default function DealsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -108,6 +110,11 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
       <PageHeader
         title={pageHeadings.deals.title}
         description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} deals in pipeline`}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/deals` },
+          { label: 'Deals' },
+        ]}
       />
 
       <div className="flex-1 min-h-0">

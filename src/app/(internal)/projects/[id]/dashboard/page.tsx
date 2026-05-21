@@ -7,10 +7,12 @@ import { KPIScorecard } from '@/components/dashboard/KPIScorecard'
 import { ConversionChart } from '@/components/dashboard/ConversionChart'
 import { PipelineTable } from '@/components/dashboard/PipelineTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 
 export default function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
+  const { projectName } = useProjectContext()
  const [pipeline, setPipeline] = useState<Array<{
  campaign_name: string
  market: string
@@ -66,7 +68,15 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
  if (loading) {
  return (
  <div>
-      <PageHeader title={pageHeadings.dashboard.title} description={pageHeadings.dashboard.description} />
+      <PageHeader
+        title={pageHeadings.dashboard.title}
+        description={pageHeadings.dashboard.description}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/dashboard` },
+          { label: 'Dashboard' },
+        ]}
+      />
  <div className="flex items-center justify-center py-20">
  <LoadingSpinner size="lg" />
  </div>
@@ -76,7 +86,15 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
 
  return (
  <div>
-      <PageHeader title={pageHeadings.dashboard.title} description={pageHeadings.dashboard.description} />
+      <PageHeader
+        title={pageHeadings.dashboard.title}
+        description={pageHeadings.dashboard.description}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/dashboard` },
+          { label: 'Dashboard' },
+        ]}
+      />
  <div className="space-y-6">
  <KPIScorecard data={pipeline} />
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

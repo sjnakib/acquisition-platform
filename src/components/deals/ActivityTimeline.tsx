@@ -9,7 +9,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { formatDate } from '@/lib/utils'
 
-interface Activity {
+export interface Activity {
   id: string
   type: 'call' | 'voicemail' | 'note' | 'meeting' | 'other'
   summary: string
@@ -87,7 +87,7 @@ export function ActivityTimeline({ activities, isLoading, lastContactedAt, onAdd
         />
         <Button
           size="sm"
-          style={{ background: 'var(--accent)', color: '#FFF' }}
+          style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
           onClick={handleSubmit}
           disabled={!summary.trim() || submitting}
         >

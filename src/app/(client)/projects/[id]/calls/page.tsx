@@ -2,8 +2,20 @@
 
 import { use } from 'react'
 import CallQueueTable from '@/components/client/CallQueueTable'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 
 export default function ClientCallsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
-  return <CallQueueTable projectId={projectId} />
+  const { projectName } = useProjectContext()
+
+  return (
+    <CallQueueTable
+      projectId={projectId}
+      breadcrumb={[
+        { label: 'Projects', href: '/projects' },
+        { label: projectName },
+        { label: 'Call Queue' },
+      ]}
+    />
+  )
 }

@@ -40,7 +40,7 @@ export default function PortfoliosPage() {
         title={pageHeadings.portfolios.title}
         description={pageHeadings.portfolios.description}
         actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)} style={{ background: 'var(--accent)', color: '#FFF' }}>
+          <Button size="sm" onClick={() => setDialogOpen(true)} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
             <Plus className="h-4 w-4 mr-1" /> New Portfolio
           </Button>
         }
@@ -86,7 +86,7 @@ export default function PortfoliosPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || createPortfolio.isPending} style={{ background: 'var(--accent)', color: '#FFF' }}>
+            <Button onClick={handleCreate} disabled={!name.trim() || createPortfolio.isPending} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
               {createPortfolio.isPending ? <LoadingSpinner size="sm" /> : 'Create'}
             </Button>
           </DialogFooter>

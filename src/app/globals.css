@@ -10,11 +10,11 @@
   --color-input: var(--color-surface-3);
   --color-ring: var(--accent);
   --color-primary: var(--accent);
-  --color-primary-foreground: #FFFFFF;
+  --color-primary-foreground: var(--color-text-inverse);
   --color-secondary: var(--color-surface-1);
   --color-secondary-foreground: var(--color-text-primary);
   --color-destructive: var(--color-danger-solid);
-  --color-destructive-foreground: #FFFFFF;
+  --color-destructive-foreground: var(--color-text-inverse);
   --color-muted: var(--color-surface-1);
   --color-muted-foreground: var(--color-text-secondary);
   --color-accent: var(--accent);
@@ -24,11 +24,11 @@
   --color-card: var(--color-surface-0);
   --color-card-foreground: var(--color-text-primary);
   --color-success: var(--color-success-solid);
-  --color-success-foreground: #FFFFFF;
+  --color-success-foreground: var(--color-text-inverse);
   --color-warning: var(--color-warning-solid);
-  --color-warning-foreground: #FFFFFF;
+  --color-warning-foreground: var(--color-text-inverse);
   --color-info: var(--color-info-solid);
-  --color-info-foreground: #FFFFFF;
+  --color-info-foreground: var(--color-text-inverse);
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
@@ -46,7 +46,7 @@
   --color-surface-2: #E8E5DE;
   --color-surface-3: #D9D5CC;
 
-  /* Sidebar (light — warm surface) */
+  /* Sidebar — light mode (warm surface matching canvas) */
   --color-sidebar-bg: #F7F5F0;
   --color-sidebar-hover: #EDEAE3;
   --color-sidebar-active: #E8E5DE;
@@ -78,6 +78,7 @@
   --color-warning-text: #8A5C00;
   --color-warning-solid: #C8963C;
 
+  --color-danger: var(--color-danger-solid);
   --color-danger-bg: #FBE9E9;
   --color-danger-border: #F0A8A8;
   --color-danger-text: #8B1E1E;
@@ -112,6 +113,9 @@
   --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06);
 
+  /* Overlay */
+  --color-overlay: rgba(0,0,0,0.5);
+
   /* Transitions */
   --transition-fast: 80ms ease;
   --transition-base: 150ms ease;
@@ -144,6 +148,7 @@
   --color-success-bg: #0F2A0E;
   --color-success-border: #1E4E1C;
   --color-success-text: #6FC465;
+  --color-danger: var(--color-danger-solid);
   --color-danger-bg: #2A0E0E;
   --color-danger-border: #4E1C1C;
   --color-danger-text: #F08080;

@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/shared/Sidebar'
+import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { clientNavItems } from '@/lib/navigation'
 
 export default function ClientProjectLayout({
@@ -57,22 +58,10 @@ export default function ClientProjectLayout({
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <div
-          className="flex items-center gap-2 px-8 pt-4 pb-0 text-xs border-b"
-          style={{
-            borderColor: 'var(--color-border)',
-            background: 'var(--color-surface-0)',
-          }}
-        >
-          <a href="/projects" className="hover:underline" style={{ color: 'var(--color-text-secondary)' }}>
-            Projects
-          </a>
-          <span style={{ color: 'var(--color-text-tertiary)' }}>/</span>
-          <span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{projectName}</span>
-        </div>
-
         <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
-          {children}
+          <ProjectProvider projectId={projectId} projectName={projectName}>
+            {children}
+          </ProjectProvider>
         </div>
       </main>
     </div>

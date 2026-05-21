@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CreateCampaignDialog } from '@/components/campaigns/CreateCampaignDialog'
 import { DeleteCampaignDialog } from '@/components/campaigns/DeleteCampaignDialog'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 
 interface Campaign {
@@ -22,6 +23,7 @@ interface Campaign {
 
 export default function CampaignsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -72,6 +74,11 @@ export default function CampaignsPage({ params }: { params: Promise<{ id: string
       <PageHeader
         title={pageHeadings.campaigns.title}
         description={pageHeadings.campaigns.description}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/campaigns` },
+          { label: 'Campaigns' },
+        ]}
         actions={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             Create Campaign

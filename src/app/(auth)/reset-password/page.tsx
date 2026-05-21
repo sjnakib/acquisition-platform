@@ -3,7 +3,7 @@ import { BrandLogo } from '@/components/shared/BrandLogo'
 export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--color-canvas)' }}>
-      <div className="w-full max-w-[380px] rounded-[14px] p-8 text-center" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
+      <div className="w-full max-w-[380px] rounded-xl p-8 text-center" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
         <div className="mb-6 flex justify-center">
           <BrandLogo variant="icon" />
         </div>

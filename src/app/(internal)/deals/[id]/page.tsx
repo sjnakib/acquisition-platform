@@ -81,9 +81,9 @@ export default function DealDetailPage() {
         </nav>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <p className="text-slate-500 text-sm">Deal detail tabs coming soon.</p>
-        <pre className="mt-4 text-xs text-slate-400 overflow-auto">{JSON.stringify(deal, null, 2)}</pre>
+      <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Deal detail tabs coming soon.</p>
+        <pre className="mt-4 text-xs overflow-auto" style={{ color: 'var(--color-text-tertiary)' }}>{JSON.stringify(deal, null, 2)}</pre>
       </div>
     </div>
   )

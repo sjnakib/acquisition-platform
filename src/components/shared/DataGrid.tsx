@@ -185,7 +185,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
               background: isSelected ? S.accent : 'transparent',
             }}
           >
-            {isSelected && <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />}
+            {isSelected && <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />}
           </div>
         </label>
       </div>
@@ -385,7 +385,7 @@ function PageSizeSelector({
               className="absolute bottom-full left-0 mb-1 px-2 py-0.5 rounded text-[10px] whitespace-nowrap z-50"
               style={{
                 background: 'var(--color-warning, #f59e0b)',
-                color: '#000',
+                color: 'var(--color-text-primary)',
                 fontWeight: 500,
               }}
             >
@@ -822,7 +822,7 @@ function TopToolbar({
     text: 'var(--color-text-secondary)',
     accent: 'var(--accent)',
     accentBg: 'var(--color-accent-bg)',
-    danger: 'var(--color-danger, #ef4444)',
+    danger: 'var(--color-danger)',
     dangerBg: 'var(--color-danger-bg, #fef2f2)',
   } as const
 
@@ -929,7 +929,7 @@ function TopToolbar({
             onClick={() => onDelete(selectedIds)}
             title={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}
             onMouseEnter={(e) => {
-              if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = '#FFF' }
+              if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = 'var(--color-text-inverse)' }
             }}
             onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
           >
@@ -1656,9 +1656,9 @@ export function DataGrid<T>({
                   }}
                 >
                   {allRowsSelected && resolvedSelectedIds.size > 0 ? (
-                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
+                    <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
                   ) : allSelected ? (
-                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
+                    <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
                   ) : someSelected ? (
                     <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
                   ) : null}
@@ -1806,7 +1806,7 @@ export function DataGrid<T>({
                     }}
                     className="text-[12px] font-medium px-3 py-1 rounded-md transition-colors"
                     style={{ color: 'var(--accent)', background: 'var(--color-accent-bg)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-accent)'; e.currentTarget.style.color = '#fff' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-text-inverse)' }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
                   >
                     Clear filter
@@ -1815,7 +1815,7 @@ export function DataGrid<T>({
                   <button
                     onClick={emptyAction.onClick}
                     className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
+                    style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
                     onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9' }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
                   >

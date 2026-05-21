@@ -59,7 +59,7 @@ export function DealStageBar({ stage, isArchived, archiveReason }: DealStageBarP
                 style={{
                   background: isCompleted ? 'var(--color-success-solid)' : isActive ? 'var(--accent)' : 'transparent',
                   borderColor: isCompleted ? 'var(--color-success-solid)' : isActive ? 'var(--accent)' : 'var(--color-surface-3)',
-                  color: isCompleted || isActive ? '#FFFFFF' : 'var(--color-text-tertiary)',
+                  color: isCompleted || isActive ? 'var(--color-text-inverse)' : 'var(--color-text-tertiary)',
                 }}
               >
                 {isCompleted ? <Check className="h-3 w-3" /> : i + 1}

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
+import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +11,7 @@ interface Call {
   id: string
   call_status: string
   summary_text: string | null
+  client_notes: string | null
   deals: {
     deal_name: string | null
     score: string | null
@@ -30,9 +32,10 @@ const scoreLabel: Record<string, string> = {
   very_bad: 'Very Bad',
 }
 
-export default function CallQueueTable({ projectId }: { projectId?: string }) {
+export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: string; breadcrumb?: BreadcrumbItem[] }) {
   const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
+  const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const url = projectId
@@ -44,6 +47,23 @@ export default function CallQueueTable({ projectId }: { projectId?: string }) {
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [projectId])
+
+  const saveNotes = useCallback(async (callId: string, notes: string) => {
+    setSavingNotes((prev) => new Set(prev).add(callId))
+    try {
+      await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_notes: notes }),
+      })
+    } finally {
+      setSavingNotes((prev) => {
+        const next = new Set(prev)
+        next.delete(callId)
+        return next
+      })
+    }
+  }, [])
 
   const columns: ColumnDef<Call>[] = [
     { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,
@@ -60,6 +80,38 @@ export default function CallQueueTable({ projectId }: { projectId?: string }) {
       }},
     { key: 'summary_text', header: 'Summary', minWidth: 200, sortable: true,
       render: (r) => <span className="text-xs line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>{r.summary_text || 'No summary available.'}</span> },
+    { key: 'client_notes', header: 'Your Notes', minWidth: 180,
+      render: (r) => {
+        const isSaving = savingNotes.has(r.id)
+        return (
+          <div className="relative">
+            <textarea
+              defaultValue={r.client_notes ?? ''}
+              onBlur={async (e) => {
+                const val = e.target.value
+                if (val !== (r.client_notes ?? '')) {
+                  setCalls((prev) => prev.map((c) => c.id === r.id ? { ...c, client_notes: val } : c))
+                  await saveNotes(r.id, val)
+                }
+              }}
+              placeholder="Add notes..."
+              rows={2}
+              className="w-full text-xs rounded border px-2 py-1 resize-none outline-none focus:ring-1 focus:ring-[var(--accent)]"
+              style={{
+                background: 'var(--color-surface-1)',
+                borderColor: 'var(--color-surface-3)',
+                color: 'var(--color-text-primary)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+              disabled={isSaving}
+            />
+            {isSaving && (
+              <span className="absolute right-2 top-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Saving...</span>
+            )}
+          </div>
+        )
+      },
+    },
     { key: 'call_status', header: 'Status', width: 120, sortable: true,
       render: (r) => (
         <select
@@ -87,7 +139,7 @@ export default function CallQueueTable({ projectId }: { projectId?: string }) {
 
   return (
     <div>
-      <PageHeader title={pageHeadings.callQueue.title} description={pageHeadings.callQueue.description} />
+      <PageHeader title={pageHeadings.callQueue.title} description={pageHeadings.callQueue.description} breadcrumb={breadcrumb} />
       <DataGrid
         columns={columns}
         data={calls}

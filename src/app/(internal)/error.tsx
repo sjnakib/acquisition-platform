@@ -8,7 +8,7 @@ export default function Error({ error, reset }: { error: Error; reset: () => voi
       <button
         onClick={reset}
         className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-[34px] px-[14px] text-[13px] active:scale-[0.98]"
-        style={{ background: 'var(--accent)', color: '#FFFFFF' }}
+        style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
       >
         Try again
       </button>

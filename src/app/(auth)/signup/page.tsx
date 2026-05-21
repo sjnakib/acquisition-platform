@@ -6,6 +6,9 @@ import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
 import { BrandLogo } from '@/components/shared/BrandLogo'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -31,11 +34,9 @@ export default function SignupPage() {
     finally { setIsSubmitting(false) }
   }
 
-  const inputClass = "w-full h-[34px] rounded-md px-3 text-[13px] outline-none transition-all duration-80 border"
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--color-canvas)' }}>
-      <div className="w-full max-w-[380px] rounded-[14px] p-8 max-sm:shadow-none max-sm:border-0 max-sm:p-4" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
+      <div className="w-full max-w-[380px] rounded-xl p-8 max-sm:shadow-none max-sm:border-0 max-sm:p-4" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
         <div className="text-center mb-10 flex justify-center">
           <BrandLogo variant="full" />
         </div>
@@ -44,20 +45,17 @@ export default function SignupPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Full name</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="John Doe" required className={inputClass}
-              style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-3)', color: 'var(--color-text-primary)' }} />
+            <Label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Full name</Label>
+            <Input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="John Doe" required />
           </div>
           <div>
-            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Email address</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required className={inputClass}
-              style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-3)', color: 'var(--color-text-primary)' }} />
+            <Label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Email address</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="email" required />
           </div>
           <div>
-            <label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Password</label>
+            <Label className="text-[11px] uppercase tracking-[0.08em] block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>Password</Label>
             <div className="relative">
-              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required className={inputClass + ' pr-10'}
-                style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-3)', color: 'var(--color-text-primary)' }} />
+              <Input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required className="pr-10" />
               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-tertiary)' }}>
                 {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
@@ -68,11 +66,9 @@ export default function SignupPage() {
             <TurnstileWidget onVerify={(token) => setTurnstileToken(token)} />
           </div>
 
-          <button type="submit" disabled={isSubmitting || !turnstileToken}
-            className="w-full h-10 rounded-md text-[14px] font-medium flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
-            style={{ background: 'var(--accent)', color: '#FFFFFF' }}>
+          <Button type="submit" size="lg" disabled={isSubmitting || !turnstileToken} className="w-full">
             {isSubmitting ? <><LoadingSpinner size="sm" /> Creating account...</> : 'Create account'}
-          </button>
+          </Button>
         </form>
 
         {error && (

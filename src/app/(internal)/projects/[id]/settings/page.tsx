@@ -4,7 +4,11 @@ import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 import { Trash2, Plus, X, Save } from 'lucide-react'
 
@@ -18,6 +22,7 @@ interface Sponsor {
 
 export default function SettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const [project, setProject] = useState<{ name: string; description: string | null } | null>(null)
   const [sponsors, setSponsors] = useState<Sponsor[]>([])
@@ -118,7 +123,15 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   if (loading) {
     return (
       <div>
-        <PageHeader title="Settings" description={pageHeadings.settings.description} />
+        <PageHeader
+          title="Settings"
+          description={pageHeadings.settings.description}
+          breadcrumb={[
+            { label: 'Projects', href: '/projects' },
+            { label: projectName, href: `/projects/${projectId}/settings` },
+            { label: 'Settings' },
+          ]}
+        />
         <div className="flex items-center justify-center py-20"><LoadingSpinner size="lg" /></div>
       </div>
     )
@@ -126,7 +139,15 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   return (
     <div>
-      <PageHeader title="Settings" description={pageHeadings.settings.description} />
+      <PageHeader
+        title="Settings"
+        description={pageHeadings.settings.description}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/settings` },
+          { label: 'Settings' },
+        ]}
+      />
 
       {error && (
         <div className="mb-4 rounded-md p-3 text-sm" style={{ background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
@@ -141,32 +162,25 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
           <div className="space-y-4 max-w-md">
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Project Name</label>
-              <input
+              <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 text-sm"
-                style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
+                className="bg-[var(--color-surface-1)]"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
-              <textarea
+              <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                className="w-full rounded-md border px-3 py-2 text-sm resize-none"
-                style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
+                className="bg-[var(--color-surface-1)] resize-none"
               />
             </div>
-            <button
-              onClick={saveProject}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white"
-              style={{ background: 'var(--accent)' }}
-            >
+            <Button onClick={saveProject} disabled={saving}>
               <Save size={14} />
               {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -192,7 +206,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       <td className="px-2 py-2">
                         <button
                           onClick={() => removeSponsor(s.id)}
-                          className="p-1 rounded hover:bg-opacity-10"
+                          className="p-1 rounded transition-colors hover:bg-[var(--color-surface-1)]"
                           style={{ color: 'var(--color-text-tertiary)' }}
                         >
                           <X size={14} />
@@ -206,30 +220,26 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
           )}
 
           <div className="flex gap-2 max-w-md">
-            <input
+            <Input
               value={sponsorEmail}
               onChange={(e) => setSponsorEmail(e.target.value)}
               placeholder="email@example.com"
               type="email"
-              className="flex-1 rounded-md border px-3 py-2 text-sm"
-              style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
+              className="bg-[var(--color-surface-1)]"
             />
-            <input
+            <Input
               value={sponsorName}
               onChange={(e) => setSponsorName(e.target.value)}
               placeholder="Full name (optional)"
-              className="flex-1 rounded-md border px-3 py-2 text-sm"
-              style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
+              className="bg-[var(--color-surface-1)]"
             />
-            <button
+            <Button
               onClick={addSponsor}
               disabled={addingSponsor || !sponsorEmail}
-              className="inline-flex items-center gap-1 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: 'var(--accent)' }}
             >
               <Plus size={14} />
               Add
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -243,13 +253,9 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
                 Gmail not connected
               </div>
-              <a
-                href="/api/auth/google"
-                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 active:scale-[0.98] h-[34px] px-[14px] text-[13px]"
-                style={{ background: 'var(--accent)', color: '#FFFFFF' }}
-              >
-                Connect Gmail
-              </a>
+              <Button asChild>
+                <a href="/api/auth/google">Connect Gmail</a>
+              </Button>
             </div>
           )}
         </div>
@@ -261,42 +267,35 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             Deleting a project removes all deals, campaigns, portfolios, and field definitions. This cannot be undone.
           </p>
           {!showDelete ? (
-            <button
-              onClick={() => setShowDelete(true)}
-              className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white"
-              style={{ background: 'var(--color-danger)' }}
-            >
+            <Button variant="destructive" onClick={() => setShowDelete(true)}>
               <Trash2 size={14} />
               Delete Project
-            </button>
+            </Button>
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
                 Type <code className="px-1.5 py-0.5 rounded text-xs font-bold" style={{ background: 'var(--color-danger-bg)' }}>DELETE</code> to confirm:
               </p>
-              <input
+              <Input
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
-                className="w-full max-w-[200px] rounded-md border px-3 py-2 text-sm font-mono"
-                style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
+                className="max-w-[200px] font-mono bg-[var(--color-surface-1)]"
                 placeholder="DELETE"
               />
               <div className="flex gap-2">
-                <button
+                <Button
+                  variant="destructive"
                   onClick={deleteProject}
                   disabled={deleteConfirm !== 'DELETE' || deleting}
-                  className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  style={{ background: 'var(--color-danger)' }}
                 >
                   {deleting ? 'Deleting...' : 'Confirm Delete'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={() => { setShowDelete(false); setDeleteConfirm('') }}
-                  className="rounded-md px-4 py-2 text-sm font-medium"
-                  style={{ background: 'var(--color-surface-1)', color: 'var(--color-text-secondary)' }}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}

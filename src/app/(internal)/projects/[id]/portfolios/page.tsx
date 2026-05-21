@@ -11,10 +11,12 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { PortfolioCard } from '@/components/portfolios/PortfolioCard'
 import { usePortfolios, useCreatePortfolio } from '@/lib/hooks/usePortfolios'
+import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 
 export default function PortfoliosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
+  const { projectName } = useProjectContext()
   const router = useRouter()
   const { data: portfolios, isLoading } = usePortfolios(projectId)
   const createPortfolio = useCreatePortfolio()
@@ -44,8 +46,13 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
       <PageHeader
         title={pageHeadings.portfolios.title}
         description={pageHeadings.portfolios.description}
+        breadcrumb={[
+          { label: 'Projects', href: '/projects' },
+          { label: projectName, href: `/projects/${projectId}/portfolios` },
+          { label: 'Portfolios' },
+        ]}
         actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)} style={{ background: 'var(--accent)', color: '#FFF' }}>
+          <Button size="sm" onClick={() => setDialogOpen(true)} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
             <Plus className="h-4 w-4 mr-1" /> New Portfolio
           </Button>
         }
@@ -91,7 +98,7 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!name.trim() || createPortfolio.isPending} style={{ background: 'var(--accent)', color: '#FFF' }}>
+            <Button onClick={handleCreate} disabled={!name.trim() || createPortfolio.isPending} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
               {createPortfolio.isPending ? <LoadingSpinner size="sm" /> : 'Create'}
             </Button>
           </DialogFooter>

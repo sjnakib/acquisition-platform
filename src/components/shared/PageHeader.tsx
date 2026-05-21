@@ -1,9 +1,9 @@
-import React from 'react'
+import { Breadcrumb, type BreadcrumbItem } from '@/components/shared/Breadcrumb'
 
 interface PageHeaderProps {
  title: string
  description?: string
- breadcrumb?: { label: string; href?: string }[]
+ breadcrumb?: BreadcrumbItem[]
  actions?: React.ReactNode
 }
 
@@ -14,25 +14,7 @@ export function PageHeader({ title, description, breadcrumb, actions }: PageHead
  style={{ borderColor: 'var(--color-surface-2)' }}
  >
  <div className="flex flex-col gap-1">
- {breadcrumb && breadcrumb.length > 0 && (
- <div
- className="flex items-center gap-1 text-[11px] mb-1"
- style={{ color: 'var(--color-text-tertiary)' }}
- >
- {breadcrumb.map((b, i) => (
- <React.Fragment key={b.label}>
- {i > 0 && <span className="opacity-40">/</span>}
- {b.href ? (
- <a href={b.href} className="hover:underline" style={{ color: 'var(--color-text-tertiary)' }}>
- {b.label}
- </a>
- ) : (
- <span>{b.label}</span>
- )}
- </React.Fragment>
- ))}
- </div>
- )}
+ {breadcrumb && breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
  <h1
  className="text-[24px] font-semibold leading-tight"
  style={{
