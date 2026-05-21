@@ -69,6 +69,7 @@ interface DealTableProps {
   serverSortKey?: string | null
   serverSortDir?: 'asc' | 'desc'
   onSortChange?: (key: string, dir: 'asc' | 'desc') => void
+  columnOrderStorageKey?: string
 }
 
 const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
@@ -82,7 +83,7 @@ const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent
   archived: 'neutral',
 }
 
-export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className, totalRows, page, pageSize, onPageChange, onPageSizeChange, selectionActions, selectionMenuActions, topToolbar, filters, activeFilterCount, onClearFilters, allRowsSelected, onSelectAll, serverSide, serverSortKey, serverSortDir, onSortChange }: DealTableProps) {
+export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className, totalRows, page, pageSize, onPageChange, onPageSizeChange, selectionActions, selectionMenuActions, topToolbar, filters, activeFilterCount, onClearFilters, allRowsSelected, onSelectAll, serverSide, serverSortKey, serverSortDir, onSortChange, columnOrderStorageKey }: DealTableProps) {
   const router = useRouter()
 
   const getFieldValue = useCallback((deal: Deal, key: string): string => {
@@ -168,6 +169,7 @@ export function DealTable({ deals, loading, fieldDefs, selectedRowIds, onSelecti
       serverSortKey={serverSortKey}
       serverSortDir={serverSortDir}
       onSortChange={onSortChange}
+      columnOrderStorageKey={columnOrderStorageKey}
     />
   )
 }

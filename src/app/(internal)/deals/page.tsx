@@ -35,6 +35,7 @@ export default function DealsPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
+  const [filteredTotal, setFilteredTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([])
@@ -73,12 +74,14 @@ export default function DealsPage() {
     if (!res.ok) throw new Error('Failed to fetch')
     const json = await res.json()
     const data = Array.isArray(json.data) ? json.data : []
-    const newTotal = json.total ?? 0
+    const totalCount = json.total ?? 0
+    const filteredCount = json.filtered_total ?? totalCount
     setDeals(data)
-    setTotal(newTotal)
+    setTotal(totalCount)
+    setFilteredTotal(filteredCount)
     // If sort/filter reduced total pages below the current page, clamp to the last valid page
-    if (data.length === 0 && newTotal > 0 && p > 1) {
-      const maxPage = Math.ceil(newTotal / size)
+    if (data.length === 0 && filteredCount > 0 && p > 1) {
+      const maxPage = Math.ceil(filteredCount / size)
       setPage(maxPage)
     }
   }, [buildUrl])
@@ -104,7 +107,7 @@ export default function DealsPage() {
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader
         title={pageHeadings.deals.title}
-        description={loading ? 'Loading...' : `${total.toLocaleString()} deals in pipeline`}
+        description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} deals in pipeline`}
       />
 
       <div className="flex-1 min-h-0">
@@ -114,7 +117,7 @@ export default function DealsPage() {
           loading={loading}
           fieldDefs={fieldDefs}
           fillHeight
-          totalRows={total}
+          totalRows={filteredTotal}
           page={page}
           pageSize={pageSize}
           onPageChange={(p) => { setPage(p); setAllSelected(false) }}
@@ -126,6 +129,7 @@ export default function DealsPage() {
           serverSortKey={sortKey}
           serverSortDir={sortDir}
           onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
+          columnOrderStorageKey="deals-table-column-order"
           topToolbar={{
             recordLabel: 'deal',
             onAdd: () => router.push('/import'),
@@ -143,7 +147,7 @@ export default function DealsPage() {
         dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
         open={deleteOpen}
         allSelected={allSelected}
-        totalCount={total}
+        totalCount={filteredTotal}
         onOpenChange={(open) => {
           setDeleteOpen(open)
           if (!open) { setPendingDeleteIds([]); setAllSelected(false) }

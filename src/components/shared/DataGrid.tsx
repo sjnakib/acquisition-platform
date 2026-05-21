@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
 import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
+import { useColumnOrder } from '@/lib/hooks/useColumnOrder'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 import type { CellAddress, CellRange } from '@/lib/types/grid'
@@ -87,6 +88,8 @@ interface DataGridProps<T> {
   /** External search/filter chip count. Render badge on filter button. */
   activeFilterCount?: number
   onClearFilters?: () => void
+  /** When provided, enables drag-and-drop column reordering. Value is a localStorage key suffix for persistence. */
+  columnOrderStorageKey?: string
 }
 
 const CHECKBOX_COL_W = 40
@@ -1099,14 +1102,18 @@ export function DataGrid<T>({
   filters,
   activeFilterCount,
   onClearFilters,
+  columnOrderStorageKey,
 }: DataGridProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [internalSortKey, setInternalSortKey] = useState<string | null>(null)
   const [internalSortDir, setInternalSortDir] = useState<'asc' | 'desc'>('asc')
   const sortKey = serverSide ? (serverSortKey ?? null) : internalSortKey
   const sortDir = serverSide ? serverSortDir : internalSortDir
+  const { orderedColumns, onReorder } = useColumnOrder(columnOrderStorageKey, columns)
   const { widths: columnWidths, setWidth: setColumnWidth, autoFitColumn, autoFitSelected } = useColumnWidths()
   const [resizeIndicatorX, setResizeIndicatorX] = useState<number | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+  const dragSourceKeyRef = useRef<string | null>(null)
   const resizingRef = useRef<{
     key: string; startX: number; startWidth: number; totalStartWidth: number; lastClientX?: number; el: HTMLElement | null;
     multiCols?: { key: string; startWidth: number; ratio: number; el: HTMLElement | null }[] | null;
@@ -1122,7 +1129,7 @@ export function DataGrid<T>({
 
   const sortedData = useMemo(() => {
     if (serverSide || !sortKey) return data
-    const col = columns.find((c) => c.key === sortKey)
+    const col = orderedColumns.find((c) => c.key === sortKey)
     if (!col) return data
     const getter = col.accessor ?? ((r: T) => (r as Record<string, unknown>)[col.key] as string | number | null | undefined)
     return [...data].sort((a, b) => {
@@ -1131,7 +1138,7 @@ export function DataGrid<T>({
       const cmp = va < vb ? -1 : va > vb ? 1 : 0
       return sortDir === 'desc' ? -cmp : cmp
     })
-  }, [serverSide, data, sortKey, sortDir, columns])
+  }, [serverSide, data, sortKey, sortDir, orderedColumns])
 
   // Refs hold latest values so toggleRowSelection stays stable across selection changes.
   // Without this, RowRenderer memo comparator skips re-render for unselected rows,
@@ -1151,7 +1158,7 @@ export function DataGrid<T>({
   const computedWidths = useMemo(() => {
     const w: Record<string, number> = {}
     const sample = sortedData.slice(0, 50)
-    for (const col of columns) {
+    for (const col of orderedColumns) {
       if (columnWidths[col.key] !== undefined) { w[col.key] = columnWidths[col.key]!; continue }
       let maxChars = col.header.length
       const getter = col.accessor ?? ((r: T) => (r as Record<string, unknown>)[col.key] as string | number | null | undefined)
@@ -1164,7 +1171,7 @@ export function DataGrid<T>({
       w[col.key] = col.width ?? auto
     }
     return w
-  }, [columns, sortedData, columnWidths])
+  }, [orderedColumns, sortedData, columnWidths])
 
   const totalWidth = useMemo(
     () => Object.values(computedWidths).reduce((s, w) => s + (w ?? 100), 0) + S.rowNumW + S.checkboxW,
@@ -1187,20 +1194,20 @@ export function DataGrid<T>({
   const getCellValue = useCallback((rowIndex: number, colIndex: number): string => {
     const row = sortedData[rowIndex]
     if (!row) return ''
-    const col = columns[colIndex]
+    const col = orderedColumns[colIndex]
     if (!col) return ''
     const val = col.accessor
       ? col.accessor(row, rowIndex)
       : ((row as Record<string, unknown>)[col.key] as string | number | null | undefined)
     return val != null && val !== '' ? String(val) : '—'
-  }, [sortedData, columns])
+  }, [sortedData, orderedColumns])
 
   const handleBatchEdit = useCallback((updates: { rowIndex: number; colIndex: number; value: string }[]) => {
     if (!onCellEdit) return
     // Spec §8.2-8.5: Batch all updates into a single API call
     const batch = updates.map((u) => {
       const row = sortedData[u.rowIndex]
-      const col = columns[u.colIndex]
+      const col = orderedColumns[u.colIndex]
       if (!row || !col) return null
       const dealId = (row as Record<string, unknown>).id as string | undefined
       if (!dealId) return null
@@ -1219,7 +1226,7 @@ export function DataGrid<T>({
     for (const u of updates) {
       onCellEdit(u.rowIndex, u.colIndex, u.value)
     }
-  }, [onCellEdit, sortedData, columns])
+  }, [onCellEdit, sortedData, orderedColumns])
 
   const handleCellEdit = useCallback((rowIndex: number, colIndex: number, value: string) => {
     if (!onCellEdit) return
@@ -1249,25 +1256,25 @@ export function DataGrid<T>({
     if (!scrollRef.current) return
     let offset = S.rowNumW
     for (let i = 0; i < colIndex; i++) {
-      const col = columns[i]
+      const col = orderedColumns[i]
       if (col) offset += computedWidths[col.key] ?? 100
     }
-    const colW = columns[colIndex] ? (computedWidths[columns[colIndex]!.key] ?? 100) : 100
+    const colW = orderedColumns[colIndex] ? (computedWidths[orderedColumns[colIndex]!.key] ?? 100) : 100
     const containerW = scrollRef.current.clientWidth
     if (offset < scrollRef.current.scrollLeft || offset + colW > scrollRef.current.scrollLeft + containerW) {
       scrollRef.current.scrollLeft = offset
     }
-  }, [columns, computedWidths])
+  }, [orderedColumns, computedWidths])
 
   const excludeColIndices = useMemo(() => {
     const s = new Set<number>()
     s.add(0) // Checkbox column — always excluded from keyboard nav (spec §1.3)
-    const lastIdx = columns.length - 1
-    if (lastIdx >= 0 && columns[lastIdx]!.key === 'actions') {
+    const lastIdx = orderedColumns.length - 1
+    if (lastIdx >= 0 && orderedColumns[lastIdx]!.key === 'actions') {
       s.add(lastIdx)
     }
     return s
-  }, [columns])
+  }, [orderedColumns])
 
   const [flashingCell, setFlashingCell] = useState<CellAddress | null>(null)
   const [validationFlashCell, setValidationFlashCell] = useState<CellAddress | null>(null)
@@ -1294,7 +1301,7 @@ export function DataGrid<T>({
 
   const validateCell = useCallback((rowIndex: number, colIndex: number, value: string): string | null => {
     if (!onCellEdit) return null
-    const col = columns[colIndex]
+    const col = orderedColumns[colIndex]
     if (!col) return null
     if (col.key === 'deal_name') {
       if (!value || value.trim().length === 0) return 'Property name cannot be empty'
@@ -1309,7 +1316,7 @@ export function DataGrid<T>({
       if (isNaN(n) || n < 0) return 'Units must be a positive number'
     }
     return null
-  }, [columns, onCellEdit])
+  }, [orderedColumns, onCellEdit])
 
   useEffect(() => {
     return () => {
@@ -1320,7 +1327,7 @@ export function DataGrid<T>({
 
   const interactConfig = {
     rowCount: sortedData.length,
-    colCount: columns.length,
+    colCount: orderedColumns.length,
     pageSize: virtualPageSize,
     data: sortedData,
     editableColumns: editableColumns ?? new Set(),
@@ -1526,7 +1533,7 @@ export function DataGrid<T>({
   }, [computedWidths, setColumnWidth, selectedColKeys])
 
   const getAutoFitValues = useCallback((colKey: string) => {
-    const col = columns.find((c) => c.key === colKey)
+    const col = orderedColumns.find((c) => c.key === colKey)
     if (!col) return []
     const values = sortedData.slice(0, 50).map((row, i) => {
       const val = col.accessor
@@ -1536,20 +1543,20 @@ export function DataGrid<T>({
     })
     values.push(col.header)
     return values
-  }, [columns, sortedData])
+  }, [orderedColumns, sortedData])
 
   const applyWidthToColumnElements = useCallback((colKey: string, width: number) => {
     if (!scrollRef.current) return
     const headerEl = scrollRef.current.querySelector(`[data-col-key="${colKey}"]`) as HTMLElement | null
     if (headerEl) headerEl.style.width = `${width}px`
-    const colIndex = columns.findIndex((c) => c.key === colKey)
+    const colIndex = orderedColumns.findIndex((c) => c.key === colKey)
     if (colIndex >= 0) {
       const cellEls = scrollRef.current.querySelectorAll(`[id^="grid-cell-r"][id$="-c${colIndex}"]`)
       for (const el of cellEls) {
         (el as HTMLElement).style.width = `${width}px`
       }
     }
-  }, [columns])
+  }, [orderedColumns])
 
   const onResizeDoubleClick = useCallback((key: string) => {
     const isMulti = selectedColKeys.size > 1 && selectedColKeys.has(key)
@@ -1612,7 +1619,7 @@ export function DataGrid<T>({
             ? () => onSortChange?.('', 'desc')
             : () => { setInternalSortKey(null); setInternalSortDir('asc') }}
           sortKey={sortKey}
-          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
+          sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
           defaultSortKey="created_at"
           searchValue={topToolbar.searchValue}
           onSearchChange={topToolbar.onSearchChange}
@@ -1678,25 +1685,73 @@ export function DataGrid<T>({
             >
               #
             </div>
-            {columns.map((col) => {
+            {orderedColumns.map((col) => {
               const w = computedWidths[col.key] ?? 100
-        const isActionsCol = col.key === 'actions'
-        const isColSelected = selectedColKeys.has(col.key)
+              const isActionsCol = col.key === 'actions'
+              const isColSelected = selectedColKeys.has(col.key)
+              const isDraggable = columnOrderStorageKey != null && !isActionsCol
+              const isDropTarget = dragOverKey === col.key
               return (
                 <div
                   key={col.key}
                   data-col-key={col.key}
+                  draggable={isDraggable || undefined}
+                  onDragStart={(e) => {
+                    if (!isDraggable) return
+                    dragSourceKeyRef.current = col.key
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', col.key)
+                  }}
+                  onDragOver={(e) => {
+                    if (!columnOrderStorageKey || isActionsCol) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setDragOverKey(col.key)
+                  }}
+                  onDragLeave={(e) => {
+                    if (!columnOrderStorageKey) return
+                    // Only clear if actually leaving this element
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const x = e.clientX
+                    const y = e.clientY
+                    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+                      setDragOverKey(null)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    if (!columnOrderStorageKey || isActionsCol) return
+                    e.preventDefault()
+                    const sourceKey = e.dataTransfer.getData('text/plain')
+                    if (!sourceKey || sourceKey === col.key) {
+                      setDragOverKey(null)
+                      return
+                    }
+                    const fromIndex = orderedColumns.findIndex((c) => c.key === sourceKey)
+                    const toIndex = orderedColumns.findIndex((c) => c.key === col.key)
+                    if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
+                      onReorder(fromIndex, toIndex)
+                    }
+                    setDragOverKey(null)
+                    dragSourceKeyRef.current = null
+                  }}
+                  onDragEnd={() => {
+                    setDragOverKey(null)
+                    dragSourceKeyRef.current = null
+                  }}
                   className={`relative flex-shrink-0 flex items-center gap-1 px-3 text-[11px] font-medium uppercase tracking-[0.06em] border-r select-none ${isActionsCol ? 'sticky right-0 z-20' : ''}`}
                   style={{
                     width: w, height: S.headerH, borderColor: S.headerBorder, color: S.headerText,
                     background: isColSelected ? S.accentBg : S.headerBg,
                     justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start',
-                    cursor: col.sortable !== false ? 'pointer' : 'default',
+                    cursor: isDraggable ? (col.sortable !== false ? 'grab' : 'grab') : (col.sortable !== false ? 'pointer' : 'default'),
+                    borderLeftColor: isDropTarget ? S.accent : undefined,
+                    borderLeftWidth: isDropTarget ? '2px' : undefined,
+                    borderLeftStyle: isDropTarget ? 'solid' : undefined,
                   }}
                   onClick={(e) => {
                     if (e.shiftKey && col.sortable !== false) {
                       e.preventDefault()
-                      const selectableKeys = columns.filter((c) => c.key !== 'actions').map((c) => c.key)
+                      const selectableKeys = orderedColumns.filter((c) => c.key !== 'actions').map((c) => c.key)
                       if (!lastShiftClickColRef.current) {
                         lastShiftClickColRef.current = col.key
                         setSelectedColKeys(new Set([col.key]))
@@ -1717,7 +1772,7 @@ export function DataGrid<T>({
                     }
                   }}
                   role="columnheader"
-                  id={`grid-header-c${columns.indexOf(col)}`}
+                  id={`grid-header-c${orderedColumns.indexOf(col)}`}
                 >
                   <span className="truncate">{col.header}</span>
                   {sortIcon(col)}
@@ -1732,7 +1787,10 @@ export function DataGrid<T>({
                       e.currentTarget.style.background = 'transparent'
                       e.currentTarget.style.opacity = '0.6'
                     }}
-                    onMouseDown={(e) => onResizeStart(col.key, e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      onResizeStart(col.key, e)
+                    }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       onResizeDoubleClick(col.key)
@@ -1789,7 +1847,7 @@ export function DataGrid<T>({
                     <div className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 border-r" style={{ width: S.rowNumW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
                       <div className="h-3 w-8 rounded" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
                     </div>
-                    {columns.map((col) => {
+                    {orderedColumns.map((col) => {
                       const wc = computedWidths[col.key] ?? 100
                       return (
                         <div key={col.key} className="flex-shrink-0 flex items-center px-3 border-r" style={{ width: wc, height: vi.size, borderColor: S.rowBorder }}>
@@ -1812,7 +1870,7 @@ export function DataGrid<T>({
                       <RowRenderer
                         row={row as T}
                         rowIndex={vi.index}
-                        columns={columns as unknown as ColumnDef<unknown>[]}
+                        columns={orderedColumns as unknown as ColumnDef<unknown>[]}
                         computedWidths={computedWidths}
                         isEven={vi.index % 2 === 0}
                         onRowClick={onRowClick as unknown as ((row: unknown, index: number) => void)}
@@ -1855,11 +1913,11 @@ export function DataGrid<T>({
             let heightVal = 0
 
             for (let c = 0; c < n.start.colIndex; c++) {
-              const col = columns[c]
+              const col = orderedColumns[c]
               if (col) left += computedWidths[col.key] ?? 100
             }
             for (let c = n.start.colIndex; c <= n.end.colIndex; c++) {
-              const col = columns[c]
+              const col = orderedColumns[c]
               if (col) width += computedWidths[col.key] ?? 100
             }
 
@@ -1909,7 +1967,7 @@ export function DataGrid<T>({
       <Toolbar
           sortedDataLength={sortedData.length}
           sortKey={sortKey}
-          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
+          sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
           defaultSortKey="created_at"
           selectedCount={resolvedSelectedIds.size}
           selectedIds={[...resolvedSelectedIds]}
