@@ -33,9 +33,10 @@ type FormValues = z.infer<typeof createCampaignSchema>
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  projectId?: string
 }
 
-export function CreateCampaignDialog({ open, onOpenChange }: Props) {
+export function CreateCampaignDialog({ open, onOpenChange, projectId }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const queryClient = useQueryClient()
 
@@ -48,14 +49,14 @@ export function CreateCampaignDialog({ open, onOpenChange }: Props) {
     const res = await fetch('/api/campaigns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, project_id: projectId }),
     })
     if (!res.ok) {
       const err = await res.json()
       toast.error(err.error ?? 'Failed to create campaign')
       return
     }
-    queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+    queryClient.invalidateQueries({ queryKey: ['campaigns', projectId] })
     toast.success('Campaign created')
     reset()
     setAdvancedOpen(false)

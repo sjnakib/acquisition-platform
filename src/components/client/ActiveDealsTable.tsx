@@ -42,17 +42,20 @@ const columns: ColumnDef<Deal>[] = [
   },
 ]
 
-export default function ActiveDealsTable() {
+export default function ActiveDealsTable({ projectId }: { projectId?: string }) {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/deals?limit=1000')
+    const url = projectId
+      ? `/api/deals?limit=1000&project_id=${projectId}`
+      : '/api/deals?limit=1000'
+    fetch(url)
       .then((r) => r.json())
       .then((json) => setDeals(json.data ?? []))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
+  }, [projectId])
 
   return (
     <div>

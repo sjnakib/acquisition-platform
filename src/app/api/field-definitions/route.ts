@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  const projectId = req.nextUrl.searchParams.get('project_id')
+
+  let query = supabase
     .from('field_definitions')
     .select('*')
     .order('sort_order')
 
+  if (projectId) query = query.eq('project_id', projectId)
+
+  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)
 }
@@ -31,6 +36,7 @@ export async function POST(req: NextRequest) {
     data_type: body.data_type ?? 'text',
     show_in_grid: body.show_in_grid ?? false,
     sort_order: body.sort_order ?? 100,
+    project_id: body.project_id,
   }).select().single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

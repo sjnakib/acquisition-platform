@@ -2,12 +2,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 
-export const usePortfolios = () => {
+export const usePortfolios = (projectId?: string) => {
   const supabase = createClient()
   return useQuery({
-    queryKey: ['portfolios'],
+    queryKey: ['portfolios', projectId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('portfolios').select('*').order('created_at', { ascending: false })
+      let query = supabase.from('portfolios').select('*').order('created_at', { ascending: false })
+      if (projectId) query = query.eq('project_id', projectId)
+      const { data, error } = await query
       if (error) throw error
       return data
     },
@@ -34,7 +36,7 @@ export const usePortfolio = (id: string) => {
 export const useCreatePortfolio = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { name: string; description?: string }) => {
+    mutationFn: async (body: { name: string; description?: string; project_id?: string }) => {
       const res = await fetch('/api/portfolios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

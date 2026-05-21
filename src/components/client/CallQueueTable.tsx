@@ -30,17 +30,20 @@ const scoreLabel: Record<string, string> = {
   very_bad: 'Very Bad',
 }
 
-export default function CallQueueTable() {
+export default function CallQueueTable({ projectId }: { projectId?: string }) {
   const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/calls')
+    const url = projectId
+      ? `/api/calls?project_id=${projectId}`
+      : '/api/calls'
+    fetch(url)
       .then((r) => r.json())
       .then((data) => setCalls(Array.isArray(data) ? data : []))
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [])
+  }, [projectId])
 
   const columns: ColumnDef<Call>[] = [
     { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,

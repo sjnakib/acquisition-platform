@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const searchParams = req.nextUrl.searchParams
+    const projectId  = searchParams.get('project_id')
     const campaignId = searchParams.get('campaign_id')
     const stage = searchParams.get('stage')
     const score = searchParams.get('score')
@@ -48,6 +49,7 @@ export async function GET(req: NextRequest) {
     query = query.order(sortColumn, { ascending })
 
     if (campaignId) query = query.eq('campaign_id', campaignId)
+    if (projectId)  query = query.eq('project_id', projectId)
     if (stage) query = query.eq('stage', stage)
     if (score) query = query.eq('score', score)
     if (search) query = query.ilike('deal_name', `%${search}%`)
@@ -80,6 +82,7 @@ export async function DELETE(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const searchParams = req.nextUrl.searchParams
+    const projectId  = searchParams.get('project_id')
     const campaignId = searchParams.get('campaign_id')
     const stage = searchParams.get('stage')
     const score = searchParams.get('score')
@@ -88,6 +91,7 @@ export async function DELETE(req: NextRequest) {
     // Fetch just the IDs matching the filters
     function idQuery() {
       let q = supabase.from('deals').select('id')
+      if (projectId)  q = q.eq('project_id', projectId)
       if (campaignId) q = q.eq('campaign_id', campaignId)
       if (stage) q = q.eq('stage', stage)
       if (score) q = q.eq('score', score)

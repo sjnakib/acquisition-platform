@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const createDealSchema = z.object({
+  project_id: z.string().uuid().optional(),
   campaign_id: z.string().uuid(),
   portfolio_id: z.string().uuid().optional().nullable(),
   deal_name: z.string().min(1).max(255),

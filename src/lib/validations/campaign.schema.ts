@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const createCampaignSchema = z.object({
+  project_id: z.string().uuid().optional(),
   name: z.string().min(1).max(255),
   market: z.string().min(1).max(255),
   listing_type: z.enum(['on_market', 'off_market']).optional(),
