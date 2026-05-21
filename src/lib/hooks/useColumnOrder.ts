@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import type { ColumnDef } from '@/components/shared/DataGrid'
 
 const STORAGE_PREFIX = 'dataGridColumnOrder:'
@@ -35,17 +35,23 @@ export function useColumnOrder<T>(
   storageKey: string | undefined,
   columns: ColumnDef<T>[],
 ) {
-  const [userOrder, setUserOrder] = useState<string[] | null>(() => {
-    if (!storageKey) return null
+  // Always start null — localStorage is unavailable during SSR.
+  // Reading it in the initializer causes hydration mismatch.
+  const [userOrder, setUserOrder] = useState<string[] | null>(null)
+
+  // Load stored order after hydration
+  useEffect(() => {
+    if (!storageKey) return
     try {
       const stored = localStorage.getItem(getStorageKey(storageKey))
       if (stored) {
         const keys = JSON.parse(stored) as string[]
-        if (Array.isArray(keys) && keys.length > 0) return keys
+        if (Array.isArray(keys) && keys.length > 0) {
+          setUserOrder(keys)
+        }
       }
     } catch {}
-    return null
-  })
+  }, [storageKey])
 
   const orderedColumns = useMemo(() => {
     if (!userOrder) return columns
