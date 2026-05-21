@@ -221,6 +221,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
         return (
           <div
             key={col.key}
+            data-col-key={col.key}
             role="gridcell"
             id={`grid-cell-r${rowIndex}-c${colIndex}`}
             className={`flex-shrink-0 flex items-center px-3 border-r text-[13px] relative ${isActionsCol ? 'sticky right-0 z-10' : ''}`}
@@ -1114,6 +1115,7 @@ export function DataGrid<T>({
   const [resizeIndicatorX, setResizeIndicatorX] = useState<number | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const dragSourceKeyRef = useRef<string | null>(null)
+  const resizeJustOccurredRef = useRef(false)
   const resizingRef = useRef<{
     key: string; startX: number; startWidth: number; totalStartWidth: number; lastClientX?: number; el: HTMLElement | null;
     multiCols?: { key: string; startWidth: number; ratio: number; el: HTMLElement | null }[] | null;
@@ -1516,6 +1518,8 @@ export function DataGrid<T>({
         }
       }
       resizingRef.current = null
+      resizeJustOccurredRef.current = true
+      setTimeout(() => { resizeJustOccurredRef.current = false }, 50)
       setResizeIndicatorX(null)
       if (resizeRafRef.current) {
         cancelAnimationFrame(resizeRafRef.current)
@@ -1545,31 +1549,14 @@ export function DataGrid<T>({
     return values
   }, [orderedColumns, sortedData])
 
-  const applyWidthToColumnElements = useCallback((colKey: string, width: number) => {
-    if (!scrollRef.current) return
-    const headerEl = scrollRef.current.querySelector(`[data-col-key="${colKey}"]`) as HTMLElement | null
-    if (headerEl) headerEl.style.width = `${width}px`
-    const colIndex = orderedColumns.findIndex((c) => c.key === colKey)
-    if (colIndex >= 0) {
-      const cellEls = scrollRef.current.querySelectorAll(`[id^="grid-cell-r"][id$="-c${colIndex}"]`)
-      for (const el of cellEls) {
-        (el as HTMLElement).style.width = `${width}px`
-      }
-    }
-  }, [orderedColumns])
-
   const onResizeDoubleClick = useCallback((key: string) => {
     const isMulti = selectedColKeys.size > 1 && selectedColKeys.has(key)
     if (isMulti) {
-      const widths = autoFitSelected(Array.from(selectedColKeys), (colKey) => getAutoFitValues(colKey))
-      for (const [colKey, w] of Object.entries(widths)) {
-        applyWidthToColumnElements(colKey, w)
-      }
+      autoFitSelected(Array.from(selectedColKeys), (colKey) => getAutoFitValues(colKey))
     } else {
-      const w = autoFitColumn(key, () => getAutoFitValues(key))
-      applyWidthToColumnElements(key, w)
+      autoFitColumn(key, () => getAutoFitValues(key))
     }
-  }, [autoFitColumn, autoFitSelected, selectedColKeys, getAutoFitValues, applyWidthToColumnElements])
+  }, [autoFitColumn, autoFitSelected, selectedColKeys, getAutoFitValues])
 
   const handleDraftChange = useCallback((val: string) => {
     dispatch({ type: 'SET_DRAFT', value: val })
@@ -1749,6 +1736,7 @@ export function DataGrid<T>({
                     borderLeftStyle: isDropTarget ? 'solid' : undefined,
                   }}
                   onClick={(e) => {
+                    if (resizeJustOccurredRef.current) return
                     if (e.shiftKey && col.sortable !== false) {
                       e.preventDefault()
                       const selectableKeys = orderedColumns.filter((c) => c.key !== 'actions').map((c) => c.key)
