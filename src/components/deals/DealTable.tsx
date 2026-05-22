@@ -180,7 +180,26 @@ export function DealTable({
   const columns = useMemo((): ColumnDef<Deal>[] => {
     const cols: ColumnDef<Deal>[] = []
 
-    // ── Leads base columns ──────────────────────────────────────
+    // ── Dynamic columns from field_definitions (left of Stage) ────
+    if (fieldDefs) {
+      for (const fd of fieldDefs) {
+        if (!fd.show_in_grid) continue
+        cols.push({
+          key: fd.key,
+          header: fd.label,
+          minWidth: 120,
+          sortable: true,
+          editable: true,
+          accessor: (r) => getFieldValue(r, fd.key),
+          render: (r) => {
+            const val = getFieldValue(r, fd.key)
+            return <span style={{ color: 'var(--color-text-secondary)' }}>{val || '—'}</span>
+          },
+        })
+      }
+    }
+
+    // ── Fixed system columns ──────────────────────────────────────
     cols.push({
       key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable: false,
       render: (r) => (
@@ -223,25 +242,6 @@ export function DealTable({
         <span style={{ color: 'var(--color-text-secondary)' }}>{r.response_type || '—'}</span>
       ),
     })
-
-    // ── Dynamic columns from field_definitions ───────────────────
-    if (fieldDefs) {
-      for (const fd of fieldDefs) {
-        if (!fd.show_in_grid) continue
-        cols.push({
-          key: fd.key,
-          header: fd.label,
-          minWidth: 120,
-          sortable: true,
-          editable: true,
-          accessor: (r) => getFieldValue(r, fd.key),
-          render: (r) => {
-            const val = getFieldValue(r, fd.key)
-            return <span style={{ color: 'var(--color-text-secondary)' }}>{val || '—'}</span>
-          },
-        })
-      }
-    }
 
     // ── Deals-only columns ───────────────────────────────────────
     if (view === 'deals') {

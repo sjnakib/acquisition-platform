@@ -20,13 +20,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
   }
 
   const { mapping } = parsed.data
+  const bodyProjectId = (body as Record<string, unknown>).project_id as string | undefined
 
   const { data: job } = await supabase.from('import_jobs').select('source_headers, campaign_id').eq('id', batchId).single()
   if (!job) return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
 
-  // Look up campaign's project_id for field_definitions scoping
-  let projectId: string | null = null
-  if (job.campaign_id) {
+  // Resolve project_id: prefer explicit body param, fall back to campaign's project_id
+  let projectId: string | null = bodyProjectId ?? null
+  if (!projectId && job.campaign_id) {
     const { data: campaign } = await supabase.from('campaigns')
       .select('project_id')
       .eq('id', job.campaign_id)
@@ -34,11 +35,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
     projectId = campaign?.project_id ?? null
   }
 
+  if (!projectId) {
+    return NextResponse.json({ error: 'No project_id available — field definitions require project scoping. Provide project_id in request body or assign a project to the campaign.' }, { status: 400 })
+  }
+
   const headers = job.source_headers as string[]
   const errors = validateMapping(headers, mapping)
   if (errors.length > 0) return NextResponse.json({ error: errors.join(' ') }, { status: 422 })
 
   // Create / surface field definitions for mapped columns
+  const warnings: string[] = []
   for (const [, action] of Object.entries(mapping)) {
     if (action.action === 'new_field') {
       const { error: fdError } = await supabase.from('field_definitions').upsert({
@@ -48,7 +54,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
         project_id: projectId,
         show_in_grid: true,
       }, { onConflict: 'key, project_id' })
-      if (fdError) console.error('Failed to create field definition:', fdError)
+      if (fdError) {
+        console.error('Failed to create field definition:', fdError)
+        warnings.push(`Failed to create field "${action.label}" (${action.key}): ${fdError.message}`)
+      }
     }
     if (action.action === 'field') {
       // Ensure existing field is surfaced in the grid
@@ -57,12 +66,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
         .eq('key', action.key)
         .eq('project_id', projectId)
         .eq('show_in_grid', false)
-      if (upError) console.error('Failed to surface field definition:', upError)
+      if (upError) {
+        console.error('Failed to surface field definition:', upError)
+        warnings.push(`Failed to surface field "${action.key}": ${upError.message}`)
+      }
     }
   }
 
   // Save mapping on import_jobs
   await supabase.from('import_jobs').update({ column_mapping: mapping }).eq('id', batchId)
 
-  return NextResponse.json({ ok: true, mapping })
+  return NextResponse.json({ ok: true, mapping, warnings: warnings.length > 0 ? warnings : undefined })
 }

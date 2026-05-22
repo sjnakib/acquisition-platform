@@ -64,7 +64,8 @@ function detectAction(header: string, fieldDefs: FieldDef[]): ColumnActionInput 
   const existing = fieldDefs.find((fd) => fd.key === key)
   if (existing) return { action: 'field', key: existing.key }
 
-  return { action: 'drop' }
+  // Default: auto-create a new field definition so imported columns appear in the grid
+  return { action: 'new_field', key, label: header, dataType: 'text' }
 }
 
 export function CoStarImportWizard({ projectId }: Props) {
@@ -189,16 +190,22 @@ export function CoStarImportWizard({ projectId }: Props) {
     setServerError(null)
 
     // Step A: save mapping
+    const mappingBody: Record<string, unknown> = { mapping: columnMapping }
+    if (projectId) mappingBody.project_id = projectId
     const mappingRes = await fetch(`/api/deals/import/${batchId}/mapping`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mapping: columnMapping }),
+      body: JSON.stringify(mappingBody),
     })
     if (!mappingRes.ok) {
       const err = await mappingRes.json().catch(() => ({ error: 'Failed to save column mapping' }))
       setServerError(err.error || 'Failed to save column mapping')
       setMappingSaving(false)
       return
+    }
+    const mappingResult = await mappingRes.json()
+    if (mappingResult.warnings?.length) {
+      console.warn('Column mapping warnings:', mappingResult.warnings)
     }
 
     // Step B: confirm import
