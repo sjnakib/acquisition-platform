@@ -3,22 +3,11 @@
 import { useState, useEffect, useCallback, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { DealTable } from '@/components/deals/DealTable'
+import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
-
-interface Deal {
-  id: string
-  deal_name: string | null
-  unit_count: number | null
-  stage: string
-  score: string | null
-  created_at: string
-  campaigns: { name: string; market: string } | null
-  portfolios?: { id: string; name: string } | null
-}
 
 interface FieldDef {
   id: string
@@ -30,6 +19,9 @@ interface FieldDef {
 }
 
 const SEARCH_DEBOUNCE_MS = 300
+
+const LEADS_STAGES = ['lead', 'outreach', 'response']
+const DEALS_STAGES = ['underwriting', 'loi', 'closed', 'failed']
 
 export default function DealsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
@@ -49,6 +41,7 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false)
   const [gridKey, setGridKey] = useState(0)
+  const [view, setView] = useState<'leads' | 'deals'>('leads')
 
   const debouncedSearchRef = useRef(search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -69,8 +62,11 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
     params.set('order', sortDir)
     params.set('project_id', projectId)
     if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current)
+    // Stage filter based on view
+    const stages = view === 'leads' ? LEADS_STAGES : DEALS_STAGES
+    for (const s of stages) params.append('stage', s)
     return `/api/deals?${params.toString()}`
-  }, [sortKey, sortDir, projectId])
+  }, [sortKey, sortDir, projectId, view])
 
   const fetchPage = useCallback(async (p: number, size: number) => {
     const res = await fetch(buildUrl(p, size))
@@ -105,24 +101,56 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
     fetchPage(page, pageSize).catch(() => setDeals([])).finally(() => setLoading(false))
   }, [page, pageSize, fetchPage])
 
+  // Reset to page 1 when view changes
+  useEffect(() => {
+    setPage(1)
+  }, [view])
+
+  const viewToggle = (
+    <div className="flex rounded-md overflow-hidden border" style={{ borderColor: 'var(--color-surface-3)' }}>
+      <button
+        onClick={() => setView('leads')}
+        className="px-3 py-1 text-[12px] font-medium transition-colors"
+        style={{
+          background: view === 'leads' ? 'var(--color-accent)' : 'var(--color-surface-0)',
+          color: view === 'leads' ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+        }}
+      >
+        Leads
+      </button>
+      <button
+        onClick={() => setView('deals')}
+        className="px-3 py-1 text-[12px] font-medium transition-colors"
+        style={{
+          background: view === 'deals' ? 'var(--color-accent)' : 'var(--color-surface-0)',
+          color: view === 'deals' ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+        }}
+      >
+        Deals
+      </button>
+    </div>
+  )
+
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader
         title={pageHeadings.deals.title}
-        description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} deals in pipeline`}
+        description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} ${view === 'leads' ? 'leads' : 'deals'} in pipeline`}
         breadcrumb={[
           { label: 'Projects', href: '/projects' },
           { label: projectName, href: `/projects/${projectId}/deals` },
-          { label: 'Deals' },
+          { label: view === 'leads' ? 'Leads' : 'Deals' },
         ]}
+        actions={viewToggle}
       />
 
       <div className="flex-1 min-h-0">
         <DealTable
-          key={gridKey}
+          key={`${gridKey}-${view}`}
           deals={deals}
           loading={loading}
           fieldDefs={fieldDefs}
+          view={view}
           fillHeight
           totalRows={filteredTotal}
           page={page}
@@ -136,10 +164,10 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
           serverSortKey={sortKey}
           serverSortDir={sortDir}
           onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
-          columnOrderStorageKey={`deals-table-${projectId}`}
+          columnOrderStorageKey={`deals-table-${projectId}-${view}`}
           onRowClick={(r: Deal) => router.push(`/projects/${projectId}/deals/${r.id}`)}
           topToolbar={{
-            recordLabel: 'deal',
+            recordLabel: view === 'leads' ? 'lead' : 'deal',
             onAdd: () => router.push(`/projects/${projectId}/import`),
             onDelete: async (ids) => {
               if (allSelected) { setPendingDeleteIds([]); setDeleteOpen(true) }
@@ -152,7 +180,11 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
       </div>
 
       <DeleteDealDialog
-        dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
+        dealNames={pendingDeleteIds.map((id) => {
+          const d = deals.find((d) => d.id === id)
+          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'deal_name')
+          return df?.value ?? 'Untitled Deal'
+        })}
         open={deleteOpen}
         allSelected={allSelected}
         totalCount={filteredTotal}

@@ -16,7 +16,7 @@ export const pageHeadings = {
   },
   import: {
     title: 'Import Properties',
-    description: 'Upload an Excel or CSV file to import new deals into the pipeline.',
+    description: 'Upload an Excel file to import new deals into the pipeline.',
   },
   settings: {
     title: 'Settings',

@@ -77,12 +77,7 @@ export async function POST(
           const raw = row[header]
           if (raw === undefined || raw === null || raw === '') continue
 
-          if (action.action === 'system' && action.field === 'deal_name') {
-            cleaned['deal_name'] = String(raw).trim()
-          } else if (action.action === 'unit_count') {
-            const num = Number(raw)
-            if (!isNaN(num) && num > 0) cleaned['unit_count'] = Math.round(num)
-          } else if (action.action === 'email_target') {
+          if (action.action === 'email_target') {
             const existing = (cleaned['outreach_emails'] as string[]) ?? []
             const email = String(raw).trim()
             if (email && email.includes('@')) {
@@ -91,8 +86,6 @@ export async function POST(
           }
           // field / new_field handled separately via deal_fields
         }
-
-        if (!cleaned['deal_name']) continue
 
         cleanedDeals.push({
           outreach_emails: [],

@@ -38,16 +38,10 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Auto-create default field definitions for the new project
+  // Auto-create essential field definitions for the new project
   const defaultFields = [
-    { key: 'address', label: 'Address', data_type: 'text', sort_order: 10, show_in_grid: true },
-    { key: 'city', label: 'City', data_type: 'text', sort_order: 20, show_in_grid: true },
-    { key: 'state', label: 'State', data_type: 'text', sort_order: 30, show_in_grid: true },
-    { key: 'zip', label: 'Zip Code', data_type: 'text', sort_order: 40, show_in_grid: true },
-    { key: 'property_type', label: 'Property Type', data_type: 'text', sort_order: 50, show_in_grid: false },
-    { key: 'building_class', label: 'Building Class', data_type: 'text', sort_order: 60, show_in_grid: false },
-    { key: 'year_built', label: 'Year Built', data_type: 'integer', sort_order: 70, show_in_grid: false },
-    { key: 'property_link', label: 'Property Link', data_type: 'url', sort_order: 80, show_in_grid: false },
+    { key: 'deal_name', label: 'Deal Name', data_type: 'text', sort_order: 0, show_in_grid: false },
+    { key: 'unit_count', label: 'Units', data_type: 'integer', sort_order: 5, show_in_grid: false },
   ]
 
   await supabase.from('field_definitions').insert(

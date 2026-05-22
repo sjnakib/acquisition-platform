@@ -4,11 +4,10 @@ import { createDealSchema } from '@/lib/validations/deal.schema'
 
 /** Maps DataGrid column keys to Supabase .order() column paths. */
 const SORT_COLUMNS: Record<string, string> = {
-  deal_name: 'deal_name',
-  unit_count: 'unit_count',
   stage: 'stage',
   score: 'score',
   created_at: 'created_at',
+  last_email_sent_on: 'last_email_sent_on',
   campaign: 'campaigns(name)',
   portfolio: 'portfolios(name)',
 }
@@ -38,7 +37,9 @@ export async function GET(req: NextRequest) {
         campaigns(name, market),
         portfolios(id, name),
         deal_fields(value, field_definitions(key, label, data_type)),
-        underwriting(underwritability_status, asking_price, price_per_unit),
+        underwriting(*),
+        loi_records(*),
+        document_checklist(*),
         email_outreach(id, status, response_classification),
         call_briefs(id, call_status, published)
       `, { count: 'exact' })
@@ -50,9 +51,23 @@ export async function GET(req: NextRequest) {
 
     if (campaignId) query = query.eq('campaign_id', campaignId)
     if (projectId)  query = query.eq('project_id', projectId)
-    if (stage) query = query.eq('stage', stage)
+    if (stage) {
+      const stages = searchParams.getAll('stage')
+      if (stages.length > 1) query = query.in('stage', stages)
+      else query = query.eq('stage', stages[0]!)
+    }
     if (score) query = query.eq('score', score)
-    if (search) query = query.ilike('deal_name', `%${search}%`)
+    if (search) {
+      const { data: matchingDealIds } = await supabase
+        .from('deal_fields')
+        .select('deal_id')
+        .ilike('value', `%${search}%`)
+      if (matchingDealIds && matchingDealIds.length > 0) {
+        query = query.in('id', matchingDealIds.map((r) => r.deal_id))
+      } else {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000')
+      }
+    }
 
     const { data, error, count } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -88,17 +103,35 @@ export async function DELETE(req: NextRequest) {
       let q = supabase.from('deals').select('id')
       if (projectId)  q = q.eq('project_id', projectId)
       if (campaignId) q = q.eq('campaign_id', campaignId)
-      if (stage) q = q.eq('stage', stage)
+      if (stage) {
+        const stages = searchParams.getAll('stage')
+        if (stages.length > 1) q = q.in('stage', stages)
+        else q = q.eq('stage', stages[0]!)
+      }
       if (score) q = q.eq('score', score)
-      if (search) q = q.ilike('deal_name', `%${search}%`)
       return q
+    }
+
+    // If searching, filter by deal_fields match first
+    let searchMatchIds: string[] | null = null
+    if (search) {
+      const { data: matching } = await supabase
+        .from('deal_fields')
+        .select('deal_id')
+        .ilike('value', `%${search}%`)
+      if (!matching || matching.length === 0) {
+        return NextResponse.json({ deleted: 0 })
+      }
+      searchMatchIds = matching.map((r) => r.deal_id)
     }
 
     // Collect all matching IDs (chunked since could be many)
     const allIds: string[] = []
     let offset = 0
     while (true) {
-      const { data, error } = await idQuery().range(offset, offset + BATCH_CHUNK - 1)
+      let q = idQuery()
+      if (searchMatchIds) q = q.in('id', searchMatchIds)
+      const { data, error } = await q.range(offset, offset + BATCH_CHUNK - 1)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       if (!data || data.length === 0) break
       allIds.push(...data.map((r: { id: string }) => r.id))

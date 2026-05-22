@@ -10,11 +10,8 @@ interface Call {
  published: boolean;
  client_notes: string | null;
  deals?: {
- deal_name: string | null;
- address: string | null;
- city: string | null;
- state: string | null;
  score: string | null;
+ deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null;
  };
 }
 

@@ -19,6 +19,8 @@ export interface ColumnDef<T> {
   maxWidth?: number
   align?: 'left' | 'right' | 'center'
   sortable?: boolean
+  /** Custom header content. When provided, replaces the plain-text header label. */
+  headerRender?: (col: ColumnDef<T>) => React.ReactNode
   render?: (row: T, index: number) => React.ReactNode
   accessor?: (row: T, index?: number) => string | number | null | undefined
   editable?: boolean
@@ -1305,18 +1307,7 @@ export function DataGrid<T>({
     if (!onCellEdit) return null
     const col = orderedColumns[colIndex]
     if (!col) return null
-    if (col.key === 'deal_name') {
-      if (!value || value.trim().length === 0) return 'Property name cannot be empty'
-      if (value.length > 200) return 'Property name must be 200 characters or fewer'
-    }
-    if (col.key === 'address') {
-      if (value.length > 300) return 'Address must be 300 characters or fewer'
-    }
-    if (col.key === 'unit_count') {
-      if (value === '') return null
-      const n = parseInt(value, 10)
-      if (isNaN(n) || n < 0) return 'Units must be a positive number'
-    }
+    if (value.length > 500) return 'Value must be 500 characters or fewer'
     return null
   }, [orderedColumns, onCellEdit])
 
@@ -1762,7 +1753,7 @@ export function DataGrid<T>({
                   role="columnheader"
                   id={`grid-header-c${orderedColumns.indexOf(col)}`}
                 >
-                  <span className="truncate">{col.header}</span>
+                  {col.headerRender ? col.headerRender(col) : <span className="truncate">{col.header}</span>}
                   {sortIcon(col)}
                   <div
                     className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-20 transition-opacity"

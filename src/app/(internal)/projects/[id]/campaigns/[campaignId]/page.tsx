@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
-import { DealTable } from '@/components/deals/DealTable'
+import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -20,13 +20,6 @@ interface Campaign {
   is_active: boolean; created_at: string
 }
 interface FieldDef { id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number }
-interface Deal {
-  id: string; deal_name: string | null; unit_count: number | null; stage: string; score: string | null; created_at: string
-  campaigns: { name: string; market: string } | null
-  portfolios?: { id: string; name: string } | null
-  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
-}
-
 const STAGE_ORDER = ['lead', 'outreach', 'response', 'underwriting', 'loi', 'closed', 'failed', 'archived'] as const
 const STAGE_LABELS: Record<string, string> = {
   lead: 'Lead', outreach: 'Outreach', response: 'Response', underwriting: 'Underwriting',
@@ -134,14 +127,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     },
   })
 
-  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'unit_count'>[]>({
-    queryKey: ['deals', { campaign_id: campaignId, project_id: projectId, select: 'stage,unit_count' }],
+  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'deal_fields'>[]>({
+    queryKey: ['deals', { campaign_id: campaignId, project_id: projectId, select: 'stage' }],
     queryFn: async () => {
       const p = new URLSearchParams({ campaign_id: campaignId, project_id: projectId, limit: '1000' })
       const res = await fetch(`/api/deals?${p.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch deal metrics')
       const json = await res.json()
-      return (json.data ?? []) as Pick<Deal, 'stage' | 'unit_count'>[]
+      return (json.data ?? []) as Pick<Deal, 'stage' | 'deal_fields'>[]
     },
     enabled: tab === 'details',
   })
@@ -231,7 +224,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
-                <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => sum + (d.unit_count ?? 0), 0)}</div></div>
+                <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
+                  const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
+                  return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
+                }, 0)}</div></div>
                 <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
                 <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
               </div>
@@ -268,7 +264,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       <DeleteDealDialog
-        dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
+        dealNames={pendingDeleteIds.map((id) => {
+          const d = deals.find((d) => d.id === id)
+          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'deal_name')
+          return df?.value ?? 'Untitled Deal'
+        })}
         open={deleteOpen} allSelected={allSelected} totalCount={total}
         onOpenChange={(open) => { setDeleteOpen(open); if (!open) { setPendingDeleteIds([]); setAllSelected(false) } }}
         onConfirm={async () => {

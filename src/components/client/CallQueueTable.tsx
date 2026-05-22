@@ -13,9 +13,14 @@ interface Call {
   summary_text: string | null
   client_notes: string | null
   deals: {
-    deal_name: string | null
     score: string | null
+    deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
   } | null
+}
+
+function getDealField(deal: Call['deals'], key: string): string {
+  const f = deal?.deal_fields?.find((df) => df?.field_definitions?.key === key)
+  return f?.value ?? ''
 }
 
 const scoreVariant: Record<string, 'score-vg' | 'score-g' | 'score-b' | 'score-vb'> = {
@@ -67,8 +72,8 @@ export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: 
 
   const columns: ColumnDef<Call>[] = [
     { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,
-      accessor: (r) => r.deals?.deal_name ?? '',
-      render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.deals?.deal_name ?? 'Untitled'}</span> },
+      accessor: (r) => getDealField(r.deals, 'deal_name'),
+      render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r.deals, 'deal_name') || 'Untitled'}</span> },
     { key: 'score', header: 'Score', width: 110, sortable: true,
       accessor: (r) => r.deals?.score ?? '',
       render: (r) => {

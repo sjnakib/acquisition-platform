@@ -65,26 +65,30 @@ VALUES
 -- Project 1: Heritage Multifamily Fund I
 INSERT INTO public.field_definitions (id, key, label, data_type, sort_order, show_in_grid, project_id)
 VALUES
-  ('fdef0000-0000-0000-0000-000000000001', 'address',       'Address',             'text',     10, true,  'proj00000-0000-0000-0000-000000000001'),
-  ('fdef0000-0000-0000-0000-000000000002', 'city',          'City',                'text',     20, true,  'proj00000-0000-0000-0000-000000000001'),
-  ('fdef0000-0000-0000-0000-000000000003', 'state',         'State',               'text',     30, true,  'proj00000-0000-0000-0000-000000000001'),
-  ('fdef0000-0000-0000-0000-000000000004', 'zip',           'Zip Code',            'text',     40, true,  'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000001', 'address',       'Address',             'text',     10, false, 'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000002', 'city',          'City',                'text',     20, false, 'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000003', 'state',         'State',               'text',     30, false, 'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000004', 'zip',           'Zip Code',            'text',     40, false, 'proj00000-0000-0000-0000-000000000001'),
   ('fdef0000-0000-0000-0000-000000000005', 'property_type', 'Property Type',       'text',     50, false, 'proj00000-0000-0000-0000-000000000001'),
   ('fdef0000-0000-0000-0000-000000000006', 'building_class','Building Class',      'text',     60, false, 'proj00000-0000-0000-0000-000000000001'),
   ('fdef0000-0000-0000-0000-000000000007', 'year_built',    'Year Built',          'integer',  70, false, 'proj00000-0000-0000-0000-000000000001'),
-  ('fdef0000-0000-0000-0000-000000000008', 'property_link', 'Property Link',       'url',      80, false, 'proj00000-0000-0000-0000-000000000001');
+  ('fdef0000-0000-0000-0000-000000000008', 'property_link', 'Property Link',       'url',      80, false, 'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000009', 'deal_name',     'Deal Name',           'text',      0, false, 'proj00000-0000-0000-0000-000000000001'),
+  ('fdef0000-0000-0000-0000-000000000010', 'unit_count',    'Units',               'integer',   5, false, 'proj00000-0000-0000-0000-000000000001');
 
 -- Project 2: Coastal Retail Portfolio
 INSERT INTO public.field_definitions (id, key, label, data_type, sort_order, show_in_grid, project_id)
 VALUES
-  ('fdef0000-0000-0000-0000-000000000011', 'address',       'Address',             'text',     10, true,  'proj00000-0000-0000-000000000002'),
-  ('fdef0000-0000-0000-0000-000000000012', 'city',          'City',                'text',     20, true,  'proj00000-0000-0000-000000000002'),
-  ('fdef0000-0000-0000-0000-000000000013', 'state',         'State',               'text',     30, true,  'proj00000-0000-0000-000000000002'),
-  ('fdef0000-0000-0000-0000-000000000014', 'zip',           'Zip Code',            'text',     40, true,  'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000011', 'address',       'Address',             'text',     10, false, 'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000012', 'city',          'City',                'text',     20, false, 'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000013', 'state',         'State',               'text',     30, false, 'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000014', 'zip',           'Zip Code',            'text',     40, false, 'proj00000-0000-0000-000000000002'),
   ('fdef0000-0000-0000-0000-000000000015', 'property_type', 'Property Type',       'text',     50, false, 'proj00000-0000-0000-000000000002'),
   ('fdef0000-0000-0000-0000-000000000016', 'building_class','Building Class',      'text',     60, false, 'proj00000-0000-0000-000000000002'),
   ('fdef0000-0000-0000-0000-000000000017', 'year_built',    'Year Built',          'integer',  70, false, 'proj00000-0000-0000-000000000002'),
-  ('fdef0000-0000-0000-0000-000000000018', 'property_link', 'Property Link',       'url',      80, false, 'proj00000-0000-0000-000000000002');
+  ('fdef0000-0000-0000-0000-000000000018', 'property_link', 'Property Link',       'url',      80, false, 'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000019', 'deal_name',     'Deal Name',           'text',      0, false, 'proj00000-0000-0000-000000000002'),
+  ('fdef0000-0000-0000-0000-000000000020', 'unit_count',    'Units',               'integer',   5, false, 'proj00000-0000-0000-000000000002');
 
 -- ── Campaigns ───────────────────────────────────────────────────────
 
@@ -116,53 +120,48 @@ VALUES
 -- ── Deals ───────────────────────────────────────────────────────────
 
 -- Project 1 deals
-INSERT INTO public.deals (id, project_id, campaign_id, portfolio_id, deal_name,
-  outreach_emails, unit_count, stage, score, created_by)
+INSERT INTO public.deals (id, project_id, campaign_id, portfolio_id,
+  outreach_emails, stage, score, created_by)
 VALUES
   ('dddddddd-0001-0000-0000-000000000001',
    'proj00000-0000-0000-0000-000000000001',
    'cccccccc-0000-0000-0000-000000000001',
    'pppppppp-0000-0000-0000-000000000001',
-   'Oak Park Apartments',
    '{owner@oakparkapts.com}',
-   48, 'underwriting', 'good',
+   'underwriting', 'good',
    'aaaaaaaa-0000-0000-0000-000000000001'),
   ('dddddddd-0002-0000-0000-000000000001',
    'proj00000-0000-0000-0000-000000000001',
    'cccccccc-0000-0000-0000-000000000001',
    'pppppppp-0000-0000-0000-000000000001',
-   'Riverside Heights',
    '{contact@riversideheights.com}',
-   72, 'response', 'very_good',
+   'response', 'very_good',
    'aaaaaaaa-0000-0000-0000-000000000001'),
   ('dddddddd-0003-0000-0000-000000000001',
    'proj00000-0000-0000-0000-000000000001',
    'cccccccc-0000-0000-0000-000000000001',
    null,
-   'Maple Court',
    '{maplecourt@gmail.com}',
-   24, 'lead', null,
+   'lead', null,
    'aaaaaaaa-0000-0000-0000-000000000001');
 
 -- Project 2 deals
-INSERT INTO public.deals (id, project_id, campaign_id, portfolio_id, deal_name,
-  outreach_emails, unit_count, stage, score, created_by)
+INSERT INTO public.deals (id, project_id, campaign_id, portfolio_id,
+  outreach_emails, stage, score, created_by)
 VALUES
   ('dddddddd-0004-0000-0000-000000000001',
    'proj00000-0000-0000-0000-000000000002',
    'cccccccc-0000-0000-0000-000000000002',
    'pppppppp-0000-0000-0000-000000000002',
-   'Boardwalk Plaza',
    '{owner@boardwalkplaza.com}',
-   12, 'lead', null,
+   'lead', null,
    'aaaaaaaa-0000-0000-0000-000000000001'),
   ('dddddddd-0005-0000-0000-000000000001',
    'proj00000-0000-0000-0000-000000000002',
    'cccccccc-0000-0000-0000-000000000002',
    'pppppppp-0000-0000-0000-000000000002',
-   'Harbor Square Shops',
    '{contact@harborsq.com}',
-   8, 'outreach', 'good',
+   'outreach', 'good',
    'aaaaaaaa-0000-0000-0000-000000000001');
 
 -- ── Deal fields (Project 1) ─────────────────────────────────────────
@@ -174,18 +173,24 @@ INSERT INTO public.deal_fields (deal_id, field_id, value) VALUES
   ('dddddddd-0001-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000004', '07102'),
   ('dddddddd-0001-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000005', 'multifamily'),
   ('dddddddd-0001-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000006', 'B'),
+  ('dddddddd-0001-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000009', 'Oak Park Apartments'),
+  ('dddddddd-0001-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000010', '48'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000001', '456 River Rd'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000002', 'Jersey City'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000003', 'NJ'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000004', '07305'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000005', 'multifamily'),
   ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000006', 'A'),
+  ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000009', 'Riverside Heights'),
+  ('dddddddd-0002-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000010', '72'),
   ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000001', '789 Maple Ave'),
   ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000002', 'Trenton'),
   ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000003', 'NJ'),
   ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000004', '08608'),
   ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000005', 'multifamily'),
-  ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000006', 'C');
+  ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000006', 'C'),
+  ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000009', 'Maple Court'),
+  ('dddddddd-0003-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000010', '24');
 
 -- ── Deal fields (Project 2) ─────────────────────────────────────────
 
@@ -195,11 +200,15 @@ INSERT INTO public.deal_fields (deal_id, field_id, value) VALUES
   ('dddddddd-0004-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000013', 'NJ'),
   ('dddddddd-0004-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000014', '08401'),
   ('dddddddd-0004-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000015', 'retail'),
+  ('dddddddd-0004-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000019', 'Boardwalk Plaza'),
+  ('dddddddd-0004-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000020', '12'),
   ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000011', '50 Harbor Blvd'),
   ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000012', 'Long Branch'),
   ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000013', 'NJ'),
   ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000014', '07740'),
-  ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000015', 'mixed_use');
+  ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000015', 'mixed_use'),
+  ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000019', 'Harbor Square Shops'),
+  ('dddddddd-0005-0000-0000-000000000001', 'fdef0000-0000-0000-0000-000000000020', '8');
 
 -- ── Document checklists ─────────────────────────────────────────────
 

@@ -1,28 +1,321 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useCallback } from 'react'
+import { X, Undo2 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
+import type { ColumnActionInput } from '@/lib/validations/import.schema'
 
-type PreviewRow = Record<string, unknown>
-
-interface ImportPreviewTableProps {
-  data: PreviewRow[]
+interface FieldDef {
+  id: string
+  key: string
+  label: string
+  data_type: string
 }
 
-export function ImportPreviewTable({ data }: ImportPreviewTableProps) {
-  const columns: ColumnDef<PreviewRow>[] = useMemo(() => {
+interface PreviousMappingData {
+  source_headers: string[]
+  column_mapping: Record<string, ColumnActionInput>
+}
+
+interface Props {
+  data: Record<string, unknown>[]
+  headers: string[]
+  mapping: Record<string, ColumnActionInput>
+  fieldDefs: FieldDef[]
+  previousMapping?: PreviousMappingData | null
+  batchId: string
+  onChange: (header: string, action: ColumnActionInput) => void
+}
+
+const DATA_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'integer', label: 'Integer' },
+  { value: 'date', label: 'Date' },
+  { value: 'boolean', label: 'Boolean' },
+  { value: 'url', label: 'URL' },
+  { value: 'currency', label: 'Currency' },
+] as const
+
+function resolveTargetLabel(
+  header: string,
+  mapping: Record<string, ColumnActionInput>,
+  previousMapping: PreviousMappingData | null | undefined,
+  fieldDefs: FieldDef[],
+): string {
+  const source = previousMapping?.column_mapping ?? mapping
+  const action = source[header]
+  if (!action || action.action === 'drop') return ''
+  if (action.action === 'email_target') return '→ Email Target'
+  if (action.action === 'field') {
+    const fd = fieldDefs.find((f) => f.key === action.key)
+    return `→ ${fd?.label ?? action.key}`
+  }
+  if (action.action === 'new_field') return `→ New: ${action.label}`
+  return ''
+}
+
+function selectValue(action: ColumnActionInput | undefined): string {
+  const a = action?.action ?? 'drop'
+  if (a === 'email_target') return 'email_target'
+  if (a === 'field') return `field:${(action as { key: string }).key}`
+  if (a === 'new_field') return 'new_field'
+  return 'drop'
+}
+
+export function ImportPreviewTable({
+  data,
+  headers,
+  mapping,
+  fieldDefs,
+  previousMapping,
+  batchId,
+  onChange,
+}: Props) {
+  const [expandedNewField, setExpandedNewField] = useState<string | null>(null)
+
+  const handleSelectChange = useCallback(
+    (header: string, value: string) => {
+      if (value === 'email_target') {
+        setExpandedNewField(null)
+        onChange(header, { action: 'email_target' })
+      } else if (value.startsWith('field:')) {
+        setExpandedNewField(null)
+        onChange(header, { action: 'field', key: value.slice(6) })
+      } else if (value === 'new_field') {
+        const key = header
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_|_$/g, '')
+        onChange(header, { action: 'new_field', key, label: header, dataType: 'text' })
+        setExpandedNewField(header)
+      } else {
+        setExpandedNewField(null)
+        onChange(header, { action: 'drop' })
+      }
+    },
+    [onChange],
+  )
+
+  const availableFields = useMemo(
+    () => fieldDefs.filter((fd) => fd.key),
+    [fieldDefs],
+  )
+
+  const columns: ColumnDef<Record<string, unknown>>[] = useMemo(() => {
     if (!data.length) return []
-    // Dynamically build columns from actual data keys
-    const keys = Object.keys(data[0] ?? {})
-    return keys.map((key) => ({
-      key,
-      header: key,
-      sortable: true,
-      minWidth: 100,
-      maxWidth: 300,
-      align: 'left' as const,
-    }))
-  }, [data])
+    return headers.map((header) => {
+      const action = mapping[header]
+      const isDropped = !action || action.action === 'drop'
+      const currentAction = action?.action ?? 'drop'
+      const isNewFieldExpanded = expandedNewField === header
+
+      return {
+        key: header,
+        header,
+        sortable: false,
+        minWidth: 130,
+        maxWidth: 350,
+        align: 'left' as const,
+        headerRender: () => {
+          const targetLabel = resolveTargetLabel(header, mapping, previousMapping, fieldDefs)
+
+          return (
+            <div
+              className="flex flex-col gap-0.5 w-full min-w-0"
+              style={{ opacity: isDropped ? 0.4 : 1 }}
+            >
+              {/* Target label — or new-field inline form */}
+              {currentAction === 'new_field' && isNewFieldExpanded ? (
+                <div className="flex items-center gap-1" style={{ minHeight: 20 }}>
+                  <Input
+                    placeholder="key"
+                    value={(action as { key?: string }).key ?? ''}
+                    onChange={(e) =>
+                      onChange(header, {
+                        ...action,
+                        key: e.target.value,
+                      } as ColumnActionInput)
+                    }
+                    className="h-5 text-[10px]"
+                    style={{
+                      fontFamily: 'var(--font-jetbrains-mono)',
+                      width: 60,
+                      minWidth: 0,
+                    }}
+                  />
+                  <Input
+                    placeholder="label"
+                    value={
+                      (action as { label?: string }).label ?? ''
+                    }
+                    onChange={(e) =>
+                      onChange(header, {
+                        ...action,
+                        label: e.target.value,
+                      } as ColumnActionInput)
+                    }
+                    className="h-5 text-[10px] flex-1 min-w-0"
+                  />
+                  <Select
+                    value={
+                      (action as { dataType?: string }).dataType ?? 'text'
+                    }
+                    onValueChange={(v) =>
+                      onChange(header, {
+                        ...action,
+                        dataType: v,
+                      } as ColumnActionInput)
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-5 text-[10px]"
+                      style={{ width: 55, flexShrink: 0 }}
+                    />
+                    <SelectContent>
+                      {DATA_TYPES.map((dt) => (
+                        <SelectItem key={dt.value} value={dt.value}>
+                          {dt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setExpandedNewField(null)
+                      onChange(header, { action: 'drop' })
+                    }}
+                    className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)]"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ) : (
+                <span
+                  className="text-[10px] leading-tight truncate w-full"
+                  style={{
+                    color: 'var(--color-text-tertiary)',
+                    minHeight: 14,
+                  }}
+                >
+                  {targetLabel || ' '}
+                </span>
+              )}
+
+              {/* Source column name + controls */}
+              <div className="flex items-center gap-1 min-w-0">
+                <span
+                  className="text-[11px] font-medium truncate flex-1 min-w-0"
+                  style={{
+                    color: isDropped
+                      ? 'var(--color-text-tertiary)'
+                      : 'var(--color-text-primary)',
+                  }}
+                >
+                  {header}
+                </span>
+
+                {/* Mapping dropdown */}
+                <Select
+                  value={selectValue(action)}
+                  onValueChange={(v) => handleSelectChange(header, v)}
+                >
+                  <SelectTrigger
+                    className="h-5 text-[10px] border-0 p-0 flex-shrink-0"
+                    style={{
+                      color: 'var(--color-text-tertiary)',
+                      background: 'transparent',
+                      minWidth: 20,
+                      width: 'auto',
+                    }}
+                  />
+                  <SelectContent align="end" className="text-[12px]">
+                    <SelectItem value="email_target">Email Target</SelectItem>
+                    {availableFields.length > 0 && (
+                      <>
+                        <div
+                          className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide"
+                          style={{ color: 'var(--color-text-tertiary)' }}
+                        >
+                          Existing fields
+                        </div>
+                        {availableFields.map((fd) => (
+                          <SelectItem key={fd.key} value={`field:${fd.key}`}>
+                            {fd.label}{' '}
+                            <span
+                              style={{
+                                color: 'var(--color-text-tertiary)',
+                                fontSize: 10,
+                              }}
+                            >
+                              ({fd.key})
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    <div
+                      className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide"
+                      style={{ color: 'var(--color-text-tertiary)' }}
+                    >
+                      Other
+                    </div>
+                    <SelectItem value="new_field">+ New field</SelectItem>
+                    <SelectItem value="drop">Drop</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* Drop / restore toggle */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (isDropped) {
+                      onChange(header, {
+                        action: 'field',
+                        key: 'deal_name',
+                      })
+                    } else {
+                      setExpandedNewField(null)
+                      onChange(header, { action: 'drop' })
+                    }
+                  }}
+                  className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
+                  style={{
+                    color: isDropped
+                      ? 'var(--color-text-tertiary)'
+                      : 'var(--color-danger-text)',
+                  }}
+                  title={isDropped ? 'Restore column' : 'Drop column'}
+                >
+                  {isDropped ? <Undo2 size={11} /> : <X size={11} />}
+                </button>
+              </div>
+            </div>
+          )
+        },
+      }
+    })
+  }, [
+    headers,
+    mapping,
+    fieldDefs,
+    previousMapping,
+    expandedNewField,
+    availableFields,
+    handleSelectChange,
+    onChange,
+    data,
+  ])
 
   return (
     <DataGrid
@@ -31,6 +324,7 @@ export function ImportPreviewTable({ data }: ImportPreviewTableProps) {
       rowKey={(_, i) => String(i)}
       emptyMessage="No data to preview"
       maxHeight={480}
+      columnOrderStorageKey={`import-preview-${batchId}`}
     />
   )
 }

@@ -15,11 +15,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ImportPreviewTable } from '@/components/import/ImportPreviewTable'
-import { ColumnMappingPanel } from '@/components/import/ColumnMappingPanel'
 import { useQuery } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Label } from '@/components/ui/label'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
+
+interface PreviousMappingData {
+  source_headers: string[]
+  column_mapping: Record<string, ColumnActionInput>
+}
 
 interface ImportStatus {
   status: string
@@ -53,10 +57,6 @@ interface Props {
 function detectAction(header: string, fieldDefs: FieldDef[]): ColumnActionInput {
   const h = header.toLowerCase().trim().replace(/\s+/g, ' ')
 
-  if (/^(property|deal)\s*name$/i.test(h)) return { action: 'system', field: 'deal_name' }
-  if (/^(property|asset)\s*address$/i.test(h) || /^address$/i.test(h))
-    return { action: 'system', field: 'deal_name' }
-  if (/^(number\s*(of\s*)?|#\s*of\s*|total\s*)?units?$/i.test(h)) return { action: 'unit_count' }
   if (/email/i.test(h)) return { action: 'email_target' }
 
   // Check if an existing field_definitions key matches
@@ -75,6 +75,7 @@ export function CoStarImportWizard({ projectId }: Props) {
   const [serverError, setServerError] = useState<string | null>(null)
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
   const [columnMapping, setColumnMapping] = useState<Record<string, ColumnActionInput>>({})
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
   const [mappingSaving, setMappingSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -122,6 +123,19 @@ export function CoStarImportWizard({ projectId }: Props) {
     enabled: !!projectId,
   })
 
+  const { data: previousMapping } = useQuery<PreviousMappingData | null>({
+    queryKey: ['previous-mapping', selectedCampaignId],
+    queryFn: async () => {
+      if (!selectedCampaignId) return null
+      const res = await fetch(
+        `/api/deals/import/previous-mapping?campaign_id=${selectedCampaignId}`,
+      )
+      if (!res.ok) throw new Error('Failed to fetch previous mapping')
+      return res.json()
+    },
+    enabled: !!selectedCampaignId && step === 2,
+  })
+
   const { control, handleSubmit, setValue, getValues, formState: { errors, isSubmitting } } =
     useForm<UploadSchema>({ resolver: zodResolver(uploadSchema) })
 
@@ -134,10 +148,10 @@ export function CoStarImportWizard({ projectId }: Props) {
       }
       // Ensure at least one column is mapped to deal_name if none was auto-detected
       const hasDealName = Object.values(map).some(
-        (a) => a.action === 'system' && a.field === 'deal_name',
+        (a) => a.action === 'field' && (a as { key: string }).key === 'deal_name',
       )
       if (!hasDealName && headers.length > 0) {
-        map[headers[0]!] = { action: 'system', field: 'deal_name' }
+        map[headers[0]!] = { action: 'field', key: 'deal_name' }
       }
       return map
     },
@@ -157,6 +171,7 @@ export function CoStarImportWizard({ projectId }: Props) {
         setPreviewData(result.preview)
         setPreviewHeaders(headers)
         setBatchId(result.batchId)
+        setSelectedCampaignId(data.campaignId)
         setColumnMapping(buildDefaultMapping(headers, fieldDefs))
         setStep(2)
       } else {
@@ -307,16 +322,17 @@ export function CoStarImportWizard({ projectId }: Props) {
               </div>
             </div>
 
-            <ColumnMappingPanel
+            <ImportPreviewTable
+              data={previewData}
               headers={previewHeaders}
               mapping={columnMapping}
               fieldDefs={fieldDefs}
+              previousMapping={previousMapping ?? null}
+              batchId={batchId!}
               onChange={(header, action) =>
                 setColumnMapping((prev) => ({ ...prev, [header]: action }))
               }
             />
-
-            <ImportPreviewTable data={previewData} />
             {serverError && <p className="text-sm" style={errText}>{serverError}</p>}
           </div>
         )}
@@ -365,6 +381,7 @@ export function CoStarImportWizard({ projectId }: Props) {
                     setPreviewData(null)
                     setPreviewHeaders([])
                     setBatchId(null)
+                    setSelectedCampaignId(null)
                     setImportStatus(null)
                     setColumnMapping({})
                   }}

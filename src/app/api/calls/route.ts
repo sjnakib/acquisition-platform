@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('call_briefs')
-      .select('*, deals!inner(deal_name, score, project_id)')
+      .select('*, deals!inner(score, project_id, deal_fields(value, field_definitions(key, label, data_type)))')
       .order('flagged_at', { ascending: false })
 
     if (projectId) query = query.eq('deals.project_id', projectId)

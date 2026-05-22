@@ -9,9 +9,13 @@ import { Badge } from '@/components/ui/badge'
 
 interface Deal {
   id: string
-  deal_name: string | null
-  unit_count: number | null
   score: string | null
+  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
+}
+
+function getDealField(deal: Deal, key: string): string {
+  const f = deal.deal_fields?.find((df) => df?.field_definitions?.key === key)
+  return f?.value ?? ''
 }
 
 const scoreVariant: Record<string, 'score-vg' | 'score-g' | 'score-b' | 'score-vb'> = {
@@ -30,9 +34,9 @@ const scoreLabel: Record<string, string> = {
 
 const columns: ColumnDef<Deal>[] = [
   { key: 'deal_name', header: 'Property Name', minWidth: 160, sortable: true,
-    render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.deal_name ?? 'Untitled'}</span> },
+    render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r, 'deal_name') || 'Untitled'}</span> },
   { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true,
-    render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{r.unit_count ?? '—'}</span> },
+    render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{getDealField(r, 'unit_count') || '—'}</span> },
   { key: 'score', header: 'Score', width: 110, sortable: true,
     render: (r) => {
       if (!r.score) return <Badge variant="neutral">Unscored</Badge>

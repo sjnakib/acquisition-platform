@@ -4,17 +4,13 @@ export const createDealSchema = z.object({
   project_id: z.string().uuid().optional(),
   campaign_id: z.string().uuid(),
   portfolio_id: z.string().uuid().optional().nullable(),
-  deal_name: z.string().min(1).max(255),
   outreach_emails: z.array(z.string().email()).default([]),
-  unit_count: z.number().int().min(1).optional().nullable(),
 })
 
 export const patchDealSchema = z.object({
   campaign_id: z.string().uuid().optional(),
   portfolio_id: z.string().uuid().optional().nullable(),
-  deal_name: z.string().min(1).max(255).optional(),
   outreach_emails: z.array(z.string().email()).optional(),
-  unit_count: z.number().int().min(1).optional().nullable(),
   stage: z.enum([
     'lead', 'outreach', 'response', 'underwriting',
     'loi', 'closed', 'failed', 'archived',
@@ -24,6 +20,9 @@ export const patchDealSchema = z.object({
   archive_reason: z.string().max(500).optional().nullable(),
   internal_notes: z.string().max(10000).optional().nullable(),
   drive_folder_url: z.string().url().optional().nullable(),
+  last_email_sent_on: z.string().datetime().optional().nullable(),
+  response_type: z.string().max(100).optional().nullable(),
+  last_contacted_at: z.string().datetime().optional().nullable(),
 })
 
 export const dynamicFieldPatchSchema = z.record(z.string(), z.union([

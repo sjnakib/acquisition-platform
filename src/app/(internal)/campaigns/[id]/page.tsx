@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Mail, Target, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { DealTable } from '@/components/deals/DealTable'
+import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -31,18 +31,6 @@ interface FieldDef {
   data_type: string
   show_in_grid: boolean
   sort_order: number
-}
-
-interface Deal {
-  id: string
-  deal_name: string | null
-  unit_count: number | null
-  stage: string
-  score: string | null
-  created_at: string
-  campaigns: { name: string; market: string } | null
-  portfolios?: { id: string; name: string } | null
-  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
 }
 
 const STAGE_ORDER = ['lead', 'outreach', 'response', 'underwriting', 'loi', 'closed', 'failed', 'archived'] as const
@@ -191,14 +179,14 @@ export default function CampaignDetailPage() {
     },
   })
 
-  // Lightweight query for Details tab metrics — all deals, just stage + unit_count
-  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'unit_count'>[]>({
-    queryKey: ['deals', { campaign_id: id, select: 'stage,unit_count' }],
+  // Lightweight query for Details tab metrics — all deals for stage counts
+  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'deal_fields'>[]>({
+    queryKey: ['deals', { campaign_id: id, select: 'stage' }],
     queryFn: async () => {
       const res = await fetch(`/api/deals?campaign_id=${encodeURIComponent(id)}&limit=1000`)
       if (!res.ok) throw new Error('Failed to fetch deal metrics')
       const json = await res.json()
-      return (json.data ?? []) as Pick<Deal, 'stage' | 'unit_count'>[]
+      return (json.data ?? []) as Pick<Deal, 'stage' | 'deal_fields'>[]
     },
     enabled: tab === 'details',
   })
@@ -346,7 +334,10 @@ export default function CampaignDetailPage() {
                 </div>
                 <div>
                   <div style={labelStyle}>Total Units</div>
-                  <div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => sum + (d.unit_count ?? 0), 0)}</div>
+                  <div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
+                    const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
+                    return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
+                  }, 0)}</div>
                 </div>
                 <div>
                   <div style={labelStyle}>Market</div>
@@ -403,7 +394,11 @@ export default function CampaignDetailPage() {
       </div>
 
       <DeleteDealDialog
-        dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
+        dealNames={pendingDeleteIds.map((id) => {
+          const d = deals.find((d) => d.id === id)
+          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'deal_name')
+          return df?.value ?? 'Untitled Deal'
+        })}
         open={deleteOpen}
         allSelected={allSelected}
         totalCount={total}

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
   const errors = validateMapping(headers, mapping)
   if (errors.length > 0) return NextResponse.json({ error: errors.join(' ') }, { status: 422 })
 
-  // Create new field definitions for new_field actions
+  // Create / surface field definitions for mapped columns
   for (const [, action] of Object.entries(mapping)) {
     if (action.action === 'new_field') {
       const { error: fdError } = await supabase.from('field_definitions').upsert({
@@ -46,8 +46,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
         label: action.label,
         data_type: action.dataType,
         project_id: projectId,
+        show_in_grid: true,
       }, { onConflict: 'key, project_id' })
       if (fdError) console.error('Failed to create field definition:', fdError)
+    }
+    if (action.action === 'field') {
+      // Ensure existing field is surfaced in the grid
+      const { error: upError } = await supabase.from('field_definitions')
+        .update({ show_in_grid: true })
+        .eq('key', action.key)
+        .eq('project_id', projectId)
+        .eq('show_in_grid', false)
+      if (upError) console.error('Failed to surface field definition:', upError)
     }
   }
 

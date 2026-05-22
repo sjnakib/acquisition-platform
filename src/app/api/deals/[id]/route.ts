@@ -64,25 +64,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
-    // If unit_count changed, recompute per-unit fields on underwriting
-    if (parsed.data.unit_count !== undefined) {
-      const { data: deal } = await supabase.from('deals').select('unit_count').eq('id', id).single()
-      const oldUnitCount = deal?.unit_count as number | null
-      if (oldUnitCount && oldUnitCount !== parsed.data.unit_count) {
-        const { data: uw } = await supabase.from('underwriting').select('*').eq('deal_id', id).single()
-        if (uw) {
-          const updates: Record<string, number> = {}
-          const newCount = parsed.data.unit_count ?? 1
-          if (uw.asking_price != null) updates.price_per_unit = (uw.asking_price as number) / newCount
-          if (uw.purchase_price != null) updates.purchase_price_per_unit = (uw.purchase_price as number) / newCount
-          if (uw.capex != null) updates.capex_per_unit = (uw.capex as number) / newCount
-          if (Object.keys(updates).length > 0) {
-            await supabase.from('underwriting').update(updates).eq('deal_id', id)
-          }
-        }
-      }
-    }
-
     const { data, error } = await supabase
       .from('deals')
       .update(parsed.data)
