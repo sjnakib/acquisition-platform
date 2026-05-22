@@ -41,8 +41,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No data rows found in file' }, { status: 422 })
   }
 
+  const { data: campaign } = await supabase.from('campaigns')
+    .select('project_id')
+    .eq('id', campaignId)
+    .single()
+
   const { data: job } = await supabase.from('import_jobs').insert({
     campaign_id: campaignId,
+    project_id: campaign?.project_id ?? null,
     portfolio_id: portfolioId || null,
     user_id: user.id,
     source_headers: parsed.headers,

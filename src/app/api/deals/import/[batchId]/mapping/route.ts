@@ -21,8 +21,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
 
   const { mapping } = parsed.data
 
-  const { data: job } = await supabase.from('import_jobs').select('source_headers').eq('id', batchId).single()
+  const { data: job } = await supabase.from('import_jobs').select('source_headers, campaign_id').eq('id', batchId).single()
   if (!job) return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
+
+  // Look up campaign's project_id for field_definitions scoping
+  let projectId: string | null = null
+  if (job.campaign_id) {
+    const { data: campaign } = await supabase.from('campaigns')
+      .select('project_id')
+      .eq('id', job.campaign_id)
+      .single()
+    projectId = campaign?.project_id ?? null
+  }
 
   const headers = job.source_headers as string[]
   const errors = validateMapping(headers, mapping)
@@ -35,7 +45,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
         key: action.key,
         label: action.label,
         data_type: action.dataType,
-      }, { onConflict: 'key', ignoreDuplicates: false })
+        project_id: projectId,
+      }, { onConflict: 'key, project_id' })
       if (fdError) console.error('Failed to create field definition:', fdError)
     }
   }

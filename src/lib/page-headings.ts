@@ -30,4 +30,8 @@ export const pageHeadings = {
     title: 'Call Queue',
     description: 'Review these deals before your call with the team',
   },
+  profile: {
+    title: 'Profile',
+    description: 'Your account details',
+  },
 } as const

@@ -57,12 +57,7 @@ export async function GET(req: NextRequest) {
     const { data, error, count } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Unfiltered total — total deals in pipeline regardless of search/filter
-    const { count: totalCount } = await supabase
-      .from('deals')
-      .select('*', { count: 'exact', head: true })
-
-    return NextResponse.json({ data, total: totalCount ?? 0, filtered_total: count ?? 0 })
+    return NextResponse.json({ data, total: count ?? 0, filtered_total: count ?? 0 })
   } catch (err) {
     console.error('Deals list error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

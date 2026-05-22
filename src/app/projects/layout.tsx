@@ -6,9 +6,15 @@ import { FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
 
+interface ProfileData {
+  full_name: string | null
+  role: string | null
+}
+
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
+  const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -17,6 +23,15 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       setRole((user?.app_metadata?.role as 'internal' | 'client') ?? 'internal')
     })
   }, [supabase])
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.profile) setProfileData(json.profile)
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -43,9 +58,9 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       <Sidebar
         navSections={navSections}
         profile={{
-          avatar: 'U',
-          name: 'User',
-          subtitle: <span className="text-[10px]" style={{ color: 'var(--color-sidebar-text-muted)' }}>Team</span>,
+          avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
+          name: profileData?.full_name ?? 'User',
+          subtitle: <span className="text-[10px]" style={{ color: 'var(--color-sidebar-text-muted)' }}>{profileData?.role ?? 'Team'}</span>,
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}

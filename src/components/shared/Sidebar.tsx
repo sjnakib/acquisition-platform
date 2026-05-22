@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, ChevronRight, Menu, LogOut, User, X, Sun, Moon,
@@ -52,6 +52,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
   const [mounted, setMounted] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  const router = useRouter()
 
   // Required: defer localStorage read to client to avoid hydration mismatch
   /* eslint-disable */
@@ -191,6 +192,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                 style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-3)', boxShadow: 'var(--shadow-lg)' }}
               >
                 <button
+                  onClick={() => { setUserMenuOpen(false); router.push('/profile') }}
                   className="flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors"
                   style={{ color: 'var(--color-text-primary)' }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)' }}

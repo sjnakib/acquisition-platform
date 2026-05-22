@@ -21,7 +21,7 @@ export default function ImportPage({ params }: { params: Promise<{ id: string }>
           { label: 'Import' },
         ]}
       />
-      <CoStarImportWizard />
+      <CoStarImportWizard projectId={projectId} />
     </div>
   )
 }

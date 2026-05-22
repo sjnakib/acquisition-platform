@@ -6,6 +6,11 @@ import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { clientNavItems } from '@/lib/navigation'
 
+interface ProfileData {
+  full_name: string | null
+  role: string | null
+}
+
 export default function ClientProjectLayout({
   children,
   params,
@@ -16,6 +21,7 @@ export default function ClientProjectLayout({
   const { id: projectId } = use(params)
   const [collapsed, setCollapsed] = useState(false)
   const [projectName, setProjectName] = useState('Loading...')
+  const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -27,6 +33,15 @@ export default function ClientProjectLayout({
       })
       .catch(() => router.push('/projects'))
   }, [projectId, router])
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json?.profile) setProfileData(json.profile)
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -41,8 +56,8 @@ export default function ClientProjectLayout({
       <Sidebar
         navSections={navSections}
         profile={{
-          avatar: 'C',
-          name: 'Client',
+          avatar: (profileData?.full_name ?? 'C').charAt(0).toUpperCase(),
+          name: profileData?.full_name ?? 'Client',
           subtitle: <span className="text-[10px]" style={{ color: 'var(--color-sidebar-text-muted)' }}>Sponsor</span>,
         }}
         collapsed={collapsed}
