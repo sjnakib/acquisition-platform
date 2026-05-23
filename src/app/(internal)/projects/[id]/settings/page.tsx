@@ -11,6 +11,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 import { Trash2, Plus, X, Save } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 interface Sponsor {
   id: string
@@ -24,6 +25,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const { id: projectId } = use(params)
   const { projectName } = useProjectContext()
   const router = useRouter()
+  const supabase = createClient()
   const [project, setProject] = useState<{ name: string; description: string | null } | null>(null)
   const [sponsors, setSponsors] = useState<Sponsor[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,8 +47,19 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('gmail') === 'connected') setGmailConnected(true)
-  }, [])
+    if (params.get('gmail') === 'connected') {
+      setGmailConnected(true)
+    } else {
+      supabase
+        .from('google_tokens')
+        .select('user_id')
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setGmailConnected(true)
+          }
+        })
+    }
+  }, [supabase])
 
   useEffect(() => {
     Promise.all([

@@ -42,7 +42,7 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <PageHeader
         title={pageHeadings.portfolios.title}
         description={pageHeadings.portfolios.description}

@@ -91,7 +91,7 @@ export default function ProjectsPage() {
 
   // Internal user: show project management view
   return (
-    <div className="max-w-6xl mx-auto px-8 py-8 max-lg:px-6 max-md:px-4">
+    <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
         <PageHeader title="Projects" description="Select or create a project to get started" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

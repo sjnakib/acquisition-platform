@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
+import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { FunnelMetrics } from '@/components/dashboard/FunnelMetrics'
 import { KPIScorecard } from '@/components/dashboard/KPIScorecard'
@@ -9,10 +10,13 @@ import { PipelineTable } from '@/components/dashboard/PipelineTable'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
+import { Building2 } from 'lucide-react'
+import { EmptyState } from '@/components/shared/EmptyState'
 
 export default function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
   const { projectName } = useProjectContext()
+  const router = useRouter()
  const [pipeline, setPipeline] = useState<Array<{
  campaign_name: string
  market: string
@@ -83,6 +87,33 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
  </div>
  )
  }
+
+  if (pipeline.length === 0) {
+    return (
+      <div>
+        <PageHeader
+          title={pageHeadings.dashboard.title}
+          description={pageHeadings.dashboard.description}
+          breadcrumb={[
+            { label: 'Projects', href: '/projects' },
+            { label: projectName, href: `/projects/${projectId}/dashboard` },
+            { label: 'Dashboard' },
+          ]}
+        />
+        <div className="rounded-xl border p-12 flex flex-col items-center justify-center text-center bg-[var(--color-surface-0)] border-[var(--color-border)] shadow-[var(--shadow-xs)]">
+          <EmptyState
+            icon={Building2}
+            title="No Deals or Campaigns Found"
+            description="Get started by importing your CoStar deals or setting up outreach campaigns for this project."
+            action={{
+              label: "Import CoStar Deals",
+              onClick: () => router.push(`/projects/${projectId}/import`)
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
 
  return (
  <div>

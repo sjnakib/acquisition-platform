@@ -37,7 +37,7 @@ export function LoginForm() {
         return
       }
 
-      router.push(data.role === 'client' ? '/overview' : '/dashboard')
+      router.push('/projects')
     } catch {
       setError('An error occurred.')
     } finally {

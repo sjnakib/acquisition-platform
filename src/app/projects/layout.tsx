@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 
 interface ProfileData {
   full_name: string | null
@@ -36,6 +37,15 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
+  }
+
+  // Gating layout rendering until user role resolves to prevent layout flash/FOUC
+  if (role === null) {
+    return (
+      <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--color-canvas)' }}>
+        <LoadingSpinner size="lg" />
+      </div>
+    )
   }
 
   // Client role: no sidebar, just the selector UI
