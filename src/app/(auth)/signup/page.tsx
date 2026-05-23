@@ -38,7 +38,7 @@ export default function SignupPage() {
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--color-canvas)' }}>
       <div className="w-full max-w-[380px] rounded-xl p-8 max-sm:shadow-none max-sm:border-0 max-sm:p-4" style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)', boxShadow: 'var(--shadow-md)' }}>
         <div className="text-center mb-10 flex justify-center">
-          <BrandLogo variant="full" />
+          <BrandLogo variant="full" disableLink={true} />
         </div>
 
         <h1 className="text-[20px] font-medium text-center mb-6" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Create account</h1>

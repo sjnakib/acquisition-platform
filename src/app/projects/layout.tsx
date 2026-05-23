@@ -19,6 +19,8 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const router = useRouter()
   const supabase = createClient()
 
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setRole((user?.app_metadata?.role as 'internal' | 'client') ?? 'internal')
@@ -33,6 +35,17 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (role === 'internal') {
+      fetch('/api/projects')
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data)) setProjects(data)
+        })
+        .catch(() => {})
+    }
+  }, [role])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -56,11 +69,23 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   // Internal role: sidebar with projects nav
   const navSections = [
     {
-      label: 'Workspace',
+      label: 'Global',
       items: [
-        { label: 'Projects', icon: FolderKanban, href: '/projects' },
+        { label: 'Projects Hub', icon: FolderKanban, href: '/projects' },
       ],
     },
+    ...(projects.length > 0
+      ? [
+          {
+            label: 'Projects',
+            items: projects.map((p) => ({
+              label: p.name,
+              icon: FolderKanban,
+              href: `/projects/${p.id}/dashboard`,
+            })),
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -70,7 +95,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
         profile={{
           avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
           name: profileData?.full_name ?? 'User',
-          subtitle: <span className="text-[10px]" style={{ color: 'var(--color-sidebar-text-muted)' }}>{profileData?.role ?? 'Team'}</span>,
+          subtitle: <span className="text-[11px] font-medium tracking-[0.03em] uppercase" style={{ color: 'var(--color-text-secondary)' }}>{profileData?.role ?? 'Team'}</span>,
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
@@ -81,7 +106,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
         className="flex-1 overflow-auto transition-all duration-250"
         style={{
           background: 'var(--color-canvas)',
-          marginLeft: collapsed ? '52px' : '220px',
+          marginLeft: 'var(--sidebar-width)',
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >

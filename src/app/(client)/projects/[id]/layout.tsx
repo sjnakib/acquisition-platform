@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { clientNavItems } from '@/lib/navigation'
+import { FolderKanban } from 'lucide-react'
 
 interface ProfileData {
   full_name: string | null
@@ -22,6 +23,7 @@ export default function ClientProjectLayout({
   const [collapsed, setCollapsed] = useState(false)
   const [projectName, setProjectName] = useState('Loading...')
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
   const router = useRouter()
 
   useEffect(() => {
@@ -43,13 +45,44 @@ export default function ClientProjectLayout({
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    fetch('/api/projects')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setProjects(data)
+      })
+      .catch(() => {})
+  }, [])
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
   }
 
   const navItems = clientNavItems(projectId)
-  const navSections = [{ label: projectName, items: navItems }]
+  const navSections = [
+    {
+      label: 'Global',
+      items: [
+        { label: 'Projects Hub', icon: FolderKanban, href: '/projects' },
+      ],
+    },
+    { label: projectName, items: navItems },
+    ...(projects.length > 1
+      ? [
+          {
+            label: 'Switch Project',
+            items: projects
+              .filter((p) => p.id !== projectId)
+              .map((p) => ({
+                label: p.name,
+                icon: FolderKanban,
+                href: `/projects/${p.id}/overview`,
+              })),
+          },
+        ]
+      : []),
+  ]
 
   return (
     <div className="min-h-screen flex">
@@ -58,7 +91,7 @@ export default function ClientProjectLayout({
         profile={{
           avatar: (profileData?.full_name ?? 'C').charAt(0).toUpperCase(),
           name: profileData?.full_name ?? 'Client',
-          subtitle: <span className="text-[10px]" style={{ color: 'var(--color-sidebar-text-muted)' }}>Sponsor</span>,
+          subtitle: <span className="text-[11px] font-medium tracking-[0.03em] uppercase" style={{ color: 'var(--color-text-secondary)' }}>Sponsor</span>,
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
@@ -69,7 +102,7 @@ export default function ClientProjectLayout({
         className="flex-1 overflow-auto transition-all duration-250"
         style={{
           background: 'var(--color-canvas)',
-          marginLeft: collapsed ? '52px' : '220px',
+          marginLeft: 'var(--sidebar-width)',
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >

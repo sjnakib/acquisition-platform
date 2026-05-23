@@ -39,6 +39,7 @@
 }
 
 :root {
+  --sidebar-width: 220px;
   /* Canvas */
   --color-canvas: #F7F5F0;
   --color-surface-0: #FFFFFF;
@@ -48,11 +49,12 @@
 
   /* Sidebar — light mode (warm surface matching canvas) */
   --color-sidebar-bg: #F7F5F0;
-  --color-sidebar-hover: #EDEAE3;
-  --color-sidebar-active: #E8E5DE;
+  --color-sidebar-hover: var(--color-accent-bg);
+  --color-sidebar-active: var(--accent);
   --color-sidebar-border: #E0DDD5;
   --color-sidebar-text: #6B6560;
-  --color-sidebar-text-active: #1A1814;
+  --color-sidebar-text-active: var(--color-text-inverse);
+  --color-sidebar-text-hover: var(--accent);
   --color-sidebar-text-muted: #9B9690;
 
   /* Primary Accent (internal name --accent avoids @theme collision) */
@@ -123,6 +125,7 @@
 }
 
 .dark {
+  --sidebar-width: 220px;
   --color-canvas: #111110;
   --color-surface-0: #191918;
   --color-surface-1: #222220;
@@ -138,11 +141,12 @@
 
   /* Sidebar — dark in dark mode */
   --color-sidebar-bg: #0E0E0E;
-  --color-sidebar-hover: #1A1A1A;
-  --color-sidebar-active: #242424;
+  --color-sidebar-hover: var(--color-accent-bg);
+  --color-sidebar-active: var(--accent);
   --color-sidebar-border: #2A2A2A;
   --color-sidebar-text: #A8A39A;
-  --color-sidebar-text-active: #F7F5F0;
+  --color-sidebar-text-active: var(--color-text-inverse);
+  --color-sidebar-text-hover: var(--accent);
   --color-sidebar-text-muted: #5C5750;
 
   --color-success-bg: #0F2A0E;
@@ -182,3 +186,9 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-surface-3); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
+
+/* Temporarily disable transitions during sidebar dragging to prevent lag */
+.sidebar-dragging aside,
+.sidebar-dragging main {
+  transition: none !important;
+}

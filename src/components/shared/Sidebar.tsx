@@ -54,6 +54,55 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
   const pathname = usePathname()
   const router = useRouter()
 
+  const [width, setWidth] = useState(220)
+  const isDraggingRef = useRef(false)
+
+  // Load custom sidebar width on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('acq_sidebar_width')
+      if (stored) {
+        const val = parseInt(stored, 10)
+        if (val >= 160 && val <= 400) setWidth(val)
+      }
+    } catch {}
+  }, [])
+
+  // Sync state to CSS variable --sidebar-width on the document element
+  useEffect(() => {
+    const w = collapsed ? '52px' : `${width}px`
+    document.documentElement.style.setProperty('--sidebar-width', w)
+  }, [collapsed, width])
+
+  function handleMouseDown(e: React.MouseEvent) {
+    e.preventDefault()
+    isDraggingRef.current = true
+    document.documentElement.classList.add('sidebar-dragging')
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current) return
+      const nextWidth = Math.max(160, Math.min(400, moveEvent.clientX))
+      setWidth(nextWidth)
+      try {
+        localStorage.setItem('acq_sidebar_width', String(nextWidth))
+      } catch {}
+    }
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false
+      document.documentElement.classList.remove('sidebar-dragging')
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
+
   // Required: defer localStorage read to client to avoid hydration mismatch
   /* eslint-disable */
   useEffect(() => {
@@ -85,13 +134,22 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
     <>
       {/* Desktop sidebar */}
       <aside
-        className={`hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250 ${sidebarW}`}
+        className="hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250"
         style={{
+          width: 'var(--sidebar-width)',
           background: s('bg'),
           borderColor: s('border'),
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
+        {/* Drag handle */}
+        {!collapsed && (
+          <div
+            onMouseDown={handleMouseDown}
+            className="absolute top-0 right-0 w-[4px] h-full cursor-col-resize hover:bg-[var(--accent)] active:bg-[var(--accent)] transition-colors z-50 select-none"
+            style={{ transform: 'translateX(2px)' }}
+          />
+        )}
         {/* Wordmark */}
         <div className="flex items-center h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
           {collapsed
@@ -104,23 +162,26 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         <nav className="flex-1 py-3 px-2 space-y-0.5">
           {navSections.map((section, i) => (
             <div key={section.label}>
+              {i > 0 && collapsed && (
+                <div className="my-2 mx-1.5 border-t" style={{ borderColor: s('border') }} />
+              )}
               {i > 0 && !collapsed && (
-                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 mt-3 select-none" style={{ color: s('text-muted') }}>
+                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 mt-3 select-none truncate" style={{ color: s('text-muted') }}>
                   {section.label}
                 </div>
               )}
-              {i === 0 && (
-                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none" style={{ color: s('text-muted') }}>
-                  {!collapsed && section.label}
+              {i === 0 && !collapsed && (
+                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none truncate" style={{ color: s('text-muted') }}>
+                  {section.label}
                 </div>
               )}
               {section.items.map((item) => {
-                const isActive = pathname.startsWith(item.href)
+                const isActive = item.href === '/projects' ? pathname === '/projects' : pathname.startsWith(item.href)
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap ${collapsed ? 'justify-center' : 'px-3'}`}
+                    className={`flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap overflow-hidden ${collapsed ? 'justify-center' : 'px-3'}`}
                     style={{
                       color: isActive ? s('text-active') : s('text'),
                       background: isActive ? s('active') : 'transparent',
@@ -129,7 +190,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                     onMouseEnter={(e) => {
                       if (!isActive) {
                         e.currentTarget.style.background = s('hover')
-                        e.currentTarget.style.color = s('text-active')
+                        e.currentTarget.style.color = s('text-hover')
                       }
                     }}
                     onMouseLeave={(e) => {
@@ -140,7 +201,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                     }}
                   >
                     <item.icon className="h-4 w-4 flex-shrink-0" style={{ opacity: isActive ? 1 : 0.7 }} />
-                    {!collapsed && item.label}
+                    {!collapsed && <span className="truncate flex-1">{item.label}</span>}
                   </Link>
                 )
               })}
@@ -179,9 +240,9 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                 {profile.avatar}
               </div>
               {!collapsed && (
-                <div className="flex-1 text-left leading-tight">
-                  <div className="text-[13px] font-medium" style={{ color: s('text-active') }}>{profile.name}</div>
-                  <div className="flex items-center gap-1">{profile.subtitle}</div>
+                <div className="flex-1 text-left leading-tight overflow-hidden">
+                  <div className="text-[13px] font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>{profile.name}</div>
+                  <div className="flex items-center gap-1 truncate">{profile.subtitle}</div>
                 </div>
               )}
             </button>
@@ -252,7 +313,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
           <div className="fixed inset-0" style={{ background: 'var(--color-overlay)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
           <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: s('bg'), borderRight: `1px solid ${s('border')}` }}>
             <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
-              <div style={{ color: s('text-active') }}>
+              <div style={{ color: s('text-active') }} onClick={() => setMobileOpen(false)}>
                 <BrandLogo variant="wordmark" />
               </div>
               <button onClick={() => setMobileOpen(false)} style={{ color: s('text') }}>
@@ -266,7 +327,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                     {section.label}
                   </div>
                   {section.items.map((item) => {
-                    const isActive = pathname.startsWith(item.href)
+                    const isActive = item.href === '/projects' ? pathname === '/projects' : pathname.startsWith(item.href)
                     return (
                       <Link
                         key={item.href}
