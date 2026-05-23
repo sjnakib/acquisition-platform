@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/shared/PageHeader'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Plus, FolderKanban, Users, ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog'
 
 interface Project {
   id: string
@@ -19,6 +20,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -136,19 +138,7 @@ export default function ProjectsPage() {
           ))}
 
           <button
-            onClick={() => {
-              const name = window.prompt('Project name:')
-              if (!name) return
-              const desc = window.prompt('Description (optional):')
-              fetch('/api/projects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, description: desc || undefined }),
-              })
-                .then((r) => r.json())
-                .then(() => window.location.reload())
-                .catch(console.error)
-            }}
+            onClick={() => setCreateOpen(true)}
             className="text-left p-5 rounded-lg border-2 border-dashed transition-all duration-150 cursor-pointer flex flex-col items-center justify-center min-h-[160px]"
             style={{
               background: 'var(--color-surface-0)',
@@ -166,6 +156,8 @@ export default function ProjectsPage() {
             </span>
           </button>
         </div>
+
+        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
       </div>
   )
 }

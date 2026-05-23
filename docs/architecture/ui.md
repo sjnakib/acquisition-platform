@@ -41,7 +41,7 @@ All colors must be applied using CSS variables mapped in `globals.css`.
     *   `--color-text-tertiary`: Placeholders, disabled states.
     *   `--color-text-inverse`: Text placed on top of heavily colored backgrounds (e.g., white text on a blue button).
 *   **Brand & Semantics:**
-    *   `--color-accent`: The primary brand gold (`#C8963C`).
+    *   `--color-accent`: The primary brand soothing green (`#1E5B3F`).
     *   `--color-success-*`, `--color-warning-*`, `--color-danger-*`, `--color-info-*`.
 *   **Deal Scores:**
     *   Specific tokens exist exclusively for deal scores: `--color-score-vg-*` (Very Good), `--color-score-g-*` (Good), `--color-score-b-*` (Bad), `--color-score-vb-*` (Very Bad).

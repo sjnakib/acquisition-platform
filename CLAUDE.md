@@ -27,7 +27,7 @@ npm run db:reset     # reset + re-seed local DB
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
 - **`src/proxy.ts`** handles auth routing. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
-- **Supabase client layer (4 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`)
+- **Supabase client layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`), `types.ts` (manual placeholder)
 - **RLS** is sole access control. `createAdminClient()` bypasses RLS.
 - **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`
 - **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.

@@ -56,10 +56,10 @@
   --color-sidebar-text-muted: #9B9690;
 
   /* Primary Accent (internal name --accent avoids @theme collision) */
-  --accent: #C8963C;
-  --color-accent-light: #F2E0BC;
-  --color-accent-muted: #8A6420;
-  --color-accent-bg: #FBF4E6;
+  --accent: #1E5B3F;
+  --color-accent-light: #C3DFC7;
+  --color-accent-muted: #113424;
+  --color-accent-bg: #EDF5EE;
 
   /* Text */
   --color-text-primary: #1A1814;
@@ -132,9 +132,9 @@
   --color-text-secondary: #9B9690;
   --color-text-tertiary: #6B6560;
   --color-text-inverse: #1A1814;
-  --accent: #DBA84A;
-  --color-accent-light: #3D2E10;
-  --color-accent-bg: #2A1F08;
+  --accent: #48A375;
+  --color-accent-light: #1A3F2C;
+  --color-accent-bg: #0F261B;
 
   /* Sidebar — dark in dark mode */
   --color-sidebar-bg: #0E0E0E;
