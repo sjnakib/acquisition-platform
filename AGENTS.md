@@ -96,7 +96,7 @@ Supabase (URL, anon key, service role, project ID), Turnstile (site + secret), G
 
 - **`PLAN.md`** — Sequential build plan, phase-gated, schema details, API patterns. Supersedes all prior plans.
 - **`docs/architecture/ui.md`** — Design system spec: color tokens, dimensions, theme rules, remediation debt.
-- **`EXCEL_TABLE.md`** — DataGrid/DealTable: keyboard nav, cell editing, clipboard, virtualization (~728 lines).
+- **`EXCEL_TABLE.md`** — DataGrid/DealTable: keyboard nav, cell editing, clipboard, virtualization (~502 lines).
 - **`docs/architecture/`** — overview, database schema. **`docs/guides/developer/`** — API conventions. **`docs/guides/user/`** — platform usage.
 
 ## Implementation Status (Known Gaps)

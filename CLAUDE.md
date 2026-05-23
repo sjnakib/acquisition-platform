@@ -31,13 +31,16 @@ npm run db:reset     # reset + re-seed local DB
 - **RLS** is sole access control. `createAdminClient()` bypasses RLS.
 - **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`
 - **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
+- **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles. Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`.
+- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0026). `ProjectContext` provides current project state. Every data query/API call must be scoped to current project.
+- **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
 
 ## Key design rules
 
 - **Theme:** CSS var tokens only (`var(--color-*)`). No raw hex, no Tailwind palette colors, no `prefers-color-scheme`. Do NOT use `next-themes` despite package.json — inline `<script>` + `localStorage` key `acq_theme`. Full spec: `docs/architecture/ui.md`.
 - **Deal stages:** `src/lib/stage-machine.ts` — `canTransition()` is source of truth. `failed` only valid after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
 - **Deals API:** response includes `deal_fields` with nested `field_definitions` join. New code touching deals must include this join for property data.
-- **DataGrid** renders ALL `field_definitions` columns (not just `show_in_grid`).
+- **DataGrid** renders ALL `field_definitions` columns (not just `show_in_grid`). Inline editing via F2 (text) or `InlineDropdownEditor` (enum/dropdown columns like stage/score).
 - **ReactQueryProvider** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **Brand:** `src/lib/brand.ts`. **Page headings:** `src/lib/page-headings.ts`.
 
@@ -57,7 +60,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Sequential build plan, schema details, Supabase API patterns |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations. |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |
@@ -66,6 +69,5 @@ npm run db:reset     # reset + re-seed local DB
 
 ## Known tech debt
 
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx` — hardcoded Tailwind palette colors, need CSS var remediation
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates `docs/architecture/ui.md` spec
 - Settings: campaign management is placeholder
+- `DataGrid.tsx` has a few inline `var(--color-*, #fallback)` fallback hex values — acceptable CSS pattern, not urgent but prefer central token definitions over scattered fallbacks

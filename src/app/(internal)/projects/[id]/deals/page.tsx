@@ -7,6 +7,7 @@ import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { useProjectContext } from '@/components/shared/ProjectContext'
+import { usePortfolios } from '@/lib/hooks/usePortfolios'
 import { pageHeadings } from '@/lib/page-headings'
 
 interface FieldDef {
@@ -26,6 +27,7 @@ const DEALS_STAGES = ['underwriting', 'loi', 'closed', 'failed']
 export default function DealsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
   const { projectName } = useProjectContext()
+  const { data: portfolios } = usePortfolios(projectId)
   const router = useRouter()
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -150,6 +152,7 @@ export default function DealsPage({ params }: { params: Promise<{ id: string }> 
           deals={deals}
           loading={loading}
           fieldDefs={fieldDefs}
+          portfolios={portfolios ?? []}
           view={view}
           fillHeight
           totalRows={filteredTotal}

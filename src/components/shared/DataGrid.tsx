@@ -25,6 +25,8 @@ export interface ColumnDef<T> {
   render?: (row: T, index: number) => React.ReactNode
   accessor?: (row: T, index?: number) => string | number | null | undefined
   editable?: boolean
+  /** Custom save handler. When provided, called instead of the default PATCH to /api/deals/{id}/fields. */
+  onSave?: (row: T, value: string) => Promise<void>
 }
 
 interface DataGridProps<T> {
@@ -134,7 +136,8 @@ interface RowRendererProps<T> {
   interactionHandlers: Pick<ReturnType<typeof useGridInteraction>, 'onCellMouseDown' | 'onCellMouseEnter' | 'onCellMouseUp' | 'onCellDoubleClick' | 'onCellClick'>
   editingValue: string
   onDraftChange: (val: string) => void
-  commitEdit: () => void
+  commitEdit: (newValue?: string) => void
+  discardEdit: () => void
   onRowKeyDown: (e: React.KeyboardEvent) => void
   isSelected: boolean
   onCheckboxToggle: (rowIndex: number) => void
@@ -146,7 +149,7 @@ interface RowRendererProps<T> {
 
 const RowRenderer = memo(function RowRendererInner<T>({
   row, rowIndex, columns, computedWidths, isEven, onRowClick,
-  interactionState, interactionHandlers, editingValue, onDraftChange, commitEdit, onRowKeyDown,
+  interactionState, interactionHandlers, editingValue, onDraftChange, commitEdit, discardEdit, onRowKeyDown,
   isSelected, onCheckboxToggle, flashingCell, validationFlashCell, saveSuccessCell, editComponents,
 }: RowRendererProps<T>) {
   const { onCellClick } = interactionHandlers
@@ -248,7 +251,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
                   rowIndex,
                   onChange: onDraftChange,
                   onCommit: commitEdit,
-                  onDiscard: () => {},
+                  onDiscard: discardEdit,
                   cellEl: undefined,
                 })
               ) : (
@@ -1261,39 +1264,52 @@ export function DataGrid<T>({
     const row = sortedData[rowIndex]
     const col = orderedColumns[colIndex]
     if (!row || !col) return
-    const dealId = (row as Record<string, unknown>).id as string | undefined
-    if (!dealId) return
 
-    fetch(`/api/deals/${dealId}/fields`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [col.key]: value }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          const msg = (body as { errors?: string[] }).errors?.join(', ') || (body as { error?: string }).error || `HTTP ${res.status}`
-          throw new Error(msg)
+    if (col.onSave) {
+      toast.promise(col.onSave(row, value), {
+        loading: 'Updating...',
+        success: () => { showSaveSuccess({ rowIndex, colIndex }); return 'Updated' },
+        error: (err) => {
+          const msg = err instanceof Error ? err.message : 'Save failed'
+          return msg
+        },
+      })
+    } else {
+      const dealId = (row as Record<string, unknown>).id as string | undefined
+      if (!dealId) return
+
+      toast.promise(
+        fetch(`/api/deals/${dealId}/fields`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [col.key]: value }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            const msg = (body as { errors?: string[] }).errors?.join(', ') || (body as { error?: string }).error || `HTTP ${res.status}`
+            throw new Error(msg)
+          }
+        }),
+        {
+          loading: 'Updating...',
+          success: () => { showSaveSuccess({ rowIndex, colIndex }); return 'Updated' },
+          error: (err) => {
+            const label = col.header
+            return `Failed to save "${label}": ${err instanceof Error ? err.message : 'Network error'}`
+          },
+        },
+      )
+
+      // Optimistic local update — mutate deal_fields so the cell renders the new value immediately
+      const rowData = row as Record<string, unknown>
+      const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
+      if (dealFields) {
+        const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
+        if (existing) {
+          existing.value = value
+        } else {
+          dealFields.push({ value, field_definitions: { key: col.key } })
         }
-        showSaveSuccess({ rowIndex, colIndex })
-      })
-      .catch((err) => {
-        const label = col.header
-        toast.error(`Failed to save "${label}"`, {
-          description: err instanceof Error ? err.message : 'Network error',
-          action: { label: 'Refresh', onClick: () => window.location.reload() },
-        })
-      })
-
-    // Optimistic local update — mutate deal_fields so the cell renders the new value immediately
-    const rowData = row as Record<string, unknown>
-    const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
-    if (dealFields) {
-      const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
-      if (existing) {
-        existing.value = value
-      } else {
-        dealFields.push({ value, field_definitions: { key: col.key } })
       }
     }
 
@@ -1390,12 +1406,18 @@ export function DataGrid<T>({
     }
   }, [])
 
+  const instantEditColumns = useMemo(
+    () => new Set(editComponents ? Object.keys(editComponents).map(Number) : []),
+    [editComponents],
+  )
+
   const interactConfig = {
     rowCount: sortedData.length,
     colCount: orderedColumns.length,
     pageSize: virtualPageSize,
     data: sortedData,
     editableColumns: editableColumns ?? derivedEditableColumns,
+    instantEditColumns,
     excludeColIndices,
     getCellValue,
     onCellEdit: handleCellEdit,
@@ -1623,6 +1645,10 @@ export function DataGrid<T>({
 
   const handleDraftChange = useCallback((val: string) => {
     dispatch({ type: 'SET_DRAFT', value: val })
+  }, [dispatch])
+
+  const discardEdit = useCallback(() => {
+    dispatch({ type: 'DISCARD_EDIT' })
   }, [dispatch])
 
   const hasActiveFilter = (topToolbar?.searchValue && topToolbar.searchValue.length > 0) || (filters?.some((f) => f.value != null)) || false
@@ -1935,6 +1961,7 @@ export function DataGrid<T>({
                         editingValue={state.draftValue}
                         onDraftChange={handleDraftChange}
                         commitEdit={interaction.commitEdit}
+                        discardEdit={discardEdit}
                         onRowKeyDown={interaction.onContainerKeyDown}
                         isSelected={resolvedSelectedIds.has(rowKey(row, vi.index))}
                         onCheckboxToggle={toggleRowSelection}

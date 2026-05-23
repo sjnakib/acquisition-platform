@@ -2,10 +2,13 @@
 
 import { useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { ChevronDown } from 'lucide-react'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
+import { InlineDropdownEditor } from '@/components/shared/InlineDropdownEditor'
 import { DealScoreBadge } from './DealScoreBadge'
 import { Badge } from '@/components/ui/badge'
 import { formatDate } from '@/lib/utils'
+import { DEAL_STAGES } from '@/lib/stage-machine'
 
 interface UnderwritingRow {
   underwritability_status: string | null
@@ -74,6 +77,7 @@ interface DealTableProps {
   deals: Deal[]
   loading?: boolean
   fieldDefs?: FieldDef[]
+  portfolios?: { id: string; name: string }[]
   view?: 'leads' | 'deals'
   selectedRowIds?: Set<string>
   onSelectionChange?: (ids: Set<string>) => void
@@ -122,6 +126,16 @@ const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent
   archived: 'neutral',
 }
 
+const RESPONSE_TYPES = [
+  'Interested',
+  'Not Interested',
+  'Wrong Contact',
+  'Do Not Contact',
+  'In Discussion',
+  'Callback Requested',
+  'No Response',
+]
+
 function getDocValue(docs: DocItem[] | null | undefined, docName: string): string {
   const doc = docs?.find((d) => d.doc_name === docName)
   if (!doc) return '—'
@@ -162,7 +176,7 @@ function fmtBool(val: boolean | null | undefined): string {
 }
 
 export function DealTable({
-  deals, loading, fieldDefs, view = 'leads',
+  deals, loading, fieldDefs, portfolios, view = 'leads',
   selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className,
   totalRows, page, pageSize, onPageChange, onPageSizeChange,
   selectionActions, selectionMenuActions, topToolbar, filters,
@@ -205,18 +219,47 @@ export function DealTable({
 
     // ── Fixed system columns ──────────────────────────────────────
     cols.push({
-      key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable: false,
+      key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable: true,
+      accessor: (r) => r.stage,
       render: (r) => (
-        <Badge variant={stageBadgeVariant[r.stage] ?? 'neutral'} size="sm">
-          {r.stage.replace(/_/g, ' ')}
-        </Badge>
+        <div className="flex items-center justify-between w-full gap-1">
+          <Badge variant={stageBadgeVariant[r.stage] ?? 'neutral'} size="sm">
+            {r.stage.replace(/_/g, ' ')}
+          </Badge>
+          <ChevronDown className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+        </div>
       ),
+      onSave: async (r, value) => {
+        const res = await fetch(`/api/deals/${r.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stage: value }),
+        })
+        if (!res.ok) throw new Error(((await res.json()).error) ?? 'Save failed')
+        r.stage = value
+      },
     })
 
     cols.push({
-      key: 'portfolio', header: 'Portfolio', minWidth: 120, sortable: true, editable: false,
-      accessor: (r) => r.portfolios?.name ?? '',
-      render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.portfolios?.name ?? '—'}</span>,
+      key: 'portfolio', header: 'Portfolio', minWidth: 120, sortable: true, editable: true,
+      accessor: (r) => r.portfolios?.id ?? '',
+      render: (r) => (
+        <div className="flex items-center justify-between w-full gap-1">
+          <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>{r.portfolios?.name ?? '—'}</span>
+          <ChevronDown className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+        </div>
+      ),
+      onSave: async (r, value) => {
+        const res = await fetch(`/api/deals/${r.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ portfolio_id: value || null }),
+        })
+        if (!res.ok) throw new Error(((await res.json()).error) ?? 'Save failed')
+        const p = portfolios?.find(p => p.id === value)
+        if (r.portfolios) { r.portfolios.id = value; r.portfolios.name = p?.name ?? '' }
+        else if (p) { r.portfolios = { id: value, name: p.name } }
+      },
     })
 
     cols.push({
@@ -240,11 +283,23 @@ export function DealTable({
     })
 
     cols.push({
-      key: 'response_type', header: 'Response Type', minWidth: 130, sortable: true, editable: false,
+      key: 'response_type', header: 'Response Type', minWidth: 130, sortable: true, editable: true,
       accessor: (r) => r.response_type ?? '',
       render: (r) => (
-        <span style={{ color: 'var(--color-text-secondary)' }}>{r.response_type || '—'}</span>
+        <div className="flex items-center justify-between w-full gap-1">
+          <span className="truncate" style={{ color: 'var(--color-text-secondary)' }}>{r.response_type || '—'}</span>
+          <ChevronDown className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+        </div>
       ),
+      onSave: async (r, value) => {
+        const res = await fetch(`/api/deals/${r.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ response_type: value || null }),
+        })
+        if (!res.ok) throw new Error(((await res.json()).error) ?? 'Save failed')
+        r.response_type = value || null
+      },
     })
 
     // ── Deals-only columns ───────────────────────────────────────
@@ -329,7 +384,54 @@ export function DealTable({
     }
 
     return cols
-  }, [fieldDefs, getFieldValue, view])
+  }, [fieldDefs, getFieldValue, view, portfolios])
+
+  const fixedSystemKeys = new Set([
+    'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score',
+  ])
+  const fieldDefCount = fieldDefs?.filter(fd => fd.show_in_grid && !fixedSystemKeys.has(fd.key)).length ?? 0
+  const stageIdx = fieldDefCount
+  const portfolioIdx = fieldDefCount + 1
+  const responseTypeIdx = fieldDefCount + 4
+
+  const editComponents = useMemo(() => {
+    const map: Record<number, (props: { value: string; rowIndex: number; onChange: (val: string) => void; onCommit: (value?: string) => void; onDiscard: () => void; cellEl?: HTMLElement | null }) => React.ReactNode> = {}
+
+    map[stageIdx] = ({ value, onChange, onCommit, onDiscard }) => (
+      <InlineDropdownEditor
+        value={value}
+        options={DEAL_STAGES.map(s => ({ value: s, label: s.replace(/_/g, ' ') }))}
+        onChange={onChange}
+        onCommit={onCommit}
+        onDiscard={onDiscard}
+      />
+    )
+
+    if (portfolios?.length) {
+      map[portfolioIdx] = ({ value, onChange, onCommit, onDiscard }) => (
+        <InlineDropdownEditor
+          value={value}
+          options={portfolios.map(p => ({ value: p.id, label: p.name }))}
+          onChange={onChange}
+          onCommit={onCommit}
+          onDiscard={onDiscard}
+          placeholder="Select portfolio..."
+        />
+      )
+    }
+
+    map[responseTypeIdx] = ({ value, onChange, onCommit, onDiscard }) => (
+      <InlineDropdownEditor
+        value={value}
+        options={RESPONSE_TYPES.map(rt => ({ value: rt, label: rt }))}
+        onChange={onChange}
+        onCommit={onCommit}
+        onDiscard={onDiscard}
+      />
+    )
+
+    return map
+  }, [stageIdx, portfolioIdx, responseTypeIdx, portfolios])
 
   return (
     <DataGrid
@@ -362,6 +464,7 @@ export function DealTable({
       serverSortDir={serverSortDir}
       onSortChange={onSortChange}
       columnOrderStorageKey={columnOrderStorageKey}
+      editComponents={editComponents}
     />
   )
 }
