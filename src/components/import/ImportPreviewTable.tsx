@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
+import { Tooltip } from '@/components/ui/tooltip'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
 
 interface FieldDef {
@@ -276,29 +277,30 @@ export function ImportPreviewTable({
                 </Select>
 
                 {/* Drop / restore toggle */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (isDropped) {
-                      onChange(header, {
-                        action: 'field',
-                        key: 'deal_name',
-                      })
-                    } else {
-                      setExpandedNewField(null)
-                      onChange(header, { action: 'drop' })
-                    }
-                  }}
-                  className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
-                  style={{
-                    color: isDropped
-                      ? 'var(--color-text-tertiary)'
-                      : 'var(--color-danger-text)',
-                  }}
-                  title={isDropped ? 'Restore column' : 'Drop column'}
-                >
-                  {isDropped ? <Undo2 size={11} /> : <X size={11} />}
-                </button>
+                <Tooltip content={isDropped ? 'Restore column' : 'Drop column'}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (isDropped) {
+                        onChange(header, {
+                          action: 'field',
+                          key: 'deal_name',
+                        })
+                      } else {
+                        setExpandedNewField(null)
+                        onChange(header, { action: 'drop' })
+                      }
+                    }}
+                    className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
+                    style={{
+                      color: isDropped
+                        ? 'var(--color-text-tertiary)'
+                        : 'var(--color-danger-text)',
+                    }}
+                  >
+                    {isDropped ? <Undo2 size={11} /> : <X size={11} />}
+                  </button>
+                </Tooltip>
               </div>
             </div>
           )

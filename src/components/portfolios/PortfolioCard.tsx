@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { FolderKanban } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+import { Tooltip } from '@/components/ui/tooltip'
 
 interface PortfolioCardProps {
   id: string
@@ -40,9 +41,9 @@ export function PortfolioCard({ id, name, description, dealCount, createdAt, pro
 
   if (isDisabled) {
     return (
-      <div className="relative group w-full">
+      <Tooltip content="Add deal(s) to the portfolio first">
         <div
-          className="block p-5 rounded-lg border opacity-60 cursor-not-allowed select-none"
+          className="block p-5 rounded-lg border opacity-60 cursor-not-allowed select-none w-full"
           style={{
             background: 'var(--color-surface-0)',
             borderColor: 'var(--color-surface-2)',
@@ -50,27 +51,7 @@ export function PortfolioCard({ id, name, description, dealCount, createdAt, pro
         >
           {cardContent}
         </div>
-        
-        {/* Stylized Tooltip with Micro-animation */}
-        <div
-          className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 text-[11px] font-medium rounded-md shadow-md whitespace-nowrap z-50 transition-all duration-150 scale-95 opacity-0 group-hover:opacity-100 group-hover:scale-100"
-          style={{
-            background: 'var(--color-text-primary)',
-            color: 'var(--color-text-inverse)',
-            border: '1px solid var(--color-surface-3)',
-            boxShadow: 'var(--shadow-md)',
-          }}
-        >
-          Add deal(s) to the portfolio first
-          {/* Arrow */}
-          <div
-            className="absolute top-full left-1/2 -translate-x-1/2 border-[4px] border-transparent"
-            style={{
-              borderTopColor: 'var(--color-text-primary)',
-            }}
-          />
-        </div>
-      </div>
+      </Tooltip>
     )
   }
 

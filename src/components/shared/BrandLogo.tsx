@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Terminal, Sparkles, X, Play, RefreshCw, CheckCircle, Flame, ShieldAlert, Volume2, VolumeX } from 'lucide-react'
 import { BRAND } from '@/lib/brand'
+import { Tooltip } from '@/components/ui/tooltip'
 
 interface BrandLogoProps {
   variant?: 'icon' | 'wordmark' | 'full'
@@ -492,13 +493,14 @@ export function BrandLogo({ variant = 'full', className = '', disableLink = fals
       )}
 
       {/* Main Trigger Container */}
-      <div
-        onClick={handleLogoClick}
-        title="Click to route Home | Double-click for shell | 5 Clicks for Zero-G Mode"
-        className="select-none cursor-pointer inline-block"
-      >
-        {renderLogoBody()}
-      </div>
+      <Tooltip content="Click to route Home | Double-click for shell | 5 Clicks for Zero-G Mode">
+        <div
+          onClick={handleLogoClick}
+          className="select-none cursor-pointer inline-block animate-hover"
+        >
+          {renderLogoBody()}
+        </div>
+      </Tooltip>
 
       {/* Quantum Diagnostics Console Overlay */}
       {eggActive && (
@@ -522,14 +524,15 @@ export function BrandLogo({ variant = 'full', className = '', disableLink = fals
                 <span className="font-semibold text-xs tracking-wider">ACQ_QUANT_SYSTEM v2.0</span>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMuted(m => !m) }}
-                  className="p-1 rounded hover:bg-white/5 transition-colors"
-                  style={{ color: '#10b981' }}
-                  title={muted ? 'Unmute Synth Sounds' : 'Mute Synth Sounds'}
-                >
-                  {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                </button>
+                <Tooltip content={muted ? 'Unmute Synth Sounds' : 'Mute Synth Sounds'} position="bottom">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMuted(m => !m) }}
+                    className="p-1 rounded hover:bg-white/5 transition-colors"
+                    style={{ color: '#10b981' }}
+                  >
+                    {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                  </button>
+                </Tooltip>
                 <button
                   onClick={(e) => { e.stopPropagation(); setEggActive(false) }}
                   className="p-1 rounded hover:bg-white/5 transition-colors"

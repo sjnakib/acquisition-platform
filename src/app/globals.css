@@ -18,7 +18,7 @@
   --color-muted: var(--color-surface-1);
   --color-muted-foreground: var(--color-text-secondary);
   --color-accent: var(--accent);
-  --color-accent-foreground: var(--color-accent-muted);
+  --color-accent-foreground: var(--color-text-inverse);
   --color-popover: var(--color-surface-0);
   --color-popover-foreground: var(--color-text-primary);
   --color-card: var(--color-surface-0);
@@ -59,6 +59,7 @@
 
   /* Primary Accent (internal name --accent avoids @theme collision) */
   --accent: #1E5B3F;
+  --accent-foreground: var(--color-text-inverse);
   --color-accent-light: #C3DFC7;
   --color-accent-muted: #113424;
   --color-accent-bg: #EDF5EE;
@@ -136,6 +137,7 @@
   --color-text-tertiary: #6B6560;
   --color-text-inverse: #1A1814;
   --accent: #48A375;
+  --accent-foreground: var(--color-text-inverse);
   --color-accent-light: #1A3F2C;
   --color-accent-bg: #0F261B;
 

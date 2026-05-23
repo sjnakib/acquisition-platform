@@ -8,6 +8,7 @@ import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
 import { useColumnOrder } from '@/lib/hooks/useColumnOrder'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip } from '@/components/ui/tooltip'
 
 import type { CellAddress, CellRange } from '@/lib/types/grid'
 import { isInAnyRange, cellAddressEqual, rangeNormalize } from '@/lib/types/grid'
@@ -379,45 +380,30 @@ function PageSizeSelector({
       <span>Rows</span>
       {customOpen ? (
         <div className="relative">
-          <input
-            ref={inputRef}
-            type="number"
-            min={1}
-            max={5000}
-            value={customValue}
-            onChange={(e) => setCustomValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); if (e.key === 'Escape') setCustomOpen(false) }}
-            onBlur={applyCustom}
-            className="w-[64px] h-[28px] px-2 rounded-md bg-transparent border-none outline-none text-[12px] tabular-nums"
-            style={{
-              color: 'var(--color-text-primary)',
-              fontFamily: 'var(--font-jetbrains-mono)',
-              background: 'var(--color-surface-0)',
-              border: `1.5px solid ${isLarge ? 'var(--color-warning, #f59e0b)' : 'var(--accent)'}`,
-              boxShadow: isLarge ? '0 0 0 3px var(--color-warning-bg, #fef3c7)' : '0 0 0 3px var(--color-accent-bg)',
-            }}
-          />
-          {isLarge && (
-            <div
-              className="absolute bottom-full left-0 mb-1 px-2 py-0.5 rounded text-[10px] whitespace-nowrap z-50"
+          <Tooltip
+            content={isLarge ? 'Rendering may slow down' : null}
+            forceOpen={isLarge}
+            variant="warning"
+          >
+            <input
+              ref={inputRef}
+              type="number"
+              min={1}
+              max={5000}
+              value={customValue}
+              onChange={(e) => setCustomValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); if (e.key === 'Escape') setCustomOpen(false) }}
+              onBlur={applyCustom}
+              className="w-[64px] h-[28px] px-2 rounded-md bg-transparent border-none outline-none text-[12px] tabular-nums"
               style={{
-                background: 'var(--color-warning, #f59e0b)',
                 color: 'var(--color-text-primary)',
-                fontWeight: 500,
+                fontFamily: 'var(--font-jetbrains-mono)',
+                background: 'var(--color-surface-0)',
+                border: `1.5px solid ${isLarge ? 'var(--color-warning-border)' : 'var(--accent)'}`,
+                boxShadow: isLarge ? '0 0 0 3px var(--color-warning-bg)' : '0 0 0 3px var(--color-accent-bg)',
               }}
-            >
-              Rendering may slow down
-              <div
-                className="absolute top-full left-3 -mt-px"
-                style={{
-                  width: 0, height: 0,
-                  borderLeft: '4px solid transparent',
-                  borderRight: '4px solid transparent',
-                  borderTop: `4px solid var(--color-warning, #f59e0b)`,
-                }}
-              />
-            </div>
-          )}
+            />
+          </Tooltip>
         </div>
       ) : (
         <Select
@@ -514,15 +500,16 @@ function Toolbar({
       <div className="flex items-center gap-2 flex-shrink-0" style={{ minWidth: 0 }}>
         {selectedCount > 0 ? (
           <>
-            <button
-              onClick={onClearSelection}
-              style={btnBase}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-              title="Clear selection"
-            >
-              <Check className="h-3.5 w-3.5" style={{ color: tb.accent }} strokeWidth={3} />
-            </button>
+            <Tooltip content="Clear selection" position="bottom">
+              <button
+                onClick={onClearSelection}
+                style={btnBase}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <Check className="h-3.5 w-3.5" style={{ color: tb.accent }} strokeWidth={3} />
+              </button>
+            </Tooltip>
             <span className="text-[12px] font-medium whitespace-nowrap" style={{ color: tb.textPrimary }}>
               {selectedCount.toLocaleString()} selected
             </span>
@@ -543,29 +530,30 @@ function Toolbar({
       {selectedCount > 0 && (
         <div className="flex items-center gap-0.5 flex-1 justify-center">
           {selectionActions?.map((a) => (
-            <button
-              key={a.id}
-              style={btnBase}
-              onClick={() => a.onClick(selectedIds)}
-              title={a.label}
-              onMouseEnter={(e) => { e.currentTarget.style.background = tb.accentBg; e.currentTarget.style.color = tb.accent }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tb.text }}
-            >
-              {a.icon}
-            </button>
+            <Tooltip key={a.id} content={a.label} position="bottom">
+              <button
+                style={btnBase}
+                onClick={() => a.onClick(selectedIds)}
+                onMouseEnter={(e) => { e.currentTarget.style.background = tb.accentBg; e.currentTarget.style.color = tb.accent }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tb.text }}
+              >
+                {a.icon}
+              </button>
+            </Tooltip>
           ))}
           {bulkActions?.(selectedCount)}
           {selectionMenuActions && selectionMenuActions.length > 0 && (
             <div ref={menuRef} className="relative">
-              <button
-                style={btnBase}
-                onClick={() => setMenuOpen(!menuOpen)}
-                title="More actions"
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-                onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = 'transparent' }}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+              <Tooltip content="More actions" position="bottom">
+                <button
+                  style={btnBase}
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+                  onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </Tooltip>
               {menuOpen && (
                 <div
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 rounded-lg shadow-lg py-1 z-50 min-w-[140px]"
@@ -907,16 +895,17 @@ function TopToolbar({
       <div className="flex items-center gap-0.5 flex-shrink-0">
         {/* Clear sort — only when user changed from default */}
         {sortKey && sortKey !== defaultSortKey && onClearSort && (
-          <button
-            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
-            onClick={onClearSort}
-            title={`Clear sort (${sortColumnHeader ?? sortKey})`}
-            onMouseEnter={hoverBg}
-            onMouseLeave={resetBg}
-          >
-            <ArrowUpDown className="h-3 w-3" />
-            <span className="text-[11px]">Clear sort</span>
-          </button>
+          <Tooltip content={`Clear sort (${sortColumnHeader ?? sortKey})`}>
+            <button
+              style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
+              onClick={onClearSort}
+              onMouseEnter={hoverBg}
+              onMouseLeave={resetBg}
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              <span className="text-[11px]">Clear sort</span>
+            </button>
+          </Tooltip>
         )}
 
         {/* Clear selection */}
@@ -934,25 +923,26 @@ function TopToolbar({
 
         {/* Delete */}
         {onDelete && (
-          <button
-            style={{
-              ...iconButton,
-              width: 'auto', padding: '0 8px', gap: 3,
-              background: selectedCount > 0 ? st.dangerBg : 'transparent',
-              color: selectedCount > 0 ? st.danger : st.text,
-              opacity: selectedCount > 0 ? 1 : 0.3,
-              pointerEvents: selectedCount > 0 ? 'auto' : 'none',
-            }}
-            onClick={() => onDelete(selectedIds)}
-            title={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}
-            onMouseEnter={(e) => {
-              if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = 'var(--color-text-inverse)' }
-            }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
-          >
-            <Trash2 className="h-3 w-3" />
-            <span className="text-[11px]">Delete {recordLabel}</span>
-          </button>
+          <Tooltip content={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}>
+            <button
+              style={{
+                ...iconButton,
+                width: 'auto', padding: '0 8px', gap: 3,
+                background: selectedCount > 0 ? st.dangerBg : 'transparent',
+                color: selectedCount > 0 ? st.danger : st.text,
+                opacity: selectedCount > 0 ? 1 : 0.3,
+                pointerEvents: selectedCount > 0 ? 'auto' : 'none',
+              }}
+              onClick={() => onDelete(selectedIds)}
+              onMouseEnter={(e) => {
+                if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = 'var(--color-text-inverse)' }
+              }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
+            >
+              <Trash2 className="h-3 w-3" />
+              <span className="text-[11px]">Delete {recordLabel}</span>
+            </button>
+          </Tooltip>
         )}
 
         {/* Add */}
@@ -970,29 +960,30 @@ function TopToolbar({
 
         {/* Custom icon actions */}
         {actions?.map((a) => (
-          <button
-            key={a.id}
-            style={iconButton}
-            onClick={a.onClick}
-            title={a.label}
-            onMouseEnter={hoverBg}
-            onMouseLeave={resetBg}
-          >
-            {a.icon}
-          </button>
+          <Tooltip key={a.id} content={a.label}>
+            <button
+              style={iconButton}
+              onClick={a.onClick}
+              onMouseEnter={hoverBg}
+              onMouseLeave={resetBg}
+            >
+              {a.icon}
+            </button>
+          </Tooltip>
         ))}
 
         {/* 3-dot menu — always visible, icon only */}
         <div ref={menuRef} className="relative">
-          <button
-            style={iconButton}
-            onClick={() => setMenuOpen(!menuOpen)}
-            title="More actions"
-            onMouseEnter={hoverBg}
-            onMouseLeave={(e) => { if (!menuOpen) resetBg(e) }}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
+          <Tooltip content="More actions">
+            <button
+              style={iconButton}
+              onClick={() => setMenuOpen(!menuOpen)}
+              onMouseEnter={hoverBg}
+              onMouseLeave={(e) => { if (!menuOpen) resetBg(e) }}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </Tooltip>
           {menuOpen && (
             <div
               className="absolute top-full right-0 mt-1 rounded-lg shadow-lg py-1 z-50 min-w-[150px]"
@@ -1000,33 +991,33 @@ function TopToolbar({
             >
               {(menuActions && menuActions.length > 0
                 ? menuActions.map((m) => (
-                    <button
-                      key={m.id}
-                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
-                      onClick={() => { m.onClick(); setMenuOpen(false) }}
-                    >
-                      {m.label}
-                    </button>
-                  ))
+                  <button
+                    key={m.id}
+                    className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                    onClick={() => { m.onClick(); setMenuOpen(false) }}
+                  >
+                    {m.label}
+                  </button>
+                ))
                 : [
-                    { id: 'export', label: 'Export CSV' },
-                    { id: 'archive', label: 'Archive all' },
-                    { id: 'columns', label: 'Manage columns' },
-                  ].map((m) => (
-                    <button
-                      key={m.id}
-                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      {m.label}
-                    </button>
-                  ))
+                  { id: 'export', label: 'Export CSV' },
+                  { id: 'archive', label: 'Archive all' },
+                  { id: 'columns', label: 'Manage columns' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {m.label}
+                  </button>
+                ))
               )}
             </div>
           )}
@@ -1067,16 +1058,17 @@ function TopToolbar({
 
         {/* Clear all filters */}
         {onClearFilters && (activeFilterCount ?? 0) > 0 && (
-          <button
-            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3, color: st.textMuted }}
-            onClick={onClearFilters}
-            title="Clear all filters"
-            onMouseEnter={(e) => { e.currentTarget.style.color = st.text }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = st.textMuted }}
-          >
-            <X className="h-3 w-3" />
-            Clear
-          </button>
+          <Tooltip content="Clear all filters">
+            <button
+              style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3, color: st.textMuted }}
+              onClick={onClearFilters}
+              onMouseEnter={(e) => { e.currentTarget.style.color = st.text }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = st.textMuted }}
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>
@@ -1239,7 +1231,7 @@ export function DataGrid<T>({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates: batch }),
-    }).catch(() => {})
+    }).catch(() => { })
 
     // Also apply locally for optimistic update
     for (const u of updates) {
@@ -1730,29 +1722,30 @@ export function DataGrid<T>({
               style={{ width: S.checkboxW, height: S.headerH, background: S.headerBg, borderColor: S.headerBorder }}
               onClick={(e) => e.stopPropagation()}
             >
-              <label
-                className="flex items-center justify-center cursor-pointer"
-                style={{ width: 18, height: 18 }}
-                title={allRowsSelected || allSelected ? 'All rows selected. Click to clear.' : 'Select all on page'}
-                onClick={(e) => { e.preventDefault(); toggleAllRows() }}
-              >
-                <div
-                  className="flex items-center justify-center rounded transition-colors"
-                  style={{
-                    width: 16, height: 16,
-                    border: `1.5px solid ${allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) || someSelected ? S.accent : 'var(--color-text-tertiary)'}`,
-                    background: allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
-                  }}
+              <Tooltip content={allRowsSelected || allSelected ? 'All rows selected. Click to clear.' : 'Select all on page'}>
+                <label
+                  className="flex items-center justify-center cursor-pointer"
+                  style={{ width: 18, height: 18 }}
+                  onClick={(e) => { e.preventDefault(); toggleAllRows() }}
                 >
-                  {allRowsSelected && resolvedSelectedIds.size > 0 ? (
-                    <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
-                  ) : allSelected ? (
-                    <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
-                  ) : someSelected ? (
-                    <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
-                  ) : null}
-                </div>
-              </label>
+                  <div
+                    className="flex items-center justify-center rounded transition-colors"
+                    style={{
+                      width: 16, height: 16,
+                      border: `1.5px solid ${allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) || someSelected ? S.accent : 'var(--color-text-tertiary)'}`,
+                      background: allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
+                    }}
+                  >
+                    {allRowsSelected && resolvedSelectedIds.size > 0 ? (
+                      <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
+                    ) : allSelected ? (
+                      <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
+                    ) : someSelected ? (
+                      <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
+                    ) : null}
+                  </div>
+                </label>
+              </Tooltip>
             </div>
 
             <div
@@ -1914,65 +1907,65 @@ export function DataGrid<T>({
               </div>
             ) : loading
               ? virtualizer.getVirtualItems().map((vi) => (
-                  <div
-                    key={vi.key}
-                    className="flex absolute top-0 left-0 border-b"
-                    style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)`, borderColor: S.rowBorder }}
-                  >
-                    <div className="flex-shrink-0 sticky left-0 z-20 flex items-center justify-center border-r" style={{ width: S.checkboxW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
-                    </div>
-                    <div className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 border-r" style={{ width: S.rowNumW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
-                      <div className="h-3 w-8 rounded" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
-                    </div>
-                    {orderedColumns.map((col) => {
-                      const wc = computedWidths[col.key] ?? 100
-                      return (
-                        <div key={col.key} className="flex-shrink-0 flex items-center px-3 border-r" style={{ width: wc, height: vi.size, borderColor: S.rowBorder }}>
-                          <div className="h-3 rounded w-3/4" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
-                        </div>
-                      )
-                    })}
+                <div
+                  key={vi.key}
+                  className="flex absolute top-0 left-0 border-b"
+                  style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)`, borderColor: S.rowBorder }}
+                >
+                  <div className="flex-shrink-0 sticky left-0 z-20 flex items-center justify-center border-r" style={{ width: S.checkboxW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
                   </div>
-                ))
+                  <div className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 border-r" style={{ width: S.rowNumW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
+                    <div className="h-3 w-8 rounded" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+                  </div>
+                  {orderedColumns.map((col) => {
+                    const wc = computedWidths[col.key] ?? 100
+                    return (
+                      <div key={col.key} className="flex-shrink-0 flex items-center px-3 border-r" style={{ width: wc, height: vi.size, borderColor: S.rowBorder }}>
+                        <div className="h-3 rounded w-3/4" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ))
               : virtualizer.getVirtualItems().map((vi) => {
-                  const row = sortedData[vi.index]
-                  if (!row) return null
-                  return (
-                    <div
-                      key={rowKey(row, vi.index)}
-                      className="flex absolute top-0 left-0"
-                      style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)` }}
-                    >
-                      <RowRenderer
-                        row={row as T}
-                        rowIndex={vi.index}
-                        columns={orderedColumns as unknown as ColumnDef<unknown>[]}
-                        computedWidths={computedWidths}
-                        isEven={vi.index % 2 === 0}
-                        onRowClick={onRowClick as unknown as ((row: unknown, index: number) => void)}
-                        interactionState={state}
-                        interactionHandlers={{
-                          onCellMouseDown: interaction.onCellMouseDown,
-                          onCellMouseEnter: interaction.onCellMouseEnter,
-                          onCellMouseUp: interaction.onCellMouseUp,
-                          onCellDoubleClick: interaction.onCellDoubleClick,
-                          onCellClick: interaction.onCellClick,
-                        }}
-                        editingValue={state.draftValue}
-                        onDraftChange={handleDraftChange}
-                        commitEdit={interaction.commitEdit}
-                        discardEdit={discardEdit}
-                        onRowKeyDown={interaction.onContainerKeyDown}
-                        isSelected={resolvedSelectedIds.has(rowKey(row, vi.index))}
-                        onCheckboxToggle={toggleRowSelection}
-                        flashingCell={flashingCell}
-                        validationFlashCell={validationFlashCell}
-                        saveSuccessCell={saveSuccessCell}
-                        editComponents={editComponents}
-                      />
-                    </div>
-                  )
-                })}
+                const row = sortedData[vi.index]
+                if (!row) return null
+                return (
+                  <div
+                    key={rowKey(row, vi.index)}
+                    className="flex absolute top-0 left-0"
+                    style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)` }}
+                  >
+                    <RowRenderer
+                      row={row as T}
+                      rowIndex={vi.index}
+                      columns={orderedColumns as unknown as ColumnDef<unknown>[]}
+                      computedWidths={computedWidths}
+                      isEven={vi.index % 2 === 0}
+                      onRowClick={onRowClick as unknown as ((row: unknown, index: number) => void)}
+                      interactionState={state}
+                      interactionHandlers={{
+                        onCellMouseDown: interaction.onCellMouseDown,
+                        onCellMouseEnter: interaction.onCellMouseEnter,
+                        onCellMouseUp: interaction.onCellMouseUp,
+                        onCellDoubleClick: interaction.onCellDoubleClick,
+                        onCellClick: interaction.onCellClick,
+                      }}
+                      editingValue={state.draftValue}
+                      onDraftChange={handleDraftChange}
+                      commitEdit={interaction.commitEdit}
+                      discardEdit={discardEdit}
+                      onRowKeyDown={interaction.onContainerKeyDown}
+                      isSelected={resolvedSelectedIds.has(rowKey(row, vi.index))}
+                      onCheckboxToggle={toggleRowSelection}
+                      flashingCell={flashingCell}
+                      validationFlashCell={validationFlashCell}
+                      saveSuccessCell={saveSuccessCell}
+                      editComponents={editComponents}
+                    />
+                  </div>
+                )
+              })}
           </div>
         </div>
       </div>
@@ -1982,88 +1975,88 @@ export function DataGrid<T>({
         const n = rangeNormalize(r)
         return n.start.rowIndex !== n.end.rowIndex || n.start.colIndex !== n.end.colIndex
       }) && (
-        <div className="relative" style={{ height: 0 }}>
-          {state.selectionRanges.map((range, i) => {
-            const n = rangeNormalize(range)
-            if (n.start.rowIndex === n.end.rowIndex && n.start.colIndex === n.end.colIndex) return null
-            let left = S.checkboxW + S.rowNumW
-            let top = 0
-            let width = 0
-            let heightVal = 0
+          <div className="relative" style={{ height: 0 }}>
+            {state.selectionRanges.map((range, i) => {
+              const n = rangeNormalize(range)
+              if (n.start.rowIndex === n.end.rowIndex && n.start.colIndex === n.end.colIndex) return null
+              let left = S.checkboxW + S.rowNumW
+              let top = 0
+              let width = 0
+              let heightVal = 0
 
-            for (let c = 0; c < n.start.colIndex; c++) {
-              const col = orderedColumns[c]
-              if (col) left += computedWidths[col.key] ?? 100
-            }
-            for (let c = n.start.colIndex; c <= n.end.colIndex; c++) {
-              const col = orderedColumns[c]
-              if (col) width += computedWidths[col.key] ?? 100
-            }
+              for (let c = 0; c < n.start.colIndex; c++) {
+                const col = orderedColumns[c]
+                if (col) left += computedWidths[col.key] ?? 100
+              }
+              for (let c = n.start.colIndex; c <= n.end.colIndex; c++) {
+                const col = orderedColumns[c]
+                if (col) width += computedWidths[col.key] ?? 100
+              }
 
-            const vItems = virtualizer.getVirtualItems()
-            const firstVis = vItems[0]
-            const lastVis = vItems[vItems.length - 1]
-            if (!firstVis || !lastVis) return null
+              const vItems = virtualizer.getVirtualItems()
+              const firstVis = vItems[0]
+              const lastVis = vItems[vItems.length - 1]
+              if (!firstVis || !lastVis) return null
 
-            const firstRow = Math.max(n.start.rowIndex, firstVis.index)
-            const lastRow = Math.min(n.end.rowIndex, lastVis.index)
+              const firstRow = Math.max(n.start.rowIndex, firstVis.index)
+              const lastRow = Math.min(n.end.rowIndex, lastVis.index)
 
-            if (firstRow > lastRow) return null
+              if (firstRow > lastRow) return null
 
-            if (firstRow === n.start.rowIndex) {
-              top = (firstRow - firstVis.index) * S.rowH
-            } else {
-              top = 0
-            }
+              if (firstRow === n.start.rowIndex) {
+                top = (firstRow - firstVis.index) * S.rowH
+              } else {
+                top = 0
+              }
 
-            if (firstRow === n.start.rowIndex && lastRow === n.end.rowIndex) {
-              heightVal = (n.end.rowIndex - n.start.rowIndex + 1) * S.rowH
-            } else if (firstRow === n.start.rowIndex) {
-              heightVal = (lastRow - n.start.rowIndex + 1) * S.rowH
-            } else if (lastRow === n.end.rowIndex) {
-              heightVal = (n.end.rowIndex - firstRow + 1) * S.rowH
-            } else {
-              heightVal = (lastRow - firstRow + 1) * S.rowH
-            }
+              if (firstRow === n.start.rowIndex && lastRow === n.end.rowIndex) {
+                heightVal = (n.end.rowIndex - n.start.rowIndex + 1) * S.rowH
+              } else if (firstRow === n.start.rowIndex) {
+                heightVal = (lastRow - n.start.rowIndex + 1) * S.rowH
+              } else if (lastRow === n.end.rowIndex) {
+                heightVal = (n.end.rowIndex - firstRow + 1) * S.rowH
+              } else {
+                heightVal = (lastRow - firstRow + 1) * S.rowH
+              }
 
-            top += firstVis.start
+              top += firstVis.start
 
-            return (
-              <div
-                key={i}
-                className="absolute pointer-events-none z-20"
-                style={{
-                  left, top, width, height: heightVal,
-                  border: `1px solid ${S.accent}`,
-                }}
-              />
-            )
-          })}
-        </div>
-      )}
+              return (
+                <div
+                  key={i}
+                  className="absolute pointer-events-none z-20"
+                  style={{
+                    left, top, width, height: heightVal,
+                    border: `1px solid ${S.accent}`,
+                  }}
+                />
+              )
+            })}
+          </div>
+        )}
 
       {/* Toolbar — row count / selection actions / pagination */}
       <Toolbar
-          sortedDataLength={sortedData.length}
-          sortKey={sortKey}
-          sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
-          defaultSortKey="created_at"
-          selectedCount={resolvedSelectedIds.size}
-          selectedIds={[...resolvedSelectedIds]}
-          selectionActions={selectionActions}
-          selectionMenuActions={selectionMenuActions}
-          bulkActions={bulkActions}
-          onClearSelection={() => {
-            const next = new Set<string>()
-            if (!isControlled) setInternalSelectedIds(next)
-            onSelectionChange?.(next)
-          }}
-          pagination={
-            totalRows != null && page != null && pageSize != null && onPageChange
-              ? { totalRows, page, pageSize, onPageChange, onPageSizeChange, pageSizes }
-              : undefined
-          }
-        />
+        sortedDataLength={sortedData.length}
+        sortKey={sortKey}
+        sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
+        defaultSortKey="created_at"
+        selectedCount={resolvedSelectedIds.size}
+        selectedIds={[...resolvedSelectedIds]}
+        selectionActions={selectionActions}
+        selectionMenuActions={selectionMenuActions}
+        bulkActions={bulkActions}
+        onClearSelection={() => {
+          const next = new Set<string>()
+          if (!isControlled) setInternalSelectedIds(next)
+          onSelectionChange?.(next)
+        }}
+        pagination={
+          totalRows != null && page != null && pageSize != null && onPageChange
+            ? { totalRows, page, pageSize, onPageChange, onPageSizeChange, pageSizes }
+            : undefined
+        }
+      />
 
       {/* Resize drag indicator */}
       {resizeIndicatorX !== null && (
@@ -2082,11 +2075,11 @@ export function DataGrid<T>({
         const n = rangeNormalize(r)
         return n.start.rowIndex !== n.end.rowIndex || n.start.colIndex !== n.end.colIndex
       }) && (
-        <div
-          className="fixed inset-0 z-[100]"
-          style={{ cursor: 'default' }}
-        />
-      )}
+          <div
+            className="fixed inset-0 z-[100]"
+            style={{ cursor: 'default' }}
+          />
+        )}
 
       <style jsx>{`
         @keyframes shimmer {
