@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
+import { toast } from 'sonner'
 import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
 import { useColumnOrder } from '@/lib/hooks/useColumnOrder'
@@ -130,7 +131,7 @@ interface RowRendererProps<T> {
   isEven: boolean
   onRowClick?: (row: T, index: number) => void
   interactionState: ReturnType<typeof useGridInteraction>['state']
-  interactionHandlers: Pick<ReturnType<typeof useGridInteraction>, 'onCellMouseDown' | 'onCellMouseEnter' | 'onCellMouseUp' | 'onCellDoubleClick'>
+  interactionHandlers: Pick<ReturnType<typeof useGridInteraction>, 'onCellMouseDown' | 'onCellMouseEnter' | 'onCellMouseUp' | 'onCellDoubleClick' | 'onCellClick'>
   editingValue: string
   onDraftChange: (val: string) => void
   commitEdit: () => void
@@ -139,14 +140,16 @@ interface RowRendererProps<T> {
   onCheckboxToggle: (rowIndex: number) => void
   flashingCell: CellAddress | null
   validationFlashCell: CellAddress | null
+  saveSuccessCell: CellAddress | null
   editComponents?: Record<number, (props: { value: string; rowIndex: number; onChange: (val: string) => void; onCommit: () => void; onDiscard: () => void; cellEl?: HTMLElement | null }) => React.ReactNode>
 }
 
 const RowRenderer = memo(function RowRendererInner<T>({
   row, rowIndex, columns, computedWidths, isEven, onRowClick,
   interactionState, interactionHandlers, editingValue, onDraftChange, commitEdit, onRowKeyDown,
-  isSelected, onCheckboxToggle, flashingCell, validationFlashCell, editComponents,
+  isSelected, onCheckboxToggle, flashingCell, validationFlashCell, saveSuccessCell, editComponents,
 }: RowRendererProps<T>) {
+  const { onCellClick } = interactionHandlers
   const rowBg = isEven ? S.rowEvenBg : S.rowOddBg
   const focusCell = interactionState.focusCell
   const selectionRanges = interactionState.selectionRanges
@@ -161,7 +164,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
       style={{
         height: S.rowH, width: '100%',
         borderColor: S.rowBorder, background: isSelected ? selectedBg : rowBg,
-        cursor: onRowClick ? 'pointer' : 'default',
+        cursor: 'default',
         borderLeft: isSelected ? `2px solid ${S.accent}` : undefined,
         paddingLeft: isSelected ? 0 : undefined,
       }}
@@ -192,10 +195,11 @@ const RowRenderer = memo(function RowRendererInner<T>({
         </label>
       </div>
 
-      {/* Row number */}
+      {/* Row number — click navigates to deal detail */}
       <div
         className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 text-[11px] border-r select-none tabular-nums"
-        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: rowBg, color: S.rowNumText }}
+        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: rowBg, color: S.rowNumText, cursor: onRowClick ? 'pointer' : 'default' }}
+        onClick={(e) => { e.stopPropagation(); onRowClick?.(row as Parameters<typeof onRowClick>[0], rowIndex) }}
       >
         {rowIndex + 1}
       </div>
@@ -235,6 +239,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
             onMouseEnter={() => interactionHandlers.onCellMouseEnter(addr)}
             onMouseUp={interactionHandlers.onCellMouseUp}
             onDoubleClick={() => interactionHandlers.onCellDoubleClick(addr)}
+            onClick={(e) => { if (onRowClick) e.stopPropagation(); onCellClick(addr) }}
           >
             {isEditingCell ? (
               editComponents?.[colIndex] ? (
@@ -257,7 +262,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
                     boxShadow: `0 0 0 4px color-mix(in srgb, ${S.accent} 20%, transparent)`,
                     fontFamily: 'var(--font-dm-sans)',
                     color: 'var(--color-text-primary)',
-                    borderRadius: 0,
+                    borderRadius: 'var(--radius-sm)',
                   }}
                   value={editingValue}
                   onChange={(e) => onDraftChange(e.target.value)}
@@ -292,6 +297,12 @@ const RowRenderer = memo(function RowRendererInner<T>({
                 style={{ border: `2px solid var(--color-error, #ef4444)`, transition: 'opacity 600ms ease' }}
               />
             )}
+            {saveSuccessCell && cellAddressEqual(addr, saveSuccessCell) && (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{ border: `2px solid var(--color-success, #22c55e)`, transition: 'opacity 800ms ease-out' }}
+              />
+            )}
           </div>
         )
       })}
@@ -307,6 +318,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
   if (prevProps.editingValue !== nextProps.editingValue) return false
   if (prevProps.flashingCell !== nextProps.flashingCell) return false
   if (prevProps.validationFlashCell !== nextProps.validationFlashCell) return false
+  if (prevProps.saveSuccessCell !== nextProps.saveSuccessCell) return false
   const pf = prevProps.interactionState.focusCell
   const nf = nextProps.interactionState.focusCell
   if (pf !== nf && (pf?.rowIndex !== nf?.rowIndex)) return false
@@ -1232,10 +1244,61 @@ export function DataGrid<T>({
     }
   }, [onCellEdit, sortedData, orderedColumns])
 
+  // ── Save-success flash (declared before handleCellEdit which references it) ──
+  const [saveSuccessCell, setSaveSuccessCell] = useState<CellAddress | null>(null)
+  const saveSuccessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showSaveSuccess = useCallback((addr: CellAddress) => {
+    setSaveSuccessCell(addr)
+    if (saveSuccessTimeoutRef.current) clearTimeout(saveSuccessTimeoutRef.current)
+    saveSuccessTimeoutRef.current = setTimeout(() => {
+      setSaveSuccessCell(null)
+      saveSuccessTimeoutRef.current = null
+    }, 1000)
+  }, [])
+
   const handleCellEdit = useCallback((rowIndex: number, colIndex: number, value: string) => {
-    if (!onCellEdit) return
-    onCellEdit(rowIndex, colIndex, value)
-  }, [onCellEdit])
+    const row = sortedData[rowIndex]
+    const col = orderedColumns[colIndex]
+    if (!row || !col) return
+    const dealId = (row as Record<string, unknown>).id as string | undefined
+    if (!dealId) return
+
+    fetch(`/api/deals/${dealId}/fields`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [col.key]: value }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          const msg = (body as { errors?: string[] }).errors?.join(', ') || (body as { error?: string }).error || `HTTP ${res.status}`
+          throw new Error(msg)
+        }
+        showSaveSuccess({ rowIndex, colIndex })
+      })
+      .catch((err) => {
+        const label = col.header
+        toast.error(`Failed to save "${label}"`, {
+          description: err instanceof Error ? err.message : 'Network error',
+          action: { label: 'Refresh', onClick: () => window.location.reload() },
+        })
+      })
+
+    // Optimistic local update — mutate deal_fields so the cell renders the new value immediately
+    const rowData = row as Record<string, unknown>
+    const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
+    if (dealFields) {
+      const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
+      if (existing) {
+        existing.value = value
+      } else {
+        dealFields.push({ value, field_definitions: { key: col.key } })
+      }
+    }
+
+    onCellEdit?.(rowIndex, colIndex, value)
+  }, [onCellEdit, sortedData, orderedColumns, showSaveSuccess])
 
   const copyHandler = useCallback((ranges: CellRange[]): string[][] => {
     const result: string[][] = []
@@ -1311,10 +1374,19 @@ export function DataGrid<T>({
     return null
   }, [orderedColumns, onCellEdit])
 
+  const derivedEditableColumns = useMemo(() => {
+    const set = new Set<number>()
+    for (let i = 0; i < orderedColumns.length; i++) {
+      if (orderedColumns[i]!.editable) set.add(i)
+    }
+    return set
+  }, [orderedColumns])
+
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
       if (validationFlashTimeoutRef.current) clearTimeout(validationFlashTimeoutRef.current)
+      if (saveSuccessTimeoutRef.current) clearTimeout(saveSuccessTimeoutRef.current)
     }
   }, [])
 
@@ -1323,7 +1395,7 @@ export function DataGrid<T>({
     colCount: orderedColumns.length,
     pageSize: virtualPageSize,
     data: sortedData,
-    editableColumns: editableColumns ?? new Set(),
+    editableColumns: editableColumns ?? derivedEditableColumns,
     excludeColIndices,
     getCellValue,
     onCellEdit: handleCellEdit,
@@ -1844,7 +1916,6 @@ export function DataGrid<T>({
                       key={rowKey(row, vi.index)}
                       className="flex absolute top-0 left-0"
                       style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)` }}
-                      onClick={() => onRowClick?.(row, vi.index)}
                     >
                       <RowRenderer
                         row={row as T}
@@ -1859,6 +1930,7 @@ export function DataGrid<T>({
                           onCellMouseEnter: interaction.onCellMouseEnter,
                           onCellMouseUp: interaction.onCellMouseUp,
                           onCellDoubleClick: interaction.onCellDoubleClick,
+                          onCellClick: interaction.onCellClick,
                         }}
                         editingValue={state.draftValue}
                         onDraftChange={handleDraftChange}
@@ -1868,6 +1940,7 @@ export function DataGrid<T>({
                         onCheckboxToggle={toggleRowSelection}
                         flashingCell={flashingCell}
                         validationFlashCell={validationFlashCell}
+                        saveSuccessCell={saveSuccessCell}
                         editComponents={editComponents}
                       />
                     </div>

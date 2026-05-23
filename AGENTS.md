@@ -32,7 +32,7 @@ Next.js 16.2.6 — APIs, conventions, and file structure differ from training da
 - **`src/app/page.tsx`** just `redirect('/login')`.
 - **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
-## API Routes (41 route files in `src/app/api/`)
+## API Routes (43 route files in `src/app/api/`)
 
 Pattern: auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
 
@@ -43,7 +43,7 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 
 ## Database
 
-- **22 migrations** in `supabase/migrations/` (0001–0022, all applied). 0016 is the v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 add projects/sponsors tables and project-scoped RLS.
+- **26 migrations** in `supabase/migrations/` (0001–0026, all applied). 0016 is the v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 add projects/sponsors tables and project-scoped RLS. 0023–0026: backfill deals project_id, column rationalization, hide deal name/units, surface imported fields.
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **Enums (8-stage):** `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` is only valid after `loi`; before LOI use `archived`. See `src/lib/supabase/types.ts` for all 14 enums.
 - **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
@@ -53,7 +53,7 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 ## Architecture
 
 - **Supabase layer:** `src/lib/supabase/` — `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (session refresh), `admin.ts` (service role), `types.ts` (manual placeholder).
-- **Hooks:** `src/lib/hooks/` (7 files): `useAuth`, `useCampaigns`, `useCallQueue`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`. Only `useGridInteraction`, `useColumnWidths`, and `usePortfolios` are currently imported — the other 4 are skeleton/placeholder.
+- **Hooks:** `src/lib/hooks/` (8 files): `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`.
 - **`src/lib/stage-machine.ts`** — source of truth for deal stage transitions. `canTransition()` enforces: `failed` only after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
 - **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.

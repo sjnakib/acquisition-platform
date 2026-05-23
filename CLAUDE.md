@@ -12,12 +12,12 @@ npm run build        # production build
 npm run lint         # ESLint
 npm run test         # Vitest (node env, globals on, @ alias configured)
 npm run test:watch   # Vitest watch mode
+npm run test -- -t "name"  # run single test matching "name"
+npx tsc --noEmit      # type check (no typecheck script in package.json)
 npm run db:types     # regenerate Supabase types (--project-ref, not --project-id)
 npm run db:push      # push migrations to linked Supabase project
 npm run db:push:local
 npm run db:reset     # reset + re-seed local DB
-npx tsc --noEmit      # type check (no typecheck script in package.json)
-npm run test -- -t "name"  # run single test matching "name"
 ```
 
 ## Architecture (60-second version)
@@ -26,115 +26,46 @@ npm run test -- -t "name"  # run single test matching "name"
 - **Tailwind CSS v4** (`@tailwindcss/postcss`, no `tailwind.config.ts`)
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
 - **`src/proxy.ts`** handles auth routing. NO `src/middleware.ts` — don't create one.
+- **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
+- **Supabase client layer (4 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`)
+- **RLS** is sole access control. `createAdminClient()` bypasses RLS.
+- **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`
+- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
 
-### Auth & routing
+## Key design rules
 
-Three route groups: `(auth)`, `(internal)`, `(client)`. Proxy gates:
-- Unauthenticated → `/login`
-- Authenticated on auth pages → `/projects` (both roles)
-- Wrong role → redirect to correct home
-- Layout guards in `(internal)/layout.tsx` and `(client)/layout.tsx` reinforce this
-
-Seed users: `test-internal@example.com` / `test-client@example.com` both with `Password123!`.
-
-### Supabase client layer (4 files, no `Database` type param)
-
-| File | Use |
-|---|---|
-| `src/lib/supabase/client.ts` | Browser (hooks, client components) |
-| `src/lib/supabase/server.ts` | Server components, API routes |
-| `src/lib/supabase/middleware.ts` | Session refresh helper, used by `proxy.ts` |
-| `src/lib/supabase/admin.ts` | Service role — ONLY in Gmail webhook + `/api/admin/*` |
-
-RLS is sole access control for user-facing queries. `createAdminClient()` bypasses RLS.
-
-### API route pattern (41 route files in `src/app/api/`)
-
-```
-auth check → CSRF origin check (mutations) → Zod validation → Supabase (anon-key, RLS)
-```
-
-API routes by domain: admin, auth, ca-credentials, calls, campaigns, contacts, deals, emails, field-definitions, loi, portfolios, projects, turnstile, underwriting.
-
-### Key libraries
-
-- `@tanstack/react-query@^5` — `ReactQueryProvider` is default export with module-level `new QueryClient()` (NOT wrapped in `useState`)
-- `react-hook-form` + `zod` + `@hookform/resolvers` — forms; validation schemas in `src/lib/validations/` (7 files: auth, contact, activity, deal, import, portfolio, campaign)
-- `exceljs` for CoStar import (NOT `xlsx`)
-- `papaparse` for CSV parsing in import flow
-- `googleapis` + `google-auth-library` for Gmail/Drive
-- `@upstash/ratelimit` + `@upstash/redis` for rate limiting
-- `react-turnstile` for Cloudflare Turnstile CAPTCHA
-- `immer` for immutable state updates (DataGrid)
-- `@tanstack/react-virtual` for DataGrid virtualization
-- `date-fns` for date formatting
-- `sonner` for toast notifications
-- `lucide-react` for icons
-- `@react-email/components` + `@react-email/render` for email templates
-- `use-debounce` for debounced inputs/hooks
-- `fast-check` for property-based testing (devDependency)
-
-### CSP headers
-
-Defined in `next.config.ts`. Adding external APIs/scripts/iframes → update CSP there.
-
-### Theme & design system
-
-- **CSS variable system** — components use `var(--color-*)` tokens (see `docs/architecture/ui.md`). No raw hex, no Tailwind palette colors (`bg-slate-*`, `text-blue-*`), no `prefers-color-scheme`.
-- Light mode default, opt-in dark via `.dark` class on `<html>`.
-- **Do NOT use `next-themes`** despite it being in `package.json` and root layout importing it — the `docs/architecture/ui.md` spec takes precedence (inline `<script>` + `localStorage` key `acq_theme`).
-- Sidebar is always-dark (`#0E0E0E`), does NOT participate in theming.
-- Animation via `tw-animate-css` plugin.
-
-### Database (Supabase/Postgres)
-
-- **22 migrations** in `supabase/migrations/` (0001–0022, all applied). 0016 is the v2 schema transform (11-stage → 8-stage `deal_stage` enum, fixed columns → dynamic `deal_fields`). 0019–0022 add projects/sponsors tables and project-scoped RLS.
-- **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
-- Key tables: users (managed by Supabase Auth), contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_tokens, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors.
-- RLS policies in migration 0013 enforce: internal role sees all; client role sees only good/very_good non-archived deals + published call briefs.
-- `get_my_role()` function (migration 0015) used for role checks.
-- Enums (8-stage): `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
-- Seed data in `supabase/seed.sql`.
-
-## Component structure
-
-Components live in `src/components/` by domain: `ui/` (shadcn-style primitives), `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`.
-
-## Key reference docs (read before building)
-
-| Doc | Content |
-|---|---|
-| `PLAN.md` (2867 lines) | Sequential build plan, schema details, Supabase API patterns |
-| `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules, remediation debt |
-| `EXCEL_TABLE.md` (728 lines) | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
-| `docs/architecture/overview.md` | System overview |
-| `docs/architecture/database.md` | Database design, RLS, schema |
-| `docs/guides/` | Various dev guides, API conventions |
-
-## Implementation gaps
-
-See AGENTS.md "Implementation Status" section for current state. Before implementing new features, check `src/components/` — the component may exist but be disconnected. Notable gaps:
-- Settings: campaign management is placeholder
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx` have hardcoded Tailwind palette colors — need remediation to use CSS var tokens
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates `docs/architecture/ui.md` spec
-
-Resolved: Dashboard wired with real components (FunnelMetrics, KPIScorecard, etc). Deal detail page 7 tabs wired to proper components. Import wizard fully wired (3-step flow). Client calls page has `client_notes` textarea.
+- **Theme:** CSS var tokens only (`var(--color-*)`). No raw hex, no Tailwind palette colors, no `prefers-color-scheme`. Do NOT use `next-themes` despite package.json — inline `<script>` + `localStorage` key `acq_theme`. Full spec: `docs/architecture/ui.md`.
+- **Deal stages:** `src/lib/stage-machine.ts` — `canTransition()` is source of truth. `failed` only valid after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
+- **Deals API:** response includes `deal_fields` with nested `field_definitions` join. New code touching deals must include this join for property data.
+- **DataGrid** renders ALL `field_definitions` columns (not just `show_in_grid`).
+- **ReactQueryProvider** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
+- **Brand:** `src/lib/brand.ts`. **Page headings:** `src/lib/page-headings.ts`.
 
 ## Critical gotchas
 
 - **Next.js 16** has breaking changes from training data. Read `node_modules/next/dist/docs/` before writing code.
-- **`reactStrictMode: true`** in `next.config.ts` — effects fire twice in dev. Don't duplicate cleanup/subscriptions.
+- **`reactStrictMode: true`** — effects fire twice in dev. Don't duplicate cleanup/subscriptions.
 - `supabase migration up` doesn't exist — use `supabase db push`.
 - `supabase gen types` uses `--project-ref` not `--project-id`; output is broken — `src/lib/supabase/types.ts` is a manual placeholder.
-- Hooks live in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
 - `vercel.json` missing (needed for Gmail watch cron).
 - Upstash Redis required locally for rate limiting.
 - Vitest configured (`vitest.config.ts`, node env, globals) but no test files written yet.
-- Hooks (8): `useAuth.ts`, `useCallQueue.ts`, `useCampaigns.ts`, `useColumnOrder.ts`, `useColumnWidths.ts`, `useDeals.ts`, `useGridInteraction.ts`, `usePortfolios.ts`.
-- Company brand config in `src/lib/brand.ts`.
-- Centralized page headings in `src/lib/page-headings.ts`.
-- Deals API response now includes `deal_fields` with nested `field_definitions` join. New code touching deals should include this join for property data.
-- DataGrid `DealTable` now renders ALL `field_definitions` columns (not just `show_in_grid`).
-- `src/lib/stage-machine.ts` — `canTransition()` is source of truth for deal stage transitions. `failed` only valid after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
-- `.env.example` has all required env vars (5 groups: Supabase, Turnstile, Google OAuth, App, Upstash).
 - `next.config.ts` `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
+- CSP headers in `next.config.ts` — adding external APIs/scripts/iframes requires updating CSP.
+
+## Key reference docs
+
+| Doc | Content |
+|---|---|
+| `PLAN.md` | Sequential build plan, schema details, Supabase API patterns |
+| `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
+| `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
+| `docs/architecture/overview.md` | System overview |
+| `docs/architecture/database.md` | Database design, RLS, schema |
+| `docs/guides/` | Various dev guides, API conventions |
+
+## Known tech debt
+
+- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx` — hardcoded Tailwind palette colors, need CSS var remediation
+- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates `docs/architecture/ui.md` spec
+- Settings: campaign management is placeholder

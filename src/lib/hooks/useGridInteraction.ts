@@ -495,7 +495,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
     if (!state.focusCell) return
     configRef.current.scrollToRow(state.focusCell.rowIndex)
     configRef.current.scrollToCol(state.focusCell.colIndex)
-  }, [state.focusCell, config])
+  }, [state.focusCell])
 
   const doAutoScrollRef = useRef<() => void>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -956,9 +956,6 @@ export function useGridInteraction(config: GridInteractionConfig) {
       dispatch({ type: 'SHIFT_CLICK_RANGE', anchor, clickAddress: address })
       return
     }
-    if (state.focusCell && cellAddressEqual(address, state.focusCell)) {
-      return
-    }
     dragRef.current = true
     const handleMouseMove = (ev: MouseEvent) => {
       mousePosRef.current = { x: ev.clientX, y: ev.clientY }
@@ -995,6 +992,10 @@ export function useGridInteraction(config: GridInteractionConfig) {
     }
   }, [])
 
+  const onCellClick = useCallback((address: CellAddress) => {
+    dispatch({ type: 'SET_FOCUS', address })
+  }, [])
+
   return {
     state,
     dispatch,
@@ -1007,5 +1008,6 @@ export function useGridInteraction(config: GridInteractionConfig) {
     onCellMouseEnter,
     onCellMouseUp,
     onCellDoubleClick,
+    onCellClick,
   }
 }

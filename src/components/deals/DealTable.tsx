@@ -180,10 +180,14 @@ export function DealTable({
   const columns = useMemo((): ColumnDef<Deal>[] => {
     const cols: ColumnDef<Deal>[] = []
 
+    const fixedSystemKeys = new Set([
+      'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score',
+    ])
+
     // ── Dynamic columns from field_definitions (left of Stage) ────
     if (fieldDefs) {
       for (const fd of fieldDefs) {
-        if (!fd.show_in_grid) continue
+        if (!fd.show_in_grid || fixedSystemKeys.has(fd.key)) continue
         cols.push({
           key: fd.key,
           header: fd.label,

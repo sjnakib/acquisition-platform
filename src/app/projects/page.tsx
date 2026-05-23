@@ -23,20 +23,18 @@ export default function ProjectsPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const r = (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
-      setRole(r)
-    })
-
-    fetch('/api/projects')
-      .then((r) => r.json())
-      .then((data) => {
+    Promise.all([
+      supabase.auth.getUser(),
+      fetch('/api/projects').then((r) => r.json()),
+    ])
+      .then(([{ data: { user } }, data]) => {
+        const r = (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
+        setRole(r)
         const list = (data ?? []) as Project[]
         setProjects(list)
-        // Client with single project: auto-redirect
-        if (list.length === 1) {
-          const r = list[0]!
-          router.replace(`/projects/${r.id}/overview`)
+
+        if (r === 'client' && list.length === 1) {
+          router.replace(`/projects/${list[0]!.id}/overview`)
         }
       })
       .catch(console.error)
