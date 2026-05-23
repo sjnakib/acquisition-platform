@@ -31,6 +31,7 @@ interface NavSection {
 
 interface SidebarProfile {
   avatar: string
+  avatarUrl?: string | null
   name: string
   subtitle: ReactNode
 }
@@ -229,20 +230,50 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
               className={`flex items-center gap-3 w-full py-2 rounded-md transition-colors duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
-              style={{ color: s('text') }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = s('hover') }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              style={{
+                color: pathname === '/profile' ? s('text-active') : s('text'),
+                background: pathname === '/profile' ? s('active') : 'transparent',
+                fontWeight: pathname === '/profile' ? 500 : 400
+              }}
+              onMouseEnter={(e) => {
+                if (pathname !== '/profile') {
+                  e.currentTarget.style.background = s('hover')
+                  e.currentTarget.style.color = s('text-hover')
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (pathname !== '/profile') {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = s('text')
+                }
+              }}
             >
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
-                style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}
+                style={
+                  profile.avatarUrl
+                    ? profile.avatarUrl.startsWith('linear-gradient')
+                      ? { background: profile.avatarUrl, color: 'var(--color-text-inverse)' }
+                      : { backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' }
+                    : { background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }
+                }
               >
-                {profile.avatar}
+                {!profile.avatarUrl || profile.avatarUrl.startsWith('linear-gradient') ? profile.avatar : ''}
               </div>
               {!collapsed && (
                 <div className="flex-1 text-left leading-tight overflow-hidden">
-                  <div className="text-[13px] font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>{profile.name}</div>
-                  <div className="flex items-center gap-1 truncate">{profile.subtitle}</div>
+                  <div 
+                    className="text-[13px] font-medium truncate" 
+                    style={{ color: pathname === '/profile' ? s('text-active') : 'var(--color-text-primary)' }}
+                  >
+                    {profile.name}
+                  </div>
+                  <div 
+                    className="flex items-center gap-1 truncate text-[11px] font-medium tracking-[0.03em] uppercase"
+                    style={{ color: pathname === '/profile' ? s('text-active') : s('text-muted') }}
+                  >
+                    {profile.subtitle}
+                  </div>
                 </div>
               )}
             </button>
@@ -303,7 +334,18 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
           >
             {mounted && (theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />)}
           </button>
-          <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0" style={{ background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }}>{profile.avatar}</div>
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+            style={
+              profile.avatarUrl
+                ? profile.avatarUrl.startsWith('linear-gradient')
+                  ? { background: profile.avatarUrl, color: 'var(--color-text-inverse)' }
+                  : { backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' }
+                : { background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }
+            }
+          >
+            {!profile.avatarUrl || profile.avatarUrl.startsWith('linear-gradient') ? profile.avatar : ''}
+          </div>
         </div>
       </div>
 

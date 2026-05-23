@@ -3,12 +3,15 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { pageHeadings } from '@/lib/page-headings'
-import { Save, X, PencilLine } from 'lucide-react'
+import { 
+  Save, X, PencilLine, Shield, KeyRound, Calendar, 
+  Mail, Building2, CheckCircle2 
+} from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ProfileData {
   user: { id: string; email: string | null }
@@ -21,6 +24,20 @@ interface ProfileData {
   }
 }
 
+const PRESET_GRADIENTS = [
+  { id: 'emerald', name: 'Emerald Glow', style: 'linear-gradient(135deg, #1E5B3F 0%, #0F2E20 100%)' },
+  { id: 'aurora', name: 'Midnight Aurora', style: 'linear-gradient(135deg, #0284c7 0%, #1e1b4b 100%)' },
+  { id: 'sunset', name: 'Sunset Bronze', style: 'linear-gradient(135deg, #d97706 0%, #451a03 100%)' },
+  { id: 'ocean', name: 'Ocean Glass', style: 'linear-gradient(135deg, #0d9488 0%, #115e59 100%)' },
+  { id: 'orchid', name: 'Cyber Orchid', style: 'linear-gradient(135deg, #c084fc 0%, #581c87 100%)' },
+  { id: 'gold', name: 'Solar Gold', style: 'linear-gradient(135deg, #eab308 0%, #713f12 100%)' }
+]
+
+const TABS = [
+  { key: 'profile', label: 'Profile Details' },
+  { key: 'system', label: 'System Details' }
+]
+
 export default function ProfilePage() {
   const router = useRouter()
   const [data, setData] = useState<ProfileData | null>(null)
@@ -28,7 +45,9 @@ export default function ProfilePage() {
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
+  const [editAvatarUrl, setEditAvatarUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState('profile')
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -41,147 +60,330 @@ export default function ProfilePage() {
         if (json.error) { setError(json.error); return }
         setData(json)
         setEditName(json.profile?.full_name ?? '')
+        setEditAvatarUrl(json.profile?.avatar_url ?? '')
       })
-      .catch(() => setError('Failed to load profile'))
+      .catch(() => setError('Failed to load profile details.'))
       .finally(() => setLoading(false))
   }, [router])
 
   async function handleSave() {
-    if (!editName.trim()) return
+    if (!editName.trim()) {
+      toast.error('Name cannot be empty')
+      return
+    }
     setSaving(true)
     setError('')
-    const res = await fetch('/api/auth/me', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: editName.trim() }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      setError(json.error ?? 'Failed to save')
-    } else {
-      setData((prev) => prev ? { ...prev, profile: { ...prev.profile, full_name: editName.trim() } } : prev)
-      setEditing(false)
+    try {
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          full_name: editName.trim(),
+          avatar_url: editAvatarUrl.trim() || null
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        setError(json.error ?? 'Failed to save changes')
+        toast.error(json.error ?? 'Failed to save changes')
+      } else {
+        setData((prev) => prev ? { 
+          ...prev, 
+          profile: { 
+            ...prev.profile, 
+            full_name: editName.trim(),
+            avatar_url: editAvatarUrl.trim() || null
+          } 
+        } : prev)
+        setEditing(false)
+        toast.success('Profile updated successfully')
+        window.dispatchEvent(new Event('profile-updated'))
+      }
+    } catch {
+      setError('An error occurred while saving.')
+      toast.error('Failed to save profile')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   function handleCancel() {
     setEditName(data?.profile?.full_name ?? '')
+    setEditAvatarUrl(data?.profile?.avatar_url ?? '')
     setEditing(false)
   }
 
   if (loading) {
     return (
-      <div>
+      <div className="w-full">
         <PageHeader title={pageHeadings.profile.title} description={pageHeadings.profile.description} />
         <div className="flex items-center justify-center py-20"><LoadingSpinner size="lg" /></div>
       </div>
     )
   }
 
+  const roleLabel = data?.profile?.role === 'client' ? 'Sponsor' : (data?.profile?.role ?? 'Team')
+  const avatarUrl = data?.profile?.avatar_url
   const avatarInitial = (data?.profile?.full_name ?? data?.user?.email ?? 'U').charAt(0).toUpperCase()
-  const isInternal = data?.profile?.role === 'internal'
 
   return (
-    <div>
+    <div className="space-y-6 pb-12 w-full">
+      {/* Standard page header aligned exactly like other workspace pages */}
       <PageHeader title={pageHeadings.profile.title} description={pageHeadings.profile.description} />
 
       {error && (
-        <div className="mb-4 rounded-md p-3 text-sm" style={{ background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
+        <div className="rounded-md p-3 text-sm font-medium flex items-center gap-2 border mb-4 max-w-2xl mx-auto w-full" style={{ background: 'var(--color-danger-bg)', borderColor: 'var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
+          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-danger-text)]" />
           {error}
         </div>
       )}
 
-      <div className="space-y-6 max-w-2xl">
-        {/* Profile card */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-          <div className="flex items-start justify-between mb-6">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Profile</h2>
-            {isInternal && !editing && (
-              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                <PencilLine size={14} />
-                Edit
-              </Button>
+      {/* Centered Profile Card container (Centered like LinkedIn) */}
+      <div className="space-y-6 max-w-2xl mx-auto w-full">
+        
+        {/* Profile Header Card */}
+        <div className="flex flex-col items-center justify-center text-center pb-6 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+          <div 
+            className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-semibold select-none relative overflow-hidden shadow-sm border mb-3"
+            style={{ 
+              borderColor: 'var(--color-surface-3)',
+              background: avatarUrl 
+                ? avatarUrl.startsWith('linear-gradient')
+                  ? avatarUrl
+                  : 'transparent'
+                : 'var(--color-accent-bg)',
+              color: avatarUrl && !avatarUrl.startsWith('linear-gradient') ? 'transparent' : 'var(--color-text-inverse)'
+            }}
+          >
+            {avatarUrl && !avatarUrl.startsWith('linear-gradient') ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img 
+                src={avatarUrl} 
+                alt="Avatar" 
+                className="w-full h-full object-cover rounded-full" 
+                onError={(e) => { e.currentTarget.style.display = 'none' }}
+              />
+            ) : null}
+            {(!avatarUrl || avatarUrl.startsWith('linear-gradient')) && (
+              <span style={{ color: 'var(--color-accent)' }}>{avatarInitial}</span>
             )}
-            {isInternal && editing && (
+          </div>
+          
+          <h1 className="text-xl font-semibold mb-1" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+            {data?.profile?.full_name ?? '—'}
+          </h1>
+          
+          <div className="flex items-center gap-2 mb-4 justify-center">
+            <span className="text-[11px] font-medium tracking-[0.03em] uppercase" style={{ color: 'var(--color-text-tertiary)' }}>
+              {roleLabel}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-center gap-2">
+            {!editing ? (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setEditing(true)} 
+              >
+                <PencilLine size={13} />
+                Edit Profile
+              </Button>
+            ) : (
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleCancel} disabled={saving}>
-                  <X size={14} />
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleCancel} 
+                  disabled={saving}
+                >
+                  <X size={13} />
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={saving || !editName.trim()}>
-                  <Save size={14} />
+                <Button 
+                  size="sm" 
+                  onClick={handleSave} 
+                  disabled={saving || !editName.trim()}
+                  className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:bg-[var(--color-accent)]/90"
+                >
+                  <Save size={13} />
                   {saving ? 'Saving...' : 'Save'}
                 </Button>
               </div>
             )}
           </div>
+        </div>
 
-          <div className="flex items-center gap-5 mb-6">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-semibold flex-shrink-0"
-              style={{ background: 'var(--color-accent-bg)', color: 'var(--color-accent-muted)' }}
-            >
-              {avatarInitial}
-            </div>
-            <div>
-              {isInternal && editing ? (
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Full Name</label>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="bg-[var(--color-surface-1)]"
-                    placeholder="Your name"
-                  />
-                </div>
-              ) : (
-                <>
-                  <div className="text-base font-medium" style={{ color: 'var(--color-text-primary)' }}>{data?.profile?.full_name ?? '—'}</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant={isInternal ? 'accent' : 'info'} size="sm">
-                      {data?.profile?.role ?? '—'}
-                    </Badge>
+        {/* Centered Tab Navigation */}
+        <div className="border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+          <nav className="flex justify-center gap-6">
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === tab.key ? 'border-current' : 'border-transparent'
+                }`}
+                style={{
+                  color: activeTab === tab.key ? 'var(--accent)' : 'var(--color-text-tertiary)',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Main Tabbed Content Card */}
+        <div 
+          className="rounded-xl border p-6 transition-all duration-300" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            borderColor: 'var(--color-border)' 
+          }}
+        >
+          <div className="max-w-xl mx-auto w-full">
+            {activeTab === 'profile' && (
+              <div className="space-y-6">
+                {editing ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 gap-5">
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>Full Name</label>
+                        <Input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+                          placeholder="E.g. Shafaat Nakib"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>Avatar Image URL</label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={editAvatarUrl.startsWith('linear-gradient') ? '' : editAvatarUrl}
+                            onChange={(e) => setEditAvatarUrl(e.target.value)}
+                            className="bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] flex-1 text-[13px]"
+                            placeholder="https://images.unsplash.com/... (optional)"
+                            disabled={editAvatarUrl.startsWith('linear-gradient')}
+                          />
+                          {editAvatarUrl.startsWith('linear-gradient') && (
+                            <Button variant="outline" size="sm" onClick={() => setEditAvatarUrl('')}>Clear Preset</Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Preset gradients builder */}
+                    <div className="space-y-3 pt-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-secondary)' }}>Choose Preset Gradient Avatar</label>
+                      <div className="flex flex-wrap gap-3 justify-center">
+                        {PRESET_GRADIENTS.map((preset) => {
+                          const isActive = editAvatarUrl === preset.style
+                          return (
+                            <button
+                              key={preset.id}
+                              onClick={() => setEditAvatarUrl(preset.style)}
+                              type="button"
+                              className="w-10 h-10 rounded-full border-2 transition-all duration-200 transform hover:scale-105 active:scale-95 flex items-center justify-center cursor-pointer shadow-sm"
+                              style={{
+                                background: preset.style,
+                                borderColor: isActive ? 'var(--color-accent)' : 'transparent',
+                                boxShadow: isActive ? '0 0 8px var(--color-accent)' : 'none'
+                              }}
+                              title={preset.name}
+                            >
+                              {isActive && <CheckCircle2 className="w-4 h-4 text-white drop-shadow-md" />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
-          </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 gap-y-5 text-sm">
+                      <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                        <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Full Name</span>
+                        <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{data?.profile?.full_name ?? '—'}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                        <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Email Address</span>
+                        <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{data?.user?.email ?? '—'}</span>
+                      </div>
+                      {data?.profile?.client_org && (
+                        <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                          <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Organization</span>
+                          <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{data.profile.client_org}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                        <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Active Avatar Style</span>
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-7 h-7 rounded-full border flex items-center justify-center text-xs font-semibold"
+                            style={{ 
+                              borderColor: 'var(--color-surface-3)',
+                              background: avatarUrl 
+                                ? avatarUrl.startsWith('linear-gradient')
+                                  ? avatarUrl
+                                  : 'transparent'
+                                : 'var(--color-accent-bg)',
+                              color: avatarUrl && !avatarUrl.startsWith('linear-gradient') ? 'transparent' : 'var(--color-text-inverse)'
+                            }}
+                          >
+                            {avatarUrl && !avatarUrl.startsWith('linear-gradient') ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img 
+                                src={avatarUrl} 
+                                alt="Avatar" 
+                                className="w-full h-full object-cover rounded-full" 
+                                onError={(e) => { e.currentTarget.style.display = 'none' }}
+                              />
+                            ) : null}
+                            {(!avatarUrl || avatarUrl.startsWith('linear-gradient')) && (
+                              <span style={{ color: 'var(--color-accent)', fontSize: '10px' }}>{avatarInitial}</span>
+                            )}
+                          </div>
+                          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                            {avatarUrl 
+                              ? avatarUrl.startsWith('linear-gradient') 
+                                ? PRESET_GRADIENTS.find(p => p.style === avatarUrl)?.name ?? 'Preset Gradient'
+                                : 'Custom Image URL'
+                              : 'Default Initial Avatar'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
-          <div className="space-y-3">
-            <div>
-              <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Email</div>
-              <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{data?.user?.email ?? '—'}</div>
-            </div>
-            {data?.profile?.client_org && (
-              <div>
-                <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Organization</div>
-                <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{data.profile.client_org}</div>
+            {activeTab === 'system' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-y-5 text-sm">
+                  <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                    <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Account Created</span>
+                    <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                      {data?.profile?.created_at
+                        ? new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(data.profile.created_at))
+                        : '—'}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--color-surface-2)' }}>
+                    <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>Access Role</span>
+                    <span className="text-xs font-medium tracking-[0.03em] uppercase" style={{ color: 'var(--color-text-primary)' }}>
+                      {roleLabel}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         </div>
-
-        {/* Account card — internal only */}
-        {isInternal && (
-          <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Account</h2>
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>Member Since</div>
-                <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
-                  {data?.profile?.created_at
-                    ? new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(data.profile.created_at))
-                    : '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-secondary)' }}>User ID</div>
-                <div className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>{data?.user?.id ?? '—'}</div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )

@@ -19,9 +19,19 @@ export async function GET() {
       return NextResponse.json({ error: profileError.message }, { status: 500 })
     }
 
+    // Check if user has connected their Gmail/Google account
+    const { data: tokenData, error: tokenError } = await supabase
+      .from('google_tokens')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    const gmail_connected = !tokenError && !!tokenData
+
     return NextResponse.json({
       user: { id: user.id, email: user.email },
       profile,
+      gmail_connected,
     })
   } catch (err) {
     console.error('Profile fetch error:', err)
@@ -42,14 +52,19 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { full_name } = body
+    const { full_name, avatar_url } = body
 
     if (full_name !== undefined && (typeof full_name !== 'string' || !full_name.trim())) {
       return NextResponse.json({ error: 'Invalid full_name' }, { status: 400 })
     }
 
+    if (avatar_url !== undefined && avatar_url !== null && typeof avatar_url !== 'string') {
+      return NextResponse.json({ error: 'Invalid avatar_url' }, { status: 400 })
+    }
+
     const updateData: Record<string, unknown> = {}
     if (full_name !== undefined) updateData.full_name = full_name.trim()
+    if (avatar_url !== undefined) updateData.avatar_url = avatar_url !== null ? avatar_url.trim() : null
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })

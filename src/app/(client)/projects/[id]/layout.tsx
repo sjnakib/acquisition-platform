@@ -10,6 +10,7 @@ import { FolderKanban } from 'lucide-react'
 interface ProfileData {
   full_name: string | null
   role: string | null
+  avatar_url: string | null
 }
 
 export default function ClientProjectLayout({
@@ -37,12 +38,18 @@ export default function ClientProjectLayout({
   }, [projectId, router])
 
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((r) => r.json())
-      .then((json) => {
-        if (json?.profile) setProfileData(json.profile)
-      })
-      .catch(() => {})
+    const loadProfile = () => {
+      fetch('/api/auth/me')
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.profile) setProfileData(json.profile)
+        })
+        .catch(() => {})
+    }
+
+    loadProfile()
+    window.addEventListener('profile-updated', loadProfile)
+    return () => window.removeEventListener('profile-updated', loadProfile)
   }, [])
 
   useEffect(() => {
@@ -90,8 +97,9 @@ export default function ClientProjectLayout({
         navSections={navSections}
         profile={{
           avatar: (profileData?.full_name ?? 'C').charAt(0).toUpperCase(),
+          avatarUrl: profileData?.avatar_url,
           name: profileData?.full_name ?? 'Client',
-          subtitle: <span className="text-[11px] font-medium tracking-[0.03em] uppercase" style={{ color: 'var(--color-text-secondary)' }}>Sponsor</span>,
+          subtitle: 'Sponsor',
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}

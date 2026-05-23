@@ -13,7 +13,7 @@ interface ProfileData {
   avatar_url: string | null
 }
 
-export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
+export default function ProfileLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
@@ -59,7 +59,6 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
     router.push('/login')
   }
 
-  // Gating layout rendering until user role resolves to prevent layout flash/FOUC
   if (role === null) {
     return (
       <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--color-canvas)' }}>
@@ -68,12 +67,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
     )
   }
 
-  // Client role: no sidebar, just the selector UI
-  if (role === 'client') {
-    return <>{children}</>
-  }
-
-  // Internal role: sidebar with projects nav
+  const isClient = role === 'client'
   const navSections = [
     {
       label: 'Global',
@@ -81,7 +75,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
         { label: 'Projects Hub', icon: FolderKanban, href: '/projects' },
       ],
     },
-    ...(projects.length > 0
+    ...(!isClient && projects.length > 0
       ? [
           {
             label: 'Projects',
@@ -103,7 +97,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
           avatarUrl: profileData?.avatar_url,
           name: profileData?.full_name ?? 'User',
-          subtitle: profileData?.role ?? 'Team',
+          subtitle: isClient ? 'Sponsor' : (profileData?.role ?? 'Team'),
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
@@ -111,14 +105,15 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       />
 
       <main
-        className="flex-1 overflow-auto transition-all duration-250"
+        className="flex-1 overflow-auto transition-all duration-250 lg:ml-[var(--sidebar-width)] ml-0 pt-12 lg:pt-0"
         style={{
           background: 'var(--color-canvas)',
-          marginLeft: 'var(--sidebar-width)',
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        {children}
+        <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
+          {children}
+        </div>
       </main>
     </div>
   )
