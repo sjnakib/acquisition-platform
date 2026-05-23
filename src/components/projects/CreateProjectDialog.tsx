@@ -185,7 +185,7 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
                 </Button>
               </div>
               {sponsorError && <p style={s.error}>{sponsorError}</p>}
-              <p style={s.hint}>Sponsors can view deals and call briefs for this project.</p>
+              <p style={s.hint}>You can add or remove sponsors later from the project settings.</p>
 
               {sponsors.length > 0 && (
                 <div className="flex flex-wrap gap-2">

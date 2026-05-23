@@ -76,6 +76,7 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
               description={p.description}
               dealCount={(p.deals as { id: string }[] | undefined)?.length ?? 0}
               createdAt={p.created_at}
+              projectId={projectId}
             />
           ))}
         </div>
