@@ -13,31 +13,40 @@ export async function GET(
 
   const { id: projectId } = await params
 
-  // Get sponsors with user profile info via auth.users
+  // Get sponsors
   const { data, error } = await supabase
     .from('sponsors')
-    .select('id, user_id, created_at, profiles:user_id(full_name)')
+    .select('id, user_id, created_at')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Fetch emails from auth.users via admin client
+  const sponsorList = data ?? []
+
+  // Batch fetch profiles
+  let profileByUserId = new Map<string, string | null>()
+  if (sponsorList.length > 0) {
+    const userIds = sponsorList.map((s) => s.user_id)
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', userIds)
+    profileByUserId = new Map(profiles?.map((p) => [p.id, p.full_name]) ?? [])
+  }
+
+  // Batch fetch emails from auth.users via admin client
   const admin = await createAdminClient()
-  const enriched = await Promise.all(
-    (data ?? []).map(async (s: any) => {
-      try {
-        const { data: authUser } = await admin.auth.admin.getUserById(s.user_id)
-        return {
-          ...s,
-          email: authUser?.user?.email ?? null,
-          full_name: (s.profiles as any)?.full_name ?? null,
-        }
-      } catch {
-        return { ...s, email: null, full_name: (s.profiles as any)?.full_name ?? null }
-      }
-    })
-  )
+  const { data: { users } } = await admin.auth.admin.listUsers()
+  const emailByUserId = new Map(users?.map((u: any) => [u.id, u.email]) ?? [])
+
+  const enriched = sponsorList.map((s) => ({
+    id: s.id,
+    user_id: s.user_id,
+    created_at: s.created_at,
+    email: emailByUserId.get(s.user_id) ?? null,
+    full_name: profileByUserId.get(s.user_id) ?? null,
+  }))
 
   return NextResponse.json(enriched)
 }

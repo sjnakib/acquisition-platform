@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 
 interface LOITrackerProps {
   dealId: string
@@ -32,8 +33,14 @@ export function LOITracker({ dealId }: LOITrackerProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deal_id: dealId, submitted_at: new Date().toISOString().split('T')[0], offered_price: 0 }),
     })
-    const data = await res.json()
-    setLoi(data)
+    if (res.ok) {
+      const data = await res.json()
+      setLoi(data)
+      toast.success('LOI created')
+    } else {
+      const json = await res.json()
+      toast.error(json.error ?? 'Failed to create LOI')
+    }
   }
 
   if (loading) return <div className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading...</div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 
 interface DocumentChecklistProps {
   dealId: string
@@ -32,11 +33,15 @@ export function DocumentChecklist({ dealId }: DocumentChecklistProps) {
   async function updateDoc(field: string, value: string | boolean) {
     const updated = { ...docs, [field]: value }
     setDocs(updated)
-    await fetch(`/api/deals/${dealId}/documents`, {
+    const res = await fetch(`/api/deals/${dealId}/documents`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     })
+    if (!res.ok) {
+      toast.error('Failed to update document')
+      setDocs(docs)
+    }
   }
 
   if (loading) return <div className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading...</div>

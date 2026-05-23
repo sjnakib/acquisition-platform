@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 
 interface UnderwritingFormProps {
   dealId: string
@@ -26,11 +27,21 @@ export function UnderwritingForm({ dealId }: UnderwritingFormProps) {
   }, [dealId])
 
   async function handleSave() {
-    await fetch('/api/underwriting', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deal_id: dealId, ...uw }),
-    })
+    try {
+      const res = await fetch('/api/underwriting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: dealId, ...uw }),
+      })
+      if (res.ok) {
+        toast.success('Underwriting saved')
+      } else {
+        const json = await res.json()
+        toast.error(json.error ?? 'Failed to save underwriting')
+      }
+    } catch {
+      toast.error('Failed to save underwriting')
+    }
   }
 
   if (loading) return <div className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading...</div>

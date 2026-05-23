@@ -10,6 +10,7 @@ Next.js 16.2.6 — APIs, conventions, and file structure differ from training da
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
 | `npm run test` | Vitest (node env, globals on, `@` alias) |
+| `npm run test:watch` | Vitest watch mode |
 | `npm run test -- -t "name"` | Run single test matching "name" |
 | `npx tsc --noEmit` | Type check (no script in package.json) |
 | `npm run db:push` / `db:push:local` | Push migrations to linked / local Supabase |
@@ -52,7 +53,8 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 - **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.
 - **`next.config.ts`** `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
-- **Key shared components:** `DataGrid` (~47KB virtualized Excel-like table), `useGridInteraction` (~39KB), `ProjectContext`, `Sidebar`, `InlineDropdownEditor` (inline select for DataGrid enum columns), `PaginationControls`, `EmptyState`, `BrandLogo`. Components in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`.
+- **shadcn alias gotcha:** `components.json` maps `"hooks": "@/hooks"`, but no imports use it — all hooks are at `@/lib/hooks/`. Use `@/lib/hooks/` for hook imports.
+- **Key shared components:** `DataGrid` (~47KB virtualized Excel-like table, **renders ALL `field_definitions` columns** not just `show_in_grid`), `useGridInteraction` (~39KB), `ProjectContext`, `Sidebar`, `InlineDropdownEditor` (inline select for DataGrid enum columns), `PaginationControls`, `EmptyState`, `BrandLogo`. Components in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`.
 
 ## Theme & Design System (strict — read `docs/architecture/ui.md`)
 
@@ -82,6 +84,7 @@ Supabase (URL, anon key, service role, project ID), Turnstile (site + secret), G
 - **`PLAN.md`** — Build blueprint, schema details, Supabase API patterns. Some divergence from implementation; verify against actual migrations.
 - **`docs/architecture/ui.md`** — Full design system: color tokens, dimensions, theme rules.
 - **`EXCEL_TABLE.md`** — DataGrid spec: keyboard nav, cell editing, clipboard, virtualization (~502 lines).
+- **`docs/architecture/database.md`** — DB design, RLS, schema details.
 - **`docs/architecture/`** — overview, database schema. **`docs/guides/developer/`** — API conventions, getting started.
 
 ## Known Gaps

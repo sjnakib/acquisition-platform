@@ -18,6 +18,7 @@ import { ImportPreviewTable } from '@/components/import/ImportPreviewTable'
 import { useQuery } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Label } from '@/components/ui/label'
+import { toast } from 'sonner'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
 
 interface PreviousMappingData {
@@ -73,7 +74,6 @@ export function CoStarImportWizard({ projectId }: Props) {
   const [previewData, setPreviewData] = useState<Record<string, unknown>[] | null>(null)
   const [previewHeaders, setPreviewHeaders] = useState<string[]>([])
   const [batchId, setBatchId] = useState<string | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
   const [columnMapping, setColumnMapping] = useState<Record<string, ColumnActionInput>>({})
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
@@ -160,7 +160,6 @@ export function CoStarImportWizard({ projectId }: Props) {
   )
 
   const onUploadSubmit = async (data: UploadSchema) => {
-    setServerError(null)
     const formData = new FormData()
     formData.append('file', data.file)
     formData.append('campaign_id', data.campaignId)
@@ -174,20 +173,20 @@ export function CoStarImportWizard({ projectId }: Props) {
         setBatchId(result.batchId)
         setSelectedCampaignId(data.campaignId)
         setColumnMapping(buildDefaultMapping(headers, fieldDefs))
+        toast.success('File uploaded')
         setStep(2)
       } else {
         const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-        setServerError(err.error || 'Upload failed')
+        toast.error(err.error || 'Upload failed')
       }
     } catch {
-      setServerError('Network error — please try again')
+      toast.error('Network error — please try again')
     }
   }
 
   const onConfirmImport = async () => {
     if (!batchId || !previewData) return
     setMappingSaving(true)
-    setServerError(null)
 
     // Step A: save mapping
     const mappingBody: Record<string, unknown> = { mapping: columnMapping }
@@ -199,13 +198,13 @@ export function CoStarImportWizard({ projectId }: Props) {
     })
     if (!mappingRes.ok) {
       const err = await mappingRes.json().catch(() => ({ error: 'Failed to save column mapping' }))
-      setServerError(err.error || 'Failed to save column mapping')
+      toast.error(err.error || 'Failed to save column mapping')
       setMappingSaving(false)
       return
     }
     const mappingResult = await mappingRes.json()
     if (mappingResult.warnings?.length) {
-      console.warn('Column mapping warnings:', mappingResult.warnings)
+      toast.info('Mapping saved with warnings')
     }
 
     // Step B: confirm import
@@ -219,10 +218,11 @@ export function CoStarImportWizard({ projectId }: Props) {
       }),
     })
     if (res.ok) {
+      toast.success('Import started')
       setStep(3)
     } else {
       const err = await res.json().catch(() => ({ error: 'Import failed' }))
-      setServerError(err.error || 'Import failed')
+      toast.error(err.error || 'Import failed')
     }
     setMappingSaving(false)
   }
@@ -300,7 +300,6 @@ export function CoStarImportWizard({ projectId }: Props) {
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Uploading...' : 'Upload and Preview'}
             </Button>
-            {serverError && <p className="text-sm" style={errText}>{serverError}</p>}
           </form>
         )}
 
@@ -340,7 +339,6 @@ export function CoStarImportWizard({ projectId }: Props) {
                 setColumnMapping((prev) => ({ ...prev, [header]: action }))
               }
             />
-            {serverError && <p className="text-sm" style={errText}>{serverError}</p>}
           </div>
         )}
 

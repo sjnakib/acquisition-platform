@@ -12,6 +12,9 @@ import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 import { Trash2, Plus, X, Save } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
+import { RemoveSponsorDialog } from '@/components/projects/RemoveSponsorDialog'
 
 interface Sponsor {
   id: string
@@ -25,6 +28,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const { id: projectId } = use(params)
   const { projectName } = useProjectContext()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const supabase = createClient()
   const [project, setProject] = useState<{ name: string; description: string | null } | null>(null)
   const [sponsors, setSponsors] = useState<Sponsor[]>([])
@@ -38,12 +42,14 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const [sponsorEmail, setSponsorEmail] = useState('')
   const [sponsorName, setSponsorName] = useState('')
   const [addingSponsor, setAddingSponsor] = useState(false)
-  const [error, setError] = useState('')
 
   // Delete state
   const [showDelete, setShowDelete] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
+
+  // Remove sponsor dialog
+  const [removingSponsor, setRemovingSponsor] = useState<Sponsor | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -63,8 +69,14 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   useEffect(() => {
     Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => r.json()),
-      fetch(`/api/projects/${projectId}/sponsors`).then((r) => r.json()),
+      fetch(`/api/projects/${projectId}`).then(async (r) => {
+        if (!r.ok) throw new Error('Failed to load project')
+        return r.json()
+      }),
+      fetch(`/api/projects/${projectId}/sponsors`).then(async (r) => {
+        if (!r.ok) throw new Error('Failed to load sponsors')
+        return r.json()
+      }),
     ])
       .then(([proj, spons]) => {
         setProject(proj)
@@ -78,7 +90,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   async function saveProject() {
     setSaving(true)
-    setError('')
     const res = await fetch(`/api/projects/${projectId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -86,7 +97,10 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     })
     if (!res.ok) {
       const json = await res.json()
-      setError(json.error ?? 'Failed to save')
+      toast.error(json.error ?? 'Failed to save project')
+    } else {
+      toast.success('Project saved')
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     }
     setSaving(false)
   }
@@ -94,7 +108,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   async function addSponsor() {
     if (!sponsorEmail) return
     setAddingSponsor(true)
-    setError('')
     const res = await fetch(`/api/projects/${projectId}/sponsors`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,11 +115,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     })
     if (!res.ok) {
       const json = await res.json()
-      setError(json.error ?? 'Failed to add sponsor')
+      toast.error(json.error ?? 'Failed to add sponsor')
     } else {
+      toast.success('Sponsor added')
       setSponsorEmail('')
       setSponsorName('')
-      // Refresh sponsors list
       const data = await fetch(`/api/projects/${projectId}/sponsors`).then((r) => r.json())
       setSponsors(data ?? [])
     }
@@ -115,9 +128,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   async function removeSponsor(sponsorId: string) {
     const res = await fetch(`/api/projects/${projectId}/sponsors?sponsorId=${sponsorId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setSponsors((prev) => prev.filter((s) => s.id !== sponsorId))
+    if (!res.ok) {
+      const json = await res.json()
+      throw new Error(json.error ?? 'Failed to remove sponsor')
     }
+    setSponsors((prev) => prev.filter((s) => s.id !== sponsorId))
   }
 
   async function deleteProject() {
@@ -125,10 +140,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     setDeleting(true)
     const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
     if (res.ok) {
+      toast.success('Project deleted')
       router.push('/projects')
     } else {
       const json = await res.json()
-      setError(json.error ?? 'Failed to delete project')
+      toast.error(json.error ?? 'Failed to delete project')
       setDeleting(false)
     }
   }
@@ -162,17 +178,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         ]}
       />
 
-      {error && (
-        <div className="mb-4 rounded-md p-3 text-sm" style={{ background: 'var(--color-danger-bg)', border: '1px solid var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
-          {error}
-        </div>
-      )}
-
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-2xl mx-auto w-full">
         {/* General */}
         <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
           <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>General</h2>
-          <div className="space-y-4 max-w-md">
+          <div className="space-y-4 w-full">
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Project Name</label>
               <Input
@@ -201,8 +211,31 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
           <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Sponsors</h2>
 
+          <div className="flex gap-2 w-full mb-4">
+            <Input
+              value={sponsorEmail}
+              onChange={(e) => setSponsorEmail(e.target.value)}
+              placeholder="email@example.com"
+              type="email"
+              className="flex-1 bg-[var(--color-surface-1)]"
+            />
+            <Input
+              value={sponsorName}
+              onChange={(e) => setSponsorName(e.target.value)}
+              placeholder="Full name (optional)"
+              className="flex-1 bg-[var(--color-surface-1)]"
+            />
+            <Button
+              onClick={addSponsor}
+              disabled={addingSponsor || !sponsorEmail}
+            >
+              <Plus size={14} />
+              Add
+            </Button>
+          </div>
+
           {sponsors.length > 0 && (
-            <div className="mb-4 border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+            <div className="border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
               <table className="w-full text-sm">
                 <thead style={{ background: 'var(--color-surface-1)' }}>
                   <tr>
@@ -218,7 +251,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>{s.email ?? '—'}</td>
                       <td className="px-2 py-2">
                         <button
-                          onClick={() => removeSponsor(s.id)}
+                          onClick={() => setRemovingSponsor(s)}
                           className="p-1 rounded transition-colors hover:bg-[var(--color-surface-1)]"
                           style={{ color: 'var(--color-text-tertiary)' }}
                         >
@@ -232,28 +265,16 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             </div>
           )}
 
-          <div className="flex gap-2 max-w-md">
-            <Input
-              value={sponsorEmail}
-              onChange={(e) => setSponsorEmail(e.target.value)}
-              placeholder="email@example.com"
-              type="email"
-              className="bg-[var(--color-surface-1)]"
-            />
-            <Input
-              value={sponsorName}
-              onChange={(e) => setSponsorName(e.target.value)}
-              placeholder="Full name (optional)"
-              className="bg-[var(--color-surface-1)]"
-            />
-            <Button
-              onClick={addSponsor}
-              disabled={addingSponsor || !sponsorEmail}
-            >
-              <Plus size={14} />
-              Add
-            </Button>
-          </div>
+          <RemoveSponsorDialog
+            open={removingSponsor !== null}
+            onOpenChange={(open) => { if (!open) setRemovingSponsor(null) }}
+            sponsorName={removingSponsor?.full_name ?? null}
+            sponsorEmail={removingSponsor?.email ?? null}
+            onConfirm={async () => {
+              if (!removingSponsor) return
+              await removeSponsor(removingSponsor.id)
+            }}
+          />
         </div>
 
         {/* Gmail */}
@@ -292,7 +313,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               <Input
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
-                className="max-w-[200px] font-mono bg-[var(--color-surface-1)]"
+                className="max-w-[220px] w-full font-mono bg-[var(--color-surface-1)]"
                 placeholder="DELETE"
               />
               <div className="flex gap-2">

@@ -14,6 +14,7 @@ import { DocumentChecklist } from '@/components/deals/DocumentChecklist'
 import { EmailThread } from '@/components/deals/EmailThread'
 import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
 import { Badge } from '@/components/ui/badge'
+import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 
 interface Contact {
@@ -88,6 +89,10 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     if (res.ok) {
       const created = await res.json()
       setActivities((prev) => [created, ...prev])
+      toast.success('Activity added')
+    } else {
+      const json = await res.json()
+      toast.error(json.error ?? 'Failed to add activity')
     }
   }
 

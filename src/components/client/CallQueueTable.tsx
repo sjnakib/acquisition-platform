@@ -6,6 +6,7 @@ import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
+import { toast } from 'sonner'
 
 interface Call {
   id: string
@@ -56,11 +57,16 @@ export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: 
   const saveNotes = useCallback(async (callId: string, notes: string) => {
     setSavingNotes((prev) => new Set(prev).add(callId))
     try {
-      await fetch(`/api/calls/${callId}`, {
+      const res = await fetch(`/api/calls/${callId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_notes: notes }),
       })
+      if (!res.ok) {
+        toast.error('Failed to save notes')
+      }
+    } catch {
+      toast.error('Failed to save notes')
     } finally {
       setSavingNotes((prev) => {
         const next = new Set(prev)
@@ -123,8 +129,13 @@ export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: 
           value={r.call_status}
           onChange={async (e) => {
             const status = e.target.value
-            await fetch(`/api/calls/${r.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ call_status: status }) })
-            window.location.reload()
+            const res = await fetch(`/api/calls/${r.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ call_status: status }) })
+            if (res.ok) {
+              toast.success('Call status updated')
+              setCalls((prev) => prev.map((c) => c.id === r.id ? { ...c, call_status: status } : c))
+            } else {
+              toast.error('Failed to update call status')
+            }
           }}
           onClick={(e) => e.stopPropagation()}
           className="text-xs border rounded px-2 py-0.5 font-medium outline-none"
