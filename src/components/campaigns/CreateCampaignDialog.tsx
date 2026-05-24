@@ -34,9 +34,10 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   projectId?: string
+  onCreated?: (campaign: { id: string; name: string }) => void
 }
 
-export function CreateCampaignDialog({ open, onOpenChange, projectId }: Props) {
+export function CreateCampaignDialog({ open, onOpenChange, projectId, onCreated }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const queryClient = useQueryClient()
 
@@ -56,11 +57,13 @@ export function CreateCampaignDialog({ open, onOpenChange, projectId }: Props) {
       toast.error(err.error ?? 'Failed to create campaign')
       return
     }
+    const created = await res.json()
     queryClient.invalidateQueries({ queryKey: ['campaigns', projectId] })
     toast.success('Campaign created')
     reset()
     setAdvancedOpen(false)
     onOpenChange(false)
+    onCreated?.({ id: created.id, name: created.name })
   }
 
   const handleClose = () => {

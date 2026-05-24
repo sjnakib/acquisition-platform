@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -52,6 +53,7 @@ interface FieldDef {
 
 interface Props {
   projectId?: string
+  defaultCampaignId?: string
 }
 
 /** Auto-detect action for a header based on naming patterns. */
@@ -69,7 +71,7 @@ function detectAction(header: string, fieldDefs: FieldDef[]): ColumnActionInput 
   return { action: 'new_field', key, label: header, dataType: 'text' }
 }
 
-export function CoStarImportWizard({ projectId }: Props) {
+export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   const [step, setStep] = useState(1)
   const [previewData, setPreviewData] = useState<Record<string, unknown>[] | null>(null)
   const [previewHeaders, setPreviewHeaders] = useState<string[]>([])
@@ -79,6 +81,7 @@ export function CoStarImportWizard({ projectId }: Props) {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
   const [mappingSaving, setMappingSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const router = useRouter()
 
   // Poll import status in step 3
   useEffect(() => {
@@ -138,7 +141,10 @@ export function CoStarImportWizard({ projectId }: Props) {
   })
 
   const { control, handleSubmit, setValue, getValues, formState: { errors, isSubmitting } } =
-    useForm<UploadSchema>({ resolver: zodResolver(uploadSchema) })
+    useForm<UploadSchema>({
+      resolver: zodResolver(uploadSchema),
+      defaultValues: { campaignId: defaultCampaignId ?? '' },
+    })
 
   // Auto-detect mapping when preview data + fieldDefs are ready
   const buildDefaultMapping = useCallback(
@@ -378,21 +384,29 @@ export function CoStarImportWizard({ projectId }: Props) {
                     ? ` (${importStatus.skipped.toLocaleString()} duplicates skipped)`
                     : ''}
                 </p>
-                <Button
-                  variant="outline"
-                  className="mt-4"
-                  onClick={() => {
-                    setStep(1)
-                    setPreviewData(null)
-                    setPreviewHeaders([])
-                    setBatchId(null)
-                    setSelectedCampaignId(null)
-                    setImportStatus(null)
-                    setColumnMapping({})
-                  }}
-                >
-                  Start New Import
-                </Button>
+                <div className="flex gap-2 mt-4">
+                  {selectedCampaignId && (
+                    <Button
+                      onClick={() => router.push(`/projects/${projectId}/campaigns/${selectedCampaignId}`)}
+                    >
+                      Go to Campaign
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setStep(1)
+                      setPreviewData(null)
+                      setPreviewHeaders([])
+                      setBatchId(null)
+                      setSelectedCampaignId(null)
+                      setImportStatus(null)
+                      setColumnMapping({})
+                    }}
+                  >
+                    Start New Import
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 py-8">

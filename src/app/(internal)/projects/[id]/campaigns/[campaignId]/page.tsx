@@ -238,7 +238,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <div className="flex-1 min-h-0">
               <DealTable
                 key={gridKey} deals={deals} loading={dealsLoading} fieldDefs={fieldDefs}
-                emptyAction={{ label: 'Import Deals', onClick: () => router.push(`/projects/${projectId}/import`) }}
+                emptyAction={{ label: 'Import Leads', onClick: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`) }}
                 fillHeight totalRows={total} page={page} pageSize={pageSize}
                 onPageChange={(p) => { setPage(p); setAllSelected(false) }}
                 onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
@@ -250,7 +250,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 onRowClick={(r: Deal) => router.push(`/projects/${projectId}/deals/${r.id}`)}
                 topToolbar={{
                   recordLabel: 'deal',
-                  onAdd: () => router.push(`/projects/${projectId}/import`),
+                  onAdd: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`),
                   onDelete: async (ids) => {
                     if (allSelected) { setPendingDeleteIds([]); setDeleteOpen(true) }
                     else { setPendingDeleteIds(Array.from(ids)); setDeleteOpen(true) }

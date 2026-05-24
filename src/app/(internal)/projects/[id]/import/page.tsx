@@ -1,10 +1,19 @@
 'use client'
 
-import { use } from 'react'
+import { use, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { CoStarImportWizard } from '@/components/import/CoStarImportWizard'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { useProjectContext } from '@/components/shared/ProjectContext'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { pageHeadings } from '@/lib/page-headings'
+
+function ImportWizardWithPreSelect({ projectId }: { projectId: string }) {
+  const searchParams = useSearchParams()
+  const campaignId = searchParams.get('campaignId') ?? undefined
+
+  return <CoStarImportWizard projectId={projectId} defaultCampaignId={campaignId} />
+}
 
 export default function ImportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
@@ -21,7 +30,9 @@ export default function ImportPage({ params }: { params: Promise<{ id: string }>
           { label: 'Import' },
         ]}
       />
-      <CoStarImportWizard projectId={projectId} />
+      <Suspense fallback={<LoadingSpinner size="lg" />}>
+        <ImportWizardWithPreSelect projectId={projectId} />
+      </Suspense>
     </div>
   )
 }
