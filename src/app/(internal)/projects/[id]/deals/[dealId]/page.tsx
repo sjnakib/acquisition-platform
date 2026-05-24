@@ -8,55 +8,53 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealStageBar } from '@/components/deals/DealStageBar'
-import { UnderwritingForm } from '@/components/deals/UnderwritingForm'
-import { LOITracker } from '@/components/deals/LOITracker'
+import { DealFieldsEditor } from '@/components/deals/DealFieldsEditor'
+import { EmailInterface } from '@/components/deals/EmailInterface'
 import { DocumentChecklist } from '@/components/deals/DocumentChecklist'
-import { EmailThread } from '@/components/deals/EmailThread'
-import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
+import { EvaluateUnderwritability } from '@/components/deals/EvaluateUnderwritability'
+import { UnderwritingSummary } from '@/components/deals/UnderwritingSummary'
+import { LOIDetail } from '@/components/deals/LOIDetail'
 import { CallBriefTab } from '@/components/deals/CallBriefTab'
+import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 
-interface Contact {
-  id: string
-  full_name: string | null
-  email: string | null
-  phone: string | null
-  title: string | null
-  is_primary: boolean | null
-}
-
-interface DealDetail {
+interface DealHeader {
   id: string
   deal_name: string | null
   unit_count: number | null
   stage: string
   score: string | null
   created_at: string
-  contacts: Contact[] | null
-  email_outreach: { id: string; status: string; gmail_thread_id: string | null; gmail_message_id: string | null }[] | null
-  underwriting: { id: string; underwritability: string | null; asking_price: number | null; irr_pct: number | null } | null
-  loi_records: { id: string; submitted_at: string | null; offered_price: number | null; outcome: string | null } | null
-  document_checklist: Record<string, unknown> | null
-  call_briefs: { id: string; summary_text: string | null; call_status: string; published: boolean }[] | null
+  portfolio_id: string | null
 }
 
 const TABS = [
   { key: 'overview', label: 'Overview' },
-  { key: 'contacts', label: 'Contacts' },
-  { key: 'outreach', label: 'Outreach' },
+  { key: 'emails', label: 'Emails' },
   { key: 'documents', label: 'Documents' },
   { key: 'underwriting', label: 'Underwriting' },
   { key: 'loi', label: 'LOI' },
-  { key: 'call_brief', label: 'Call Brief' },
+  { key: 'calls', label: 'Follow-up Calls' },
 ]
+
+const STAGE_BADGE_VARIANT: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
+  lead: 'neutral',
+  outreach: 'info',
+  response: 'info',
+  underwriting: 'warning',
+  loi: 'accent',
+  closed: 'success',
+  failed: 'neutral',
+  archived: 'neutral',
+}
 
 export default function DealDetailPage({ params }: { params: Promise<{ id: string; dealId: string }> }) {
   const { id: projectId, dealId } = use(params)
   const { projectName } = useProjectContext()
   const router = useRouter()
-  const [deal, setDeal] = useState<DealDetail | null>(null)
+  const [deal, setDeal] = useState<DealHeader | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [activities, setActivities] = useState<Activity[]>([])
@@ -115,19 +113,9 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     )
   }
 
-  const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
-    lead: 'neutral',
-    outreach: 'info',
-    response: 'info',
-    underwriting: 'warning',
-    loi: 'accent',
-    closed: 'success',
-    failed: 'neutral',
-    archived: 'neutral',
-  }
-
   return (
     <div>
+      {/* Breadcrumb */}
       <Breadcrumb
         items={[
           { label: 'Projects', href: '/projects' },
@@ -137,18 +125,22 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         ]}
       />
 
+      {/* Header */}
       <div className="flex items-start justify-between mb-6 mt-3">
         <div>
           <div className="flex items-center gap-3 mb-1">
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {deal.deal_name ?? 'Untitled Deal'}
             </h1>
-            <Badge variant={stageBadgeVariant[deal.stage] ?? 'neutral'} size="sm">
+            <Badge variant={STAGE_BADGE_VARIANT[deal.stage] ?? 'neutral'} size="sm">
               {deal.stage.replace(/_/g, ' ')}
             </Badge>
           </div>
           {deal.unit_count ? (
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{deal.unit_count} units</p>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              {deal.unit_count} units
+              {deal.score ? ` · Score: ${deal.score.replace(/_/g, ' ')}` : ''}
+            </p>
           ) : null}
         </div>
         <div className="mt-1">
@@ -156,13 +148,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
+      {/* Tab navigation */}
       <div className="border-b mb-6" style={{ borderColor: 'var(--color-surface-2)' }}>
-        <nav className="flex gap-6">
+        <nav className="flex gap-1 overflow-x-auto">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`pb-3 pt-1 px-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.key ? 'border-current' : 'border-transparent'
               }`}
               style={{
@@ -175,99 +168,93 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </nav>
       </div>
 
-      <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+      {/* Tab content */}
+      <div
+        className="rounded-xl border p-6"
+        style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}
+      >
+        {/* Overview Tab */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="space-y-8">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
               <div>
-                <span style={{ color: 'var(--color-text-tertiary)' }}>Created</span>
-                <p className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{formatDate(deal.created_at)}</p>
+                <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Created
+                </span>
+                <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                  {formatDate(deal.created_at)}
+                </p>
               </div>
               <div>
-                <span style={{ color: 'var(--color-text-tertiary)' }}>Score</span>
-                <p className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{deal.score?.replace(/_/g, ' ') ?? '—'}</p>
+                <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Stage
+                </span>
+                <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                  {deal.stage.replace(/_/g, ' ')}
+                </p>
+              </div>
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Score
+                </span>
+                <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                  {deal.score?.replace(/_/g, ' ') ?? '—'}
+                </p>
+              </div>
+              <div>
+                <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Units
+                </span>
+                <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                  {deal.unit_count ?? '—'}
+                </p>
               </div>
             </div>
-            <ActivityTimeline
-              activities={activities}
-              isLoading={activitiesLoading}
-              onAddActivity={handleAddActivity}
-            />
-          </div>
-        )}
 
-        {activeTab === 'contacts' && (
-          <div>
-            {!deal.contacts?.length ? (
-              <EmptyState title="No contacts associated with this deal" />
-            ) : (
-              <div className="border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
-                <table className="w-full text-sm">
-                  <thead style={{ background: 'var(--color-surface-1)' }}>
-                    <tr>
-                      <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Name</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Email</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Phone</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Title</th>
-                      <th className="w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deal.contacts.map((c) => (
-                      <tr key={c.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                        <td className="px-4 py-2" style={{ color: 'var(--color-text-primary)' }}>
-                          {c.full_name ?? '—'}
-                          {c.is_primary && (
-                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: 'var(--color-accent-bg)', color: 'var(--color-accent-muted)' }}>
-                              Primary
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>{c.email ?? '—'}</td>
-                        <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>{c.phone ?? '—'}</td>
-                        <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>{c.title ?? '—'}</td>
-                        <td className="px-2 py-2"></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  Imported Fields
+                </h3>
               </div>
-            )}
+              <DealFieldsEditor dealId={dealId} />
+            </div>
+
+            <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
+              <ActivityTimeline
+                activities={activities}
+                isLoading={activitiesLoading}
+                onAddActivity={handleAddActivity}
+              />
+            </div>
           </div>
         )}
 
-        {activeTab === 'outreach' && (
-          <div className="space-y-4">
-            {!deal.email_outreach?.length ? (
-              <EmptyState title="No outreach emails sent yet" />
-            ) : (
-              deal.email_outreach.map((eo) => (
-                <div key={eo.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={eo.status === 'sent' ? 'success' : eo.status === 'replied' ? 'accent' : 'neutral'} size="sm">
-                      {eo.status.replace(/_/g, ' ')}
-                    </Badge>
-                    <EmailThread gmailThreadId={eo.gmail_thread_id} gmailMessageId={eo.gmail_message_id} />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+        {/* Emails Tab */}
+        {activeTab === 'emails' && (
+          <EmailInterface dealId={dealId} dealName={deal.deal_name} />
         )}
 
+        {/* Documents Tab */}
         {activeTab === 'documents' && (
-          <DocumentChecklist dealId={dealId} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <DocumentChecklist dealId={dealId} />
+            <EvaluateUnderwritability dealId={dealId} unitCount={deal.unit_count} />
+          </div>
         )}
 
+        {/* Underwriting Tab */}
         {activeTab === 'underwriting' && (
-          <UnderwritingForm dealId={dealId} unitCount={deal.unit_count} />
+          <UnderwritingSummary dealId={dealId} unitCount={deal.unit_count} />
         )}
 
+        {/* LOI Tab */}
         {activeTab === 'loi' && (
-          <LOITracker dealId={dealId} />
+          <LOIDetail dealId={dealId} />
         )}
 
-        {activeTab === 'call_brief' && (
+        {/* Follow-up Calls Tab */}
+        {activeTab === 'calls' && (
           <CallBriefTab dealId={dealId} />
         )}
       </div>

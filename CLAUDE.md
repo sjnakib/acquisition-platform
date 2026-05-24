@@ -32,14 +32,16 @@ npm run db:reset     # reset + re-seed local DB
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
 - **`src/proxy.ts`** handles auth routing. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
-- **43 API route files** — domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting
+- **45 API route files** — domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting
 - **Supabase client layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`), `types.ts` (manual placeholder)
 - **RLS** is sole access control. `createAdminClient()` bypasses RLS.
 - **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`
-- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`.
-- **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles (outside route groups). Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`, `profile`.
-- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0026). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
-- **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
+- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`. Files: `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`.
+- **Other lib files:** `batch-delete.ts`, `navigation.ts` (sidebar nav item definitions), `stage-machine.ts`, `rate-limit.ts`, `brand.ts`, `page-headings.ts`.
+- **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles (outside route groups). Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. Profile at `(internal)/profile` (standalone, not under projects).
+- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0027). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
+- **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications, send), Drive API (folder provisioning), OAuth (token refresh).
+- **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
 
 ## Key design rules
 
@@ -48,6 +50,8 @@ npm run db:reset     # reset + re-seed local DB
 - **Deals API:** response includes `deal_fields` with nested `field_definitions` join. New code touching deals must include this join for property data.
 - **DataGrid** renders ALL `field_definitions` columns (not just `show_in_grid`). Inline editing via F2 (text) or `InlineDropdownEditor` (enum/dropdown columns like stage/score).
 - **ReactQueryProvider** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
+- **Follow-up calling:** `call_briefs` table has `contact_name`, `contact_role`, `phone_number` (migration 0027). Calls API at `/api/calls` — GET filters by `project_id`/`deal_id`, POST creates call brief. Client call queue at `(client)/projects/[id]/calls` (published + pending only). `useCallQueue` hook queries published pending briefs.
+- **System-assisted deal flow:** Dashboard guides new projects through import → campaign → pipeline. Empty states for each step surface next action.
 - **Brand:** `src/lib/brand.ts`. **Page headings:** `src/lib/page-headings.ts`.
 
 ## Critical gotchas
@@ -66,7 +70,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (26 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (27 exist, PLAN.md describes 17). |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |
