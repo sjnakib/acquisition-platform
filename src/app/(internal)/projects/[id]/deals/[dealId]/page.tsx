@@ -13,6 +13,7 @@ import { LOITracker } from '@/components/deals/LOITracker'
 import { DocumentChecklist } from '@/components/deals/DocumentChecklist'
 import { EmailThread } from '@/components/deals/EmailThread'
 import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
+import { CallBriefTab } from '@/components/deals/CallBriefTab'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
@@ -267,38 +268,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         )}
 
         {activeTab === 'call_brief' && (
-          <div>
-            {!deal.call_briefs?.length ? (
-              <EmptyState title="No call briefs available for this deal" />
-            ) : (
-              <div className="space-y-3">
-                {deal.call_briefs.map((cb) => (
-                  <div
-                    key={cb.id}
-                    className="rounded-lg border p-4"
-                    style={{ background: 'var(--color-surface-1)', borderColor: 'var(--color-border)' }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <Badge
-                        variant={cb.call_status === 'completed' ? 'success' : cb.call_status === 'cancelled' ? 'danger' : 'warning'}
-                        size="sm"
-                      >
-                        {cb.call_status}
-                      </Badge>
-                      {cb.published && (
-                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-text)' }}>
-                          Published
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                      {cb.summary_text || 'No summary available.'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <CallBriefTab dealId={dealId} />
         )}
       </div>
     </div>

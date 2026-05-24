@@ -41,7 +41,7 @@ export function PortfolioCard({ id, name, description, dealCount, createdAt, pro
 
   if (isDisabled) {
     return (
-      <Tooltip content="Add deal(s) to the portfolio first">
+      <Tooltip content="Add deal(s) to the portfolio first from Deals table">
         <div
           className="block p-5 rounded-lg border opacity-60 cursor-not-allowed select-none w-full"
           style={{

@@ -9,6 +9,9 @@ interface Call {
  summary_text: string | null;
  published: boolean;
  client_notes: string | null;
+ contact_name: string | null;
+ contact_role: string | null;
+ phone_number: string | null;
  deals?: {
  score: string | null;
  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null;

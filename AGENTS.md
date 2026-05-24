@@ -2,28 +2,13 @@
 
 Next.js 16.2.6 — APIs, conventions, and file structure differ from training data. Heed deprecation notices.
 
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `npm run dev` | Dev server at localhost:3000 |
-| `npm run build` | Production build |
-| `npm run lint` | ESLint |
-| `npm run test` | Vitest (node env, globals on, `@` alias) |
-| `npm run test:watch` | Vitest watch mode |
-| `npm run test -- -t "name"` | Run single test matching "name" |
-| `npx tsc --noEmit` | Type check (no script in package.json) |
-| `npm run db:push` / `db:push:local` | Push migrations to linked / local Supabase |
-| `npm run db:reset` | Reset + re-seed local DB (`supabase/seed.sql`) |
-| `npm run db:types` | Generate TS types from Supabase schema |
-
-**Gotchas:** `supabase migration up` does NOT exist (CLI v2). Use `supabase db push`. `supabase gen types` uses `--project-ref` not `--project-id`; output redirection is broken — `src/lib/supabase/types.ts` is a manual placeholder with real enums but `Record<string, unknown>` for table rows. No Supabase client passes `Database` type param. No test files exist. `vercel.json` missing (needed for Gmail watch cron). `reactStrictMode: true` — effects fire twice in dev.
+Commands + gotchas: see CLAUDE.md quick-start section.
 
 ## Auth & Routing
 
 - **No `src/middleware.ts`.** `src/proxy.ts` handles session + role routing (Next.js 16 proxy pattern). API routes excluded from matcher.
 - **Route groups:** `(auth)` — login/signup/logout/reset-password, `(internal)` — team views, `(client)` — CEO/client views.
-- **`/projects`** is the primary route (project list + `[id]` workspace). `src/app/projects/page.tsx` is outside route groups — shared entry for both roles. Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Legacy routes redirect → `/projects`.
+- **`/projects`** is the primary route (project list + `[id]` workspace). `src/app/projects/page.tsx` is outside route groups — shared entry for both roles. Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. `/projects/[id]/profile` for user profile. Legacy routes redirect → `/projects`.
 - **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect. Layout guards reinforce this.
 - **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
@@ -46,15 +31,16 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 
 ## Architecture
 
+- **Dashboard** guides new projects through system-assisted deal flow: import properties → create campaign → view pipeline. Empty states for each step surface the next action.
 - **Multi-project:** All core data scoped to `project_id` FK + RLS (migrations 0019–0026). `ProjectProvider` (`src/components/shared/ProjectContext.tsx`) wraps project pages via `useProjectContext`. Every query/API call must be project-scoped.
 - **Supabase layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — limited use), `types.ts` (manual placeholder).
-- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`): `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`.
+- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`): `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. Batch-delete logic in `src/lib/batch-delete.ts`.
 - **`src/lib/stage-machine.ts`** — `canTransition()` is source of truth for deal stages. Used by 4 API routes.
 - **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.
 - **`next.config.ts`** `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
 - **shadcn alias gotcha:** `components.json` maps `"hooks": "@/hooks"`, but no imports use it — all hooks are at `@/lib/hooks/`. Use `@/lib/hooks/` for hook imports.
-- **Key shared components:** `DataGrid` (~47KB virtualized Excel-like table, **renders ALL `field_definitions` columns** not just `show_in_grid`), `useGridInteraction` (~39KB), `ProjectContext`, `Sidebar`, `InlineDropdownEditor` (inline select for DataGrid enum columns), `PaginationControls`, `EmptyState`, `BrandLogo`. Components in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`.
+- **Key shared components:** `DataGrid` (~47KB virtualized Excel-like table, **renders ALL `field_definitions` columns** not just `show_in_grid`), `useGridInteraction` (~39KB), `ProjectContext`, `Sidebar`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `EmptyState`, `BrandLogo`. Components in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`.
 
 ## Theme & Design System (strict — read `docs/architecture/ui.md`)
 

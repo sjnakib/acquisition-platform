@@ -10,11 +10,16 @@ import { toast } from 'sonner'
 
 interface Call {
   id: string
+  deal_id: string
   call_status: string
   summary_text: string | null
   client_notes: string | null
+  contact_name: string | null
+  contact_role: string | null
+  phone_number: string | null
   deals: {
     score: string | null
+    project_id: string
     deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
   } | null
 }
@@ -38,7 +43,7 @@ const scoreLabel: Record<string, string> = {
   very_bad: 'Very Bad',
 }
 
-export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: string; breadcrumb?: BreadcrumbItem[] }) {
+export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { projectId?: string; breadcrumb?: BreadcrumbItem[]; onRowClick?: (row: Call) => void }) {
   const [calls, setCalls] = useState<Call[]>([])
   const [loading, setLoading] = useState(true)
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set())
@@ -91,6 +96,19 @@ export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: 
       }},
     { key: 'summary_text', header: 'Summary', minWidth: 200, sortable: true,
       render: (r) => <span className="text-xs line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>{r.summary_text || 'No summary available.'}</span> },
+    { key: 'contact', header: 'Contact', width: 150,
+      render: (r) => {
+        if (!r.contact_name) return <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+        return (
+          <div className="text-xs">
+            <span style={{ color: 'var(--color-text-primary)' }}>{r.contact_name}</span>
+            {r.contact_role && (
+              <span className="block text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{r.contact_role}</span>
+            )}
+          </div>
+        )
+      },
+    },
     { key: 'client_notes', header: 'Your Notes', minWidth: 180,
       render: (r) => {
         const isSaving = savingNotes.has(r.id)
@@ -163,6 +181,7 @@ export default function CallQueueTable({ projectId, breadcrumb }: { projectId?: 
         loading={loading}
         emptyMessage="No calls queued yet — your team will notify you."
         maxHeight="calc(100vh - 230px)"
+        onRowClick={onRowClick}
       />
     </div>
   )
