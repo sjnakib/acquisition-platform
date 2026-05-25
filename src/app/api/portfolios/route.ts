@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('portfolios')
-    .select('*')
+    .select('*, deals(id)')
     .order('created_at', { ascending: false })
 
   if (projectId) query = query.eq('project_id', projectId)

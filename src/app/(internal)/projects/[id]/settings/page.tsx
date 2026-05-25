@@ -54,7 +54,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('gmail') === 'connected') {
-      setGmailConnected(true)
+      setTimeout(() => setGmailConnected(true), 0)
     } else {
       supabase
         .from('google_tokens')

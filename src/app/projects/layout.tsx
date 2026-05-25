@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { PageTransition } from '@/components/shared/PageTransition'
 
 interface ProfileData {
   full_name: string | null
@@ -14,9 +15,11 @@ interface ProfileData {
 }
 
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
+  const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -55,8 +58,16 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   }, [role])
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
+    setIsExiting(true)
+    setTimeout(async () => {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      router.push('/login')
+    }, 200)
+  }
+
+  // If we are on a project-specific route, let the project-specific layout handle it
+  if (pathname !== '/projects') {
+    return <>{children}</>
   }
 
   // Gating layout rendering until user role resolves to prevent layout flash/FOUC
@@ -96,7 +107,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   ]
 
   return (
-    <div className="min-h-screen flex">
+    <div className={`min-h-screen flex ${isExiting ? 'animate-page-exit' : ''}`}>
       <Sidebar
         navSections={navSections}
         profile={{
@@ -118,7 +129,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        {children}
+        <PageTransition>{children}</PageTransition>
       </main>
     </div>
   )

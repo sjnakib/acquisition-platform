@@ -99,7 +99,7 @@ export default function ProjectsPage() {
             <button
               key={p.id}
               onClick={() => router.push(`/projects/${p.id}/dashboard`)}
-              className="text-left p-5 rounded-lg border transition-all duration-150 hover:shadow-md cursor-pointer"
+              className="group text-left p-5 rounded-lg border transition-all duration-300 ease-[var(--ease-fluid)] hover:shadow-md hover:-translate-y-[2px] cursor-pointer"
               style={{
                 background: 'var(--color-surface-0)',
                 borderColor: 'var(--color-border)',
@@ -107,13 +107,14 @@ export default function ProjectsPage() {
             >
               <div className="flex items-start justify-between mb-3">
                 <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center"
+                  className="w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300 ease-[var(--ease-spring)] group-hover:scale-105"
                   style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
                 >
                   <FolderKanban size={20} />
                 </div>
                 <ArrowRight
                   size={16}
+                  className="transition-all duration-300 ease-[var(--ease-spring)] group-hover:translate-x-1 group-hover:text-[var(--accent)]"
                   style={{ color: 'var(--color-text-tertiary)' }}
                 />
               </div>
@@ -139,19 +140,19 @@ export default function ProjectsPage() {
 
           <button
             onClick={() => setCreateOpen(true)}
-            className="text-left p-5 rounded-lg border-2 border-dashed transition-all duration-150 cursor-pointer flex flex-col items-center justify-center min-h-[160px]"
+            className="group text-left p-5 rounded-lg border-2 border-dashed transition-all duration-300 ease-[var(--ease-fluid)] hover:border-[var(--accent)] hover:-translate-y-[2px] cursor-pointer flex flex-col items-center justify-center min-h-[160px]"
             style={{
               background: 'var(--color-surface-0)',
               borderColor: 'var(--color-border)',
             }}
           >
             <div
-              className="w-10 h-10 rounded-full flex items-center justify-center mb-2"
+              className="w-10 h-10 rounded-full flex items-center justify-center mb-2 transition-all duration-300 ease-[var(--ease-spring)] group-hover:scale-110"
               style={{ background: 'var(--color-surface-1)', color: 'var(--color-text-secondary)' }}
             >
-              <Plus size={20} />
+              <Plus size={20} className="transition-transform duration-300 ease-[var(--ease-spring)] group-hover:rotate-90 group-hover:text-[var(--accent)]" />
             </div>
-            <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            <span className="text-sm font-medium transition-colors duration-300 group-hover:text-[var(--color-text-primary)]" style={{ color: 'var(--color-text-secondary)' }}>
               New Project
             </span>
           </button>

@@ -123,6 +123,9 @@
   --transition-fast: 80ms ease;
   --transition-base: 150ms ease;
   --transition-slow: 250ms ease;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-fluid: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -193,4 +196,341 @@ body {
 .sidebar-dragging aside,
 .sidebar-dragging main {
   transition: none !important;
+}
+
+/* ----------------------------------------------------
+   TABLE CELL GLOWS & FLASH ANIMATIONS
+   ---------------------------------------------------- */
+@keyframes cell-success-glow {
+  0% {
+    border-color: var(--color-success-solid);
+    box-shadow: inset 0 0 8px rgba(45, 139, 36, 0.4);
+    background-color: rgba(45, 139, 36, 0.08);
+    opacity: 1;
+  }
+  100% {
+    border-color: transparent;
+    box-shadow: inset 0 0 0px rgba(45, 139, 36, 0);
+    background-color: transparent;
+    opacity: 0;
+  }
+}
+
+@keyframes cell-error-glow {
+  0% {
+    border-color: var(--color-danger-solid);
+    box-shadow: inset 0 0 8px rgba(196, 43, 43, 0.4);
+    background-color: rgba(196, 43, 43, 0.08);
+    transform: translateX(0);
+    opacity: 1;
+  }
+  20%, 60% {
+    transform: translateX(-2px);
+  }
+  40%, 80% {
+    transform: translateX(2px);
+  }
+  100% {
+    border-color: transparent;
+    box-shadow: inset 0 0 0px rgba(196, 43, 43, 0);
+    background-color: transparent;
+    transform: translateX(0);
+    opacity: 0;
+  }
+}
+
+@keyframes cell-flash-glow {
+  0% {
+    border-color: var(--color-accent);
+    background-color: rgba(30, 91, 63, 0.05);
+    opacity: 1;
+  }
+  100% {
+    border-color: transparent;
+    background-color: transparent;
+    opacity: 0;
+  }
+}
+
+.animate-cell-success {
+  animation: cell-success-glow 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-cell-error {
+  animation: cell-error-glow 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+.animate-cell-flash {
+  animation: cell-flash-glow 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* ----------------------------------------------------
+   MODAL DIALOG POPUPS & OVERLAYS
+   ---------------------------------------------------- */
+@keyframes overlay-show {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(4px); }
+}
+
+@keyframes overlay-hide {
+  from { opacity: 1; backdrop-filter: blur(4px); }
+  to { opacity: 0; backdrop-filter: blur(0px); }
+}
+
+@keyframes dialog-show {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes dialog-hide {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+}
+
+/* ----------------------------------------------------
+   DRAWER SHEETS SLIDE OUTS
+   ---------------------------------------------------- */
+@keyframes sheet-slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-slide-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes sheet-slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-slide-out-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes sheet-slide-in-top {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-slide-out-top {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+@keyframes sheet-slide-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-slide-out-bottom {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+/* ----------------------------------------------------
+   ANIMATION CLASS SELECTORS
+   ---------------------------------------------------- */
+.animate-overlay-show {
+  animation: overlay-show 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-overlay-hide {
+  animation: overlay-hide 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-dialog-show {
+  animation: dialog-show 350ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-dialog-close {
+  animation: dialog-hide 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-in-right {
+  animation: sheet-slide-in-right 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-out-right {
+  animation: sheet-slide-out-right 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-in-left {
+  animation: sheet-slide-in-left 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-out-left {
+  animation: sheet-slide-out-left 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-in-top {
+  animation: sheet-slide-in-top 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-out-top {
+  animation: sheet-slide-out-top 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-in-bottom {
+  animation: sheet-slide-in-bottom 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-sheet-slide-out-bottom {
+  animation: sheet-slide-out-bottom 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ----------------------------------------------------
+   LOGIN PAGE ELITE ENTRANCE & Tactile Wiggles
+   ---------------------------------------------------- */
+@keyframes card-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes item-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes login-card-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.animate-card-entrance {
+  animation: card-entrance 0.8s var(--ease-spring) forwards;
+}
+
+.animate-item-entrance {
+  opacity: 0;
+  animation: item-entrance 0.6s var(--ease-fluid) forwards;
+}
+
+.animate-card-shake {
+  animation: login-card-shake 0.4s var(--ease-fluid) !important;
+}
+
+@keyframes error-banner-show {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-error-banner {
+  animation: error-banner-show 0.3s var(--ease-spring) forwards;
+}
+
+@keyframes eye-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.85); }
+  100% { transform: scale(1); }
+}
+
+.animate-eye-pop {
+  animation: eye-pop 0.3s var(--ease-spring);
+}
+
+@keyframes dropdown-show {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-dropdown-show {
+  animation: dropdown-show 250ms var(--ease-spring) forwards;
+}
+
+@keyframes page-entrance {
+  from {
+    opacity: 0;
+    transform: scale(0.997) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes page-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.997) translateY(-2px);
+  }
+}
+
+.animate-page-entrance {
+  animation: page-entrance 200ms var(--ease-premium) forwards;
+}
+
+.animate-page-exit {
+  animation: page-exit 130ms var(--ease-premium) forwards;
+}
+
+@keyframes tab-entrance {
+  from {
+    opacity: 0;
+    transform: scale(0.995) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes tab-line-entrance {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-tab-entrance {
+  animation: tab-entrance 180ms var(--ease-premium) forwards;
+}
+
+.animate-tab-line-entrance {
+  animation: tab-line-entrance 200ms var(--ease-premium) forwards;
 }

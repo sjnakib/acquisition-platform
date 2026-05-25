@@ -4,7 +4,6 @@ import { useState, useMemo, useRef, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mail, Target, BarChart3 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
@@ -12,6 +11,7 @@ import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface Campaign {
   id: string; name: string; market: string; listing_type: string | null
@@ -26,13 +26,7 @@ const STAGE_LABELS: Record<string, string> = {
   loi: 'LOI', closed: 'Closed', failed: 'Failed', archived: 'Archived',
 }
 
-const tabTriggerStyle = (active: boolean) => ({
-  padding: '6px 14px', fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-dm-sans)',
-  color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-  borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-  background: 'transparent', cursor: 'pointer', transition: 'color 150ms ease, border-color 150ms ease',
-}) as const
-
+// Custom styles for campaign sections
 const sectionStyle = {
   background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)',
   borderRadius: 'var(--radius-lg)', padding: 20,
@@ -154,7 +148,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
       const maxPage = Math.ceil(total / pageSize)
-      setPage(Math.min(page, maxPage))
+      const timer = setTimeout(() => {
+        setPage(Math.min(page, maxPage))
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [deals.length, total, page, pageSize])
 
@@ -185,83 +182,87 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
-      <div className="flex items-center gap-0 flex-shrink-0 mb-4" style={{ borderBottom: '1px solid var(--color-surface-2)' }}>
-        <button style={tabTriggerStyle(tab === 'details')} onClick={() => setTab('details')}>Details</button>
-        <button style={tabTriggerStyle(tab === 'leads')} onClick={() => setTab('leads')}>Leads{total > 0 ? ` (${total})` : ''}</button>
-      </div>
+      <Tabs defaultValue="leads" value={tab} onValueChange={(v) => setTab(v as 'details' | 'leads')} className="flex-1 flex flex-col min-h-0">
+        <TabsList className="mb-4 flex-shrink-0">
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="leads">Leads{total > 0 ? ` (${total})` : ''}</TabsTrigger>
+        </TabsList>
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        {tab === 'details' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}><Mail className="h-3.5 w-3.5" />Template Configuration</div>
-              {campaign.email_template ? (
-                <div style={{ marginBottom: campaign.email_subject_template ? 14 : 0 }}>
-                  <div style={labelStyle}>Email Template</div>
-                  <div style={valueStyle}>{campaign.email_template.replace(/_/g, ' ')}</div>
+        <div className="flex-1 min-h-0 overflow-auto">
+          <TabsContent value="details">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><Mail className="h-3.5 w-3.5" />Template Configuration</div>
+                {campaign.email_template ? (
+                  <div style={{ marginBottom: campaign.email_subject_template ? 14 : 0 }}>
+                    <div style={labelStyle}>Email Template</div>
+                    <div style={valueStyle}>{campaign.email_template.replace(/_/g, ' ')}</div>
+                  </div>
+                ) : <div style={mutedStyle}>No template selected.</div>}
+                {campaign.email_subject_template && (
+                  <div><div style={labelStyle}>Subject Template</div>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{campaign.email_subject_template}</div>
+                  </div>
+                )}
+              </div>
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
+                {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
+                    {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
+                  </div>
+                ) : <div style={mutedStyle}>No targets set.</div>}
+              </div>
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
+                {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
+              </div>
+              <div style={sectionStyle}>
+                <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
+                  <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
+                    const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
+                    return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
+                  }, 0)}</div></div>
+                  <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
+                  <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
                 </div>
-              ) : <div style={mutedStyle}>No template selected.</div>}
-              {campaign.email_subject_template && (
-                <div><div style={labelStyle}>Subject Template</div>
-                  <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{campaign.email_subject_template}</div>
-                </div>
-              )}
-            </div>
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
-              {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
-                  {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
-                </div>
-              ) : <div style={mutedStyle}>No targets set.</div>}
-            </div>
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
-              {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
-            </div>
-            <div style={sectionStyle}>
-              <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
-                <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
-                  const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
-                  return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
-                }, 0)}</div></div>
-                <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
-                <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col" style={{ height: '100%' }}>
-            <div className="flex-1 min-h-0">
-              <DealTable
-                key={gridKey} deals={deals} loading={dealsLoading} fieldDefs={fieldDefs}
-                emptyAction={{ label: 'Import Leads', onClick: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`) }}
-                fillHeight totalRows={total} page={page} pageSize={pageSize}
-                onPageChange={(p) => { setPage(p); setAllSelected(false) }}
-                onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
-                allRowsSelected={allSelected}
-                onSelectionChange={(ids) => { if (allSelected && ids.size === 0) setAllSelected(false) }}
-                serverSide serverSortKey={sortKey} serverSortDir={sortDir}
-                onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
-                onSelectAll={() => setAllSelected(true)}
-                onRowClick={(r: Deal) => router.push(`/projects/${projectId}/deals/${r.id}`)}
-                topToolbar={{
-                  recordLabel: 'deal',
-                  onAdd: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`),
-                  onDelete: async (ids) => {
-                    if (allSelected) { setPendingDeleteIds([]); setDeleteOpen(true) }
-                    else { setPendingDeleteIds(Array.from(ids)); setDeleteOpen(true) }
-                  },
-                  searchValue: search, onSearchChange: setSearch,
-                }}
-              />
+          </TabsContent>
+
+          <TabsContent value="leads" className="h-full">
+            <div className="flex flex-col h-full pb-4">
+              <div className="flex-1 min-h-0">
+                <DealTable
+                  key={gridKey} deals={deals} loading={dealsLoading} fieldDefs={fieldDefs}
+                  emptyAction={{ label: 'Import Leads', onClick: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`) }}
+                  fillHeight totalRows={total} page={page} pageSize={pageSize}
+                  onPageChange={(p) => { setPage(p); setAllSelected(false) }}
+                  onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
+                  allRowsSelected={allSelected}
+                  onSelectionChange={(ids) => { if (allSelected && ids.size === 0) setAllSelected(false) }}
+                  serverSide serverSortKey={sortKey} serverSortDir={sortDir}
+                  onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
+                  onSelectAll={() => setAllSelected(true)}
+                  onRowClick={(r: Deal) => router.push(`/projects/${projectId}/deals/${r.id}`)}
+                  topToolbar={{
+                    recordLabel: 'deal',
+                    onAdd: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`),
+                    onDelete: async (ids) => {
+                      if (allSelected) { setPendingDeleteIds([]); setDeleteOpen(true) }
+                      else { setPendingDeleteIds(Array.from(ids)); setDeleteOpen(true) }
+                    },
+                    searchValue: search, onSearchChange: setSearch,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          </TabsContent>
+        </div>
+      </Tabs>
 
       <DeleteDealDialog
         dealNames={pendingDeleteIds.map((id) => {

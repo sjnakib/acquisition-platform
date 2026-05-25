@@ -53,6 +53,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
   const [mounted, setMounted] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  const projectId = pathname.split('/')[2] || ''
   const router = useRouter()
 
   const [width, setWidth] = useState(220)
@@ -64,7 +65,9 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
       const stored = localStorage.getItem('acq_sidebar_width')
       if (stored) {
         const val = parseInt(stored, 10)
-        if (val >= 160 && val <= 400) setWidth(val)
+        if (val >= 160 && val <= 400) {
+          setTimeout(() => setWidth(val), 0)
+        }
       }
     } catch {}
   }, [])
@@ -129,8 +132,6 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
     return () => document.removeEventListener('mousedown', handle)
   }, [userMenuOpen])
 
-  const sidebarW = collapsed ? 'w-[52px]' : 'w-[220px]'
-
   return (
     <>
       {/* Desktop sidebar */}
@@ -162,12 +163,15 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         {/* Nav */}
         <nav className="flex-1 py-3 px-2 space-y-0.5">
           {navSections.map((section, i) => (
-            <div key={section.label}>
+            <div key={section.label === 'Global' ? 'Global' : `${section.label}-${projectId || 'global'}`}>
               {i > 0 && collapsed && (
                 <div className="my-2 mx-1.5 border-t" style={{ borderColor: s('border') }} />
               )}
               {i > 0 && !collapsed && (
-                <div className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 mt-3 select-none truncate" style={{ color: s('text-muted') }}>
+                <div 
+                  className="text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 mt-3 select-none truncate animate-item-entrance" 
+                  style={{ color: s('text-muted'), animationDelay: `${i * 120}ms` }}
+                >
                   {section.label}
                 </div>
               )}
@@ -176,34 +180,48 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                   {section.label}
                 </div>
               )}
-              {section.items.map((item) => {
+              {section.items.map((item, idx) => {
                 const isActive = item.href === '/projects' ? pathname === '/projects' : pathname.startsWith(item.href)
+                const delay = (i * 120) + ((idx + 1) * 30)
+                
                 return (
-                  <Link
+                  <div
                     key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap overflow-hidden ${collapsed ? 'justify-center' : 'px-3'}`}
-                    style={{
-                      color: isActive ? s('text-active') : s('text'),
-                      background: isActive ? s('active') : 'transparent',
-                      fontWeight: isActive ? 500 : 400,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = s('hover')
-                        e.currentTarget.style.color = s('text-hover')
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'transparent'
-                        e.currentTarget.style.color = s('text')
-                      }
-                    }}
+                    className={section.label === 'Global' ? '' : 'animate-item-entrance'}
+                    style={section.label === 'Global' ? undefined : { animationDelay: `${delay}ms` }}
                   >
-                    <item.icon className="h-4 w-4 flex-shrink-0" style={{ opacity: isActive ? 1 : 0.7 }} />
-                    {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-                  </Link>
+                    <Link
+                      href={item.href}
+                      className={`group flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap overflow-hidden ${collapsed ? 'justify-center' : 'px-3'}`}
+                      style={{
+                        color: isActive ? s('text-active') : s('text'),
+                        background: isActive ? s('active') : 'transparent',
+                        fontWeight: isActive ? 500 : 400,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = s('hover')
+                          e.currentTarget.style.color = s('text-hover')
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = 'transparent'
+                          e.currentTarget.style.color = s('text')
+                        }
+                      }}
+                    >
+                      <item.icon 
+                        className={`h-4 w-4 flex-shrink-0 transition-all duration-300 ${isActive ? '' : 'group-hover:scale-108 group-hover:translate-x-0.5 group-hover:text-[var(--accent)]'}`} 
+                        style={{ opacity: isActive ? 1 : 0.7 }} 
+                      />
+                      {!collapsed && (
+                        <span className="truncate flex-1 transition-transform duration-300 group-hover:translate-x-0.5">
+                          {item.label}
+                        </span>
+                      )}
+                    </Link>
+                  </div>
                 )
               })}
             </div>
@@ -214,12 +232,18 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
         <div className="px-2 pb-1">
           <button
             onClick={toggleTheme}
-            className={`flex items-center gap-3 h-[34px] w-full mx-0.5 rounded-md text-[13px] transition-all duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
+            className={`group flex items-center gap-3 h-[34px] w-full mx-0.5 rounded-md text-[13px] transition-all duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
             style={{ color: s('text') }}
             onMouseEnter={(e) => { e.currentTarget.style.background = s('hover') }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           >
-            {mounted && (theme === 'dark' ? <Sun className="h-4 w-4 flex-shrink-0" /> : <Moon className="h-4 w-4 flex-shrink-0" />)}
+            {mounted && (
+              theme === 'dark' ? (
+                <Sun className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:rotate-90 group-hover:text-[var(--accent)]" />
+              ) : (
+                <Moon className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:-rotate-12 group-hover:text-[var(--accent)]" />
+              )
+            )}
             {!collapsed && mounted && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
           </button>
         </div>
@@ -280,7 +304,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
 
             {userMenuOpen && (
               <div
-                className="absolute bottom-full left-2 mb-1 w-40 rounded-lg shadow-lg py-1 z-50"
+                className="absolute bottom-full left-2 mb-1 w-40 rounded-lg shadow-lg py-1 z-50 animate-dropdown-show"
                 style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-3)', boxShadow: 'var(--shadow-lg)' }}
               >
                 <button
@@ -309,12 +333,16 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
           {/* Collapse toggle */}
           <button
             onClick={onToggleCollapse}
-            className="flex items-center justify-center w-full py-1.5 transition-colors duration-150"
+            className="group flex items-center justify-center w-full py-1.5 transition-colors duration-150"
             style={{ color: s('text-muted') }}
             onMouseEnter={(e) => { e.currentTarget.style.color = s('text') }}
             onMouseLeave={(e) => { e.currentTarget.style.color = s('text-muted') }}
           >
-            {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+            {collapsed ? (
+              <ChevronRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-[var(--accent)]" />
+            ) : (
+              <ChevronLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-0.5 group-hover:text-[var(--accent)]" />
+            )}
           </button>
         </div>
       </aside>
@@ -352,8 +380,8 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="fixed inset-0" style={{ background: 'var(--color-overlay)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
-          <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col" style={{ background: s('bg'), borderRight: `1px solid ${s('border')}` }}>
+          <div className="fixed inset-0 animate-overlay-show" style={{ background: 'var(--color-overlay)', backdropFilter: 'blur(2px)' }} onClick={() => setMobileOpen(false)} />
+          <aside className="fixed left-0 top-0 bottom-0 w-[280px] flex flex-col animate-sheet-slide-in-left" style={{ background: s('bg'), borderRight: `1px solid ${s('border')}` }}>
             <div className="flex items-center justify-between h-[52px] px-4 border-b" style={{ borderColor: s('border') }}>
               <div style={{ color: s('text-active') }} onClick={() => setMobileOpen(false)}>
                 <BrandLogo variant="wordmark" />
@@ -362,25 +390,35 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <nav className="flex-1 py-3 px-2 space-y-0.5">
+             <nav className="flex-1 py-3 px-2 space-y-0.5">
               {navSections.map((section, i) => (
-                <div key={section.label}>
-                  <div className={`text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none ${i > 0 ? 'mt-3' : ''}`} style={{ color: s('text-muted') }}>
+                <div key={section.label === 'Global' ? 'Global' : `${section.label}-${projectId || 'global'}`}>
+                  <div 
+                    className={`text-[9px] font-semibold uppercase tracking-[0.12em] px-3 py-1.5 select-none ${i > 0 ? 'mt-3 animate-item-entrance' : ''}`} 
+                    style={{ color: s('text-muted'), animationDelay: i > 0 ? `${i * 120}ms` : undefined }}
+                  >
                     {section.label}
                   </div>
-                  {section.items.map((item) => {
+                  {section.items.map((item, idx) => {
                     const isActive = item.href === '/projects' ? pathname === '/projects' : pathname.startsWith(item.href)
+                    const delay = (i * 120) + ((idx + 1) * 30)
+                    
                     return (
-                      <Link
+                      <div
                         key={item.href}
-                        href={item.href}
-                        onClick={() => setMobileOpen(false)}
-                        className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] no-underline transition-colors duration-150"
-                        style={{ color: isActive ? s('text-active') : s('text'), background: isActive ? s('active') : 'transparent', fontWeight: isActive ? 500 : 400 }}
+                        className={section.label === 'Global' ? '' : 'animate-item-entrance'}
+                        style={section.label === 'Global' ? undefined : { animationDelay: `${delay}ms` }}
                       >
-                        <item.icon className="h-4 w-4 flex-shrink-0" />
-                        {item.label}
-                      </Link>
+                        <Link
+                          href={item.href}
+                          onClick={() => setMobileOpen(false)}
+                          className="flex items-center gap-3 h-[34px] px-3 mx-0.5 rounded-md text-[13px] no-underline transition-colors duration-150"
+                          style={{ color: isActive ? s('text-active') : s('text'), background: isActive ? s('active') : 'transparent', fontWeight: isActive ? 500 : 400 }}
+                        >
+                          <item.icon className="h-4 w-4 flex-shrink-0" />
+                          {item.label}
+                        </Link>
+                      </div>
                     )
                   })}
                 </div>

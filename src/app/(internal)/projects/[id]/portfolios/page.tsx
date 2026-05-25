@@ -68,16 +68,21 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
         />
       ) : (
         <div className="space-y-3 mt-6">
-          {portfolios.map((p: { id: string; name: string; description: string | null; created_at: string; deals?: { id: string }[] }) => (
-            <PortfolioCard
+          {portfolios.map((p: { id: string; name: string; description: string | null; created_at: string; deals?: { id: string }[] }, idx: number) => (
+            <div
               key={p.id}
-              id={p.id}
-              name={p.name}
-              description={p.description}
-              dealCount={(p.deals as { id: string }[] | undefined)?.length ?? 0}
-              createdAt={p.created_at}
-              projectId={projectId}
-            />
+              className="animate-item-entrance"
+              style={{ animationDelay: `${idx * 40}ms` }}
+            >
+              <PortfolioCard
+                id={p.id}
+                name={p.name}
+                description={p.description}
+                dealCount={(p.deals as { id: string }[] | undefined)?.length ?? 0}
+                createdAt={p.created_at}
+                projectId={projectId}
+              />
+            </div>
           ))}
         </div>
       )}

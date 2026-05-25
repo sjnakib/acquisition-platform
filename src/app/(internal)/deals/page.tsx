@@ -43,15 +43,6 @@ export default function DealsPage() {
   const debouncedSearchRef = useRef(search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
 
-  useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => {
-      debouncedSearchRef.current = search
-      refetch()
-    }, SEARCH_DEBOUNCE_MS)
-    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
-  }, [search])
-
   const buildUrl = useCallback((p: number, size: number) => {
     const offset = (p - 1) * size
     const params = new URLSearchParams({ limit: String(size), offset: String(offset) })
@@ -79,10 +70,19 @@ export default function DealsPage() {
     }
   }, [buildUrl])
 
-  const refetch = useCallback(() => {
+  const refetch = () => {
     setLoading(true)
     fetchPage(page, pageSize).finally(() => setLoading(false))
-  }, [page, pageSize, fetchPage])
+  }
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      debouncedSearchRef.current = search
+      refetch()
+    }, SEARCH_DEBOUNCE_MS)
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
+  }, [search])
 
   useEffect(() => {
     fetch('/api/field-definitions')
@@ -92,18 +92,17 @@ export default function DealsPage() {
   }, [])
 
   useEffect(() => {
-    setLoading(true)
-    fetchPage(page, pageSize).catch(() => setDeals([])).finally(() => setLoading(false))
+    const timer = setTimeout(() => {
+      setLoading(true)
+      fetchPage(page, pageSize).catch(() => setDeals([])).finally(() => setLoading(false))
+    }, 0)
+    return () => clearTimeout(timer)
   }, [page, pageSize, fetchPage])
-
-  useEffect(() => {
-    setPage(1)
-  }, [view])
 
   const viewToggle = (
     <div className="flex rounded-md overflow-hidden border" style={{ borderColor: 'var(--color-surface-3)' }}>
       <button
-        onClick={() => setView('leads')}
+        onClick={() => { setView('leads'); setPage(1) }}
         className="px-3 py-1 text-[12px] font-medium transition-colors"
         style={{
           background: view === 'leads' ? 'var(--color-accent)' : 'var(--color-surface-0)',
@@ -113,7 +112,7 @@ export default function DealsPage() {
         Leads
       </button>
       <button
-        onClick={() => setView('deals')}
+        onClick={() => { setView('deals'); setPage(1) }}
         className="px-3 py-1 text-[12px] font-medium transition-colors"
         style={{
           background: view === 'deals' ? 'var(--color-accent)' : 'var(--color-surface-0)',

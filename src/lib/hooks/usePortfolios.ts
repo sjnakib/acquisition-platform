@@ -7,7 +7,7 @@ export const usePortfolios = (projectId?: string) => {
   return useQuery({
     queryKey: ['portfolios', projectId],
     queryFn: async () => {
-      let query = supabase.from('portfolios').select('*').order('created_at', { ascending: false })
+      let query = supabase.from('portfolios').select('*, deals(id)').order('created_at', { ascending: false })
       if (projectId) query = query.eq('project_id', projectId)
       const { data, error } = await query
       if (error) throw error

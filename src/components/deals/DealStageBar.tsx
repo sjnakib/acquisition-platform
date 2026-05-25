@@ -55,11 +55,13 @@ export function DealStageBar({ stage, isArchived, archiveReason }: DealStageBarP
           <div key={s} className="flex items-center">
             <div className="flex flex-col items-center">
               <div
-                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 transition-colors"
+                className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 transition-all duration-300"
                 style={{
                   background: isCompleted ? 'var(--color-success-solid)' : isActive ? 'var(--accent)' : 'transparent',
                   borderColor: isCompleted ? 'var(--color-success-solid)' : isActive ? 'var(--accent)' : 'var(--color-surface-3)',
                   color: isCompleted || isActive ? 'var(--color-text-inverse)' : 'var(--color-text-tertiary)',
+                  boxShadow: isActive ? '0 0 0 3px var(--color-accent-bg)' : undefined,
+                  transform: isActive ? 'scale(1.05)' : undefined,
                 }}
               >
                 {isCompleted ? <Check className="h-3 w-3" /> : i + 1}
@@ -76,7 +78,7 @@ export function DealStageBar({ stage, isArchived, archiveReason }: DealStageBarP
             </div>
             {i < STAGES.length - 1 && (
               <div
-                className="w-8 h-0.5 mx-1 mb-5"
+                className="w-8 h-0.5 mx-1 mb-5 transition-colors duration-300"
                 style={{ background: i < currentIndex ? 'var(--color-success-solid)' : 'var(--color-surface-3)' }}
               />
             )}

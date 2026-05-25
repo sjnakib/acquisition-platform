@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { clientNavItems } from '@/lib/navigation'
-import { FolderKanban } from 'lucide-react'
+import { ArrowRight, FolderKanban } from 'lucide-react'
+import { PageTransition } from '@/components/shared/PageTransition'
 
 interface ProfileData {
   full_name: string | null
@@ -25,6 +26,7 @@ export default function ClientProjectLayout({
   const [projectName, setProjectName] = useState('Loading...')
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -53,20 +55,29 @@ export default function ClientProjectLayout({
   }, [])
 
   useEffect(() => {
-    fetch('/api/projects')
+    fetch(`/api/projects/${projectId}/access`, { method: 'POST' }).catch(() => {})
+  }, [projectId])
+
+  useEffect(() => {
+    fetch('/api/projects?recent=true&limit=4')
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setProjects(data)
       })
       .catch(() => {})
-  }, [])
+  }, [projectId])
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
+    setIsExiting(true)
+    setTimeout(async () => {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      router.push('/login')
+    }, 130)
   }
 
   const navItems = clientNavItems(projectId)
+  const otherProjects = projects.filter((p) => p.id !== projectId)
+
   const navSections = [
     {
       label: 'Global',
@@ -79,20 +90,23 @@ export default function ClientProjectLayout({
       ? [
           {
             label: 'Switch Project',
-            items: projects
-              .filter((p) => p.id !== projectId)
-              .map((p) => ({
+            items: [
+              ...otherProjects.map((p) => ({
                 label: p.name,
                 icon: FolderKanban,
                 href: `/projects/${p.id}/overview`,
               })),
+              ...(projects.length >= 4
+                ? [{ label: 'View all projects', icon: ArrowRight, href: '/projects' }]
+                : []),
+            ],
           },
         ]
       : []),
   ]
 
   return (
-    <div className="min-h-screen flex">
+    <div className={`min-h-screen flex ${isExiting ? 'animate-page-exit' : ''}`}>
       <Sidebar
         navSections={navSections}
         profile={{
@@ -116,7 +130,7 @@ export default function ClientProjectLayout({
       >
         <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
           <ProjectProvider projectId={projectId} projectName={projectName}>
-            {children}
+            <PageTransition>{children}</PageTransition>
           </ProjectProvider>
         </div>
       </main>

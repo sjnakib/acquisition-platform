@@ -38,7 +38,7 @@ export async function GET(
   // Batch fetch emails from auth.users via admin client
   const admin = await createAdminClient()
   const { data: { users } } = await admin.auth.admin.listUsers()
-  const emailByUserId = new Map(users?.map((u: any) => [u.id, u.email]) ?? [])
+  const emailByUserId = new Map(users?.map((u: import('@supabase/supabase-js').User) => [u.id, u.email]) ?? [])
 
   const enriched = sponsorList.map((s) => ({
     id: s.id,
@@ -77,7 +77,7 @@ export async function POST(
   let sponsorUserId: string
   const { data: existingUsers } = await admin.auth.admin.listUsers()
   const existing = existingUsers?.users.find(
-    (u: any) => u.email?.toLowerCase() === email.toLowerCase()
+    (u: import('@supabase/supabase-js').User) => u.email?.toLowerCase() === email.toLowerCase()
   )
 
   if (existing) {

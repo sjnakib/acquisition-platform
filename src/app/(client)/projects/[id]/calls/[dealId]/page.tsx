@@ -68,13 +68,18 @@ export default function ClientDealDetailPage({ params }: { params: Promise<{ id:
   useEffect(() => {
     if (!dealId) return
     const controller = new AbortController()
-    setLoading(true)
+    const timer = setTimeout(() => {
+      setLoading(true)
+    }, 0)
     fetch(`/api/deals/${dealId}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => setDeal(data))
       .catch((err) => { if (err.name !== 'AbortError') console.error(err) })
       .finally(() => setLoading(false))
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
   }, [dealId])
 
   if (loading) {

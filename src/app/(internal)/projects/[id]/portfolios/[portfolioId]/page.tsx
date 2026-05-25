@@ -6,7 +6,7 @@ import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { Breadcrumb } from '@/components/shared/Breadcrumb'
+import { PageHeader } from '@/components/shared/PageHeader'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DeletePortfolioDialog } from '@/components/portfolios/DeletePortfolioDialog'
 import { usePortfolio, useDeletePortfolio } from '@/lib/hooks/usePortfolios'
@@ -45,36 +45,37 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
   }
 
   return (
-    <div className="max-w-5xl">
-      <Breadcrumb
-        items={[
-          { label: 'Projects', href: '/projects' },
-          { label: projectName, href: `/projects/${projectId}/portfolios` },
-          { label: 'Portfolios', href: `/projects/${projectId}/portfolios` },
-          { label: portfolio.name as string },
-        ]}
-      />
-
-      <div className="flex items-center gap-3 mb-6 mt-3">
-        <div className="flex-1">
-          <h1 className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>{portfolio.name as string}</h1>
-          {(portfolio.description as string) && (
-            <p className="text-[13px] mt-1" style={{ color: 'var(--color-text-secondary)' }}>{portfolio.description as string}</p>
-          )}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)} style={{ borderColor: 'var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
-          <Trash2 className="h-4 w-4 mr-1" /> Delete
-        </Button>
+    <div className="w-full">
+      <div className="animate-item-entrance" style={{ animationDelay: '40ms' }}>
+        <PageHeader
+          title={portfolio.name as string}
+          description={portfolio.description as string || undefined}
+          breadcrumb={[
+            { label: 'Projects', href: '/projects' },
+            { label: projectName, href: `/projects/${projectId}/portfolios` },
+            { label: 'Portfolios', href: `/projects/${projectId}/portfolios` },
+            { label: portfolio.name as string },
+          ]}
+          actions={
+            <Button variant="outline" size="sm" onClick={() => setDeleteOpen(true)} style={{ borderColor: 'var(--color-danger-border)', color: 'var(--color-danger-text)' }}>
+              <Trash2 className="h-4 w-4 mr-1" /> Delete
+            </Button>
+          }
+        />
       </div>
 
-      <p className="text-[13px] mb-6" style={{ color: 'var(--color-text-tertiary)' }}>{dealCount} deal{dealCount !== 1 ? 's' : ''} in this portfolio</p>
+      <div className="animate-item-entrance" style={{ animationDelay: '100ms' }}>
+        <p className="text-[13px] mb-6" style={{ color: 'var(--color-text-tertiary)' }}>{dealCount} deal{dealCount !== 1 ? 's' : ''} in this portfolio</p>
+      </div>
 
-      {dealCount === 0 ? (
-        <EmptyState title="No deals in this portfolio" />
-      ) : (
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <DealTable deals={deals as any} fieldDefs={fieldDefs} onRowClick={(r: any) => router.push(`/projects/${projectId}/deals/${r.id}`)} />
-      )}
+      <div className="animate-item-entrance" style={{ animationDelay: '160ms' }}>
+        {dealCount === 0 ? (
+          <EmptyState title="No deals in this portfolio" />
+        ) : (
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          <DealTable deals={deals as any} fieldDefs={fieldDefs} onRowClick={(r: any) => router.push(`/projects/${projectId}/deals/${r.id}`)} />
+        )}
+      </div>
 
       <DeletePortfolioDialog
         open={deleteOpen} onOpenChange={setDeleteOpen}

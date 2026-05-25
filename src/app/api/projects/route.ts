@@ -7,6 +7,16 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const url = new URL(req.url)
+  const recent = url.searchParams.get('recent') === 'true'
+
+  if (recent) {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '4', 10), 20)
+    const { data, error } = await supabase.rpc('get_recent_projects', { p_limit: limit })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(data)
+  }
+
   const { data, error } = await supabase
     .from('projects')
     .select('*, sponsors(count)')

@@ -74,7 +74,7 @@ export function useColumnOrder<T>(
         // Legacy plain-array format (no fingerprint) is rejected —
         // the next onReorder call will persist with a fingerprint.
         if (!Array.isArray(stored) && stored.keys && stored.fp === currentFp && stored.keys.length > 0) {
-          setUserOrder(stored.keys)
+          setTimeout(() => setUserOrder(stored.keys), 0)
         }
       }
     } catch {}

@@ -80,7 +80,9 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
   }, [dealId])
 
   useEffect(() => {
-    fetchThreads(includePortfolio)
+    setTimeout(() => {
+      fetchThreads(includePortfolio)
+    }, 0)
   }, [includePortfolio, fetchThreads])
 
   const openThread = useCallback(async (thread: Thread) => {

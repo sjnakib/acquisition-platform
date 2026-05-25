@@ -207,7 +207,10 @@ export default function CampaignDetailPage() {
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
       const maxPage = Math.ceil(total / pageSize)
-      setPage(Math.min(page, maxPage))
+      const timer = setTimeout(() => {
+        setPage(Math.min(page, maxPage))
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [deals.length, total, page, pageSize])
 

@@ -47,7 +47,7 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
   useEffect(() => {
     if (!dealId) return
     const controller = new AbortController()
-    setLoading(true)
+    setTimeout(() => setLoading(true), 0)
     fetch(`/api/calls?deal_id=${dealId}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => setCallBriefs(Array.isArray(data) ? data : []))

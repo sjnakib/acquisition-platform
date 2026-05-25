@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { FolderKanban } from 'lucide-react'
+import { ArrowRight, FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { PageTransition } from '@/components/shared/PageTransition'
 
 interface ProfileData {
   full_name: string | null
@@ -17,6 +18,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   const [collapsed, setCollapsed] = useState(false)
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
+  const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -45,7 +47,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     if (role === 'internal') {
-      fetch('/api/projects')
+      fetch('/api/projects?recent=true&limit=4')
         .then((r) => r.json())
         .then((data) => {
           if (Array.isArray(data)) setProjects(data)
@@ -55,8 +57,11 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   }, [role])
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
+    setIsExiting(true)
+    setTimeout(async () => {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      router.push('/login')
+    }, 130)
   }
 
   if (role === null) {
@@ -79,18 +84,23 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
       ? [
           {
             label: 'Projects',
-            items: projects.map((p) => ({
-              label: p.name,
-              icon: FolderKanban,
-              href: `/projects/${p.id}/dashboard`,
-            })),
+            items: [
+              ...projects.map((p) => ({
+                label: p.name,
+                icon: FolderKanban,
+                href: `/projects/${p.id}/dashboard`,
+              })),
+              ...(projects.length >= 4
+                ? [{ label: 'View all projects', icon: ArrowRight, href: '/projects' }]
+                : []),
+            ],
           },
         ]
       : []),
   ]
 
   return (
-    <div className="min-h-screen flex">
+    <div className={`min-h-screen flex ${isExiting ? 'animate-page-exit' : ''}`}>
       <Sidebar
         navSections={navSections}
         profile={{
@@ -112,7 +122,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
         }}
       >
         <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
-          {children}
+          <PageTransition>{children}</PageTransition>
         </div>
       </main>
     </div>

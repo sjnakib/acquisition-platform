@@ -291,20 +291,17 @@ const RowRenderer = memo(function RowRendererInner<T>({
             )}
             {flashingCell && cellAddressEqual(addr, flashingCell) && (
               <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ border: `2px solid var(--color-surface-3)`, transition: 'opacity 600ms ease' }}
+                className="absolute inset-0 pointer-events-none animate-cell-flash"
               />
             )}
             {validationFlashCell && cellAddressEqual(addr, validationFlashCell) && (
               <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ border: `2px solid var(--color-error, #ef4444)`, transition: 'opacity 600ms ease' }}
+                className="absolute inset-0 pointer-events-none animate-cell-error"
               />
             )}
             {saveSuccessCell && cellAddressEqual(addr, saveSuccessCell) && (
               <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ border: `2px solid var(--color-success, #22c55e)`, transition: 'opacity 800ms ease-out' }}
+                className="absolute inset-0 pointer-events-none animate-cell-success"
               />
             )}
           </div>
@@ -359,10 +356,9 @@ function PageSizeSelector({
 
   useEffect(() => {
     if (customOpen) {
-      setCustomValue(String(pageSize))
       setTimeout(() => inputRef.current?.select(), 0)
     }
-  }, [customOpen, pageSize])
+  }, [customOpen])
 
   const applyCustom = () => {
     const n = parseInt(customValue, 10)
@@ -409,7 +405,11 @@ function PageSizeSelector({
         <Select
           value={String(pageSize)}
           onValueChange={(v) => {
-            if (v === 'custom') { setCustomOpen(true); return }
+            if (v === 'custom') {
+              setCustomValue(String(pageSize))
+              setCustomOpen(true)
+              return
+            }
             onPageSizeChange?.(Number(v))
           }}
         >
@@ -695,7 +695,9 @@ function PageInput({
 
   // Sync display when page changes externally (prev/next clicks)
   useEffect(() => {
-    if (!focused) setValue(String(page))
+    if (!focused) {
+      setTimeout(() => setValue(String(page)), 0)
+    }
   }, [page, focused])
 
   const commit = useCallback((v: string) => {
