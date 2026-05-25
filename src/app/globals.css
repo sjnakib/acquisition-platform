@@ -534,3 +534,29 @@ body {
 .animate-tab-line-entrance {
   animation: tab-line-entrance 200ms var(--ease-premium) forwards;
 }
+
+/* ─── Tooltip ─────────────────────────────────────────────────────────────── */
+
+/*
+ * transform-origin per position so the bubble always grows outward from the
+ * anchor rather than from its own geometric centre.
+ */
+[data-tooltip-position='right']  { transform-origin: left center; }
+[data-tooltip-position='left']   { transform-origin: right center; }
+[data-tooltip-position='top']    { transform-origin: center bottom; }
+[data-tooltip-position='bottom'] { transform-origin: center top; }
+
+@keyframes tooltip-show {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-tooltip-show {
+  animation: tooltip-show 160ms var(--ease-premium) forwards;
+}

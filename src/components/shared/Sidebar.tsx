@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type { NavItem } from '@/lib/navigation'
 import { BrandLogo } from '@/components/shared/BrandLogo'
+import { Tooltip } from '@/components/ui/tooltip'
 
 function getStoredTheme(): 'light' | 'dark' {
   try {
@@ -190,37 +191,39 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
                     className={section.label === 'Global' ? '' : 'animate-item-entrance'}
                     style={section.label === 'Global' ? undefined : { animationDelay: `${delay}ms` }}
                   >
-                    <Link
-                      href={item.href}
-                      className={`group flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap overflow-hidden ${collapsed ? 'justify-center' : 'px-3'}`}
-                      style={{
-                        color: isActive ? s('text-active') : s('text'),
-                        background: isActive ? s('active') : 'transparent',
-                        fontWeight: isActive ? 500 : 400,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = s('hover')
-                          e.currentTarget.style.color = s('text-hover')
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = 'transparent'
-                          e.currentTarget.style.color = s('text')
-                        }
-                      }}
-                    >
-                      <item.icon 
-                        className={`h-4 w-4 flex-shrink-0 transition-all duration-300 ${isActive ? '' : 'group-hover:scale-108 group-hover:translate-x-0.5 group-hover:text-[var(--accent)]'}`} 
-                        style={{ opacity: isActive ? 1 : 0.7 }} 
-                      />
-                      {!collapsed && (
-                        <span className="truncate flex-1 transition-transform duration-300 group-hover:translate-x-0.5">
-                          {item.label}
-                        </span>
-                      )}
-                    </Link>
+                    <Tooltip content={collapsed ? item.label : null} position="right" className="w-full">
+                      <Link
+                        href={item.href}
+                        className={`group flex items-center gap-3 h-[34px] mx-0.5 rounded-md text-[13px] font-normal transition-all duration-150 no-underline whitespace-nowrap overflow-hidden ${collapsed ? 'justify-center' : 'px-3'}`}
+                        style={{
+                          color: isActive ? s('text-active') : s('text'),
+                          background: isActive ? s('active') : 'transparent',
+                          fontWeight: isActive ? 500 : 400,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.background = s('hover')
+                            e.currentTarget.style.color = s('text-hover')
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = s('text')
+                          }
+                        }}
+                      >
+                        <item.icon 
+                          className={`h-4 w-4 flex-shrink-0 transition-all duration-300 ${isActive ? '' : 'group-hover:scale-108 group-hover:translate-x-0.5 group-hover:text-[var(--accent)]'}`} 
+                          style={{ opacity: isActive ? 1 : 0.7 }} 
+                        />
+                        {!collapsed && (
+                          <span className="truncate flex-1 transition-transform duration-300 group-hover:translate-x-0.5">
+                            {item.label}
+                          </span>
+                        )}
+                      </Link>
+                    </Tooltip>
                   </div>
                 )
               })}
@@ -230,77 +233,81 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
 
         {/* Theme toggle */}
         <div className="px-2 pb-1">
-          <button
-            onClick={toggleTheme}
-            className={`group flex items-center gap-3 h-[34px] w-full mx-0.5 rounded-md text-[13px] transition-all duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
-            style={{ color: s('text') }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = s('hover') }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-          >
-            {mounted && (
-              theme === 'dark' ? (
-                <Sun className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:rotate-90 group-hover:text-[var(--accent)]" />
-              ) : (
-                <Moon className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:-rotate-12 group-hover:text-[var(--accent)]" />
-              )
-            )}
-            {!collapsed && mounted && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
-          </button>
+          <Tooltip content={collapsed && mounted ? (theme === 'dark' ? 'Light mode' : 'Dark mode') : null} position="right" className="w-full">
+            <button
+              onClick={toggleTheme}
+              className={`group flex items-center gap-3 h-[34px] w-full mx-0.5 rounded-md text-[13px] transition-all duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
+              style={{ color: s('text') }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = s('hover') }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
+              {mounted && (
+                theme === 'dark' ? (
+                  <Sun className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:rotate-90 group-hover:text-[var(--accent)]" />
+                ) : (
+                  <Moon className="h-4 w-4 flex-shrink-0 transition-transform duration-500 ease-out group-hover:-rotate-12 group-hover:text-[var(--accent)]" />
+                )
+              )}
+              {!collapsed && mounted && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
+            </button>
+          </Tooltip>
         </div>
 
         {/* User profile */}
         <div className="border-t" style={{ borderColor: s('border') }}>
           <div className="relative p-2" ref={menuRef}>
-            <button
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className={`flex items-center gap-3 w-full py-2 rounded-md transition-colors duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
-              style={{
-                color: pathname === '/profile' ? s('text-active') : s('text'),
-                background: pathname === '/profile' ? s('active') : 'transparent',
-                fontWeight: pathname === '/profile' ? 500 : 400
-              }}
-              onMouseEnter={(e) => {
-                if (pathname !== '/profile') {
-                  e.currentTarget.style.background = s('hover')
-                  e.currentTarget.style.color = s('text-hover')
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (pathname !== '/profile') {
-                  e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.color = s('text')
-                }
-              }}
-            >
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
-                style={
-                  profile.avatarUrl
-                    ? profile.avatarUrl.startsWith('linear-gradient')
-                      ? { background: profile.avatarUrl, color: 'var(--color-text-inverse)' }
-                      : { backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' }
-                    : { background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }
-                }
+            <Tooltip content={collapsed ? `Profile (${profile.name})` : null} position="right" className="w-full">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className={`flex items-center gap-3 w-full py-2 rounded-md transition-colors duration-150 ${collapsed ? 'justify-center' : 'px-3'}`}
+                style={{
+                  color: pathname === '/profile' ? s('text-active') : s('text'),
+                  background: pathname === '/profile' ? s('active') : 'transparent',
+                  fontWeight: pathname === '/profile' ? 500 : 400
+                }}
+                onMouseEnter={(e) => {
+                  if (pathname !== '/profile') {
+                    e.currentTarget.style.background = s('hover')
+                    e.currentTarget.style.color = s('text-hover')
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (pathname !== '/profile') {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.color = s('text')
+                  }
+                }}
               >
-                {!profile.avatarUrl || profile.avatarUrl.startsWith('linear-gradient') ? profile.avatar : ''}
-              </div>
-              {!collapsed && (
-                <div className="flex-1 text-left leading-tight overflow-hidden">
-                  <div 
-                    className="text-[13px] font-medium truncate" 
-                    style={{ color: pathname === '/profile' ? s('text-active') : 'var(--color-text-primary)' }}
-                  >
-                    {profile.name}
-                  </div>
-                  <div 
-                    className="flex items-center gap-1 truncate text-[11px] font-medium tracking-[0.03em] uppercase"
-                    style={{ color: pathname === '/profile' ? s('text-active') : s('text-muted') }}
-                  >
-                    {profile.subtitle}
-                  </div>
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0"
+                  style={
+                    profile.avatarUrl
+                      ? profile.avatarUrl.startsWith('linear-gradient')
+                        ? { background: profile.avatarUrl, color: 'var(--color-text-inverse)' }
+                        : { backgroundImage: `url(${profile.avatarUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'transparent' }
+                      : { background: 'var(--color-accent-muted)', color: 'var(--color-accent-light)' }
+                  }
+                >
+                  {!profile.avatarUrl || profile.avatarUrl.startsWith('linear-gradient') ? profile.avatar : ''}
                 </div>
-              )}
-            </button>
+                {!collapsed && (
+                  <div className="flex-1 text-left leading-tight overflow-hidden">
+                    <div 
+                      className="text-[13px] font-medium truncate" 
+                      style={{ color: pathname === '/profile' ? s('text-active') : 'var(--color-text-primary)' }}
+                    >
+                      {profile.name}
+                    </div>
+                    <div 
+                      className="flex items-center gap-1 truncate text-[11px] font-medium tracking-[0.03em] uppercase"
+                      style={{ color: pathname === '/profile' ? s('text-active') : s('text-muted') }}
+                    >
+                      {profile.subtitle}
+                    </div>
+                  </div>
+                )}
+              </button>
+            </Tooltip>
 
             {userMenuOpen && (
               <div
