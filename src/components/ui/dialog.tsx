@@ -31,11 +31,10 @@ const DialogContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
  <DialogPortal>
  <DialogOverlay />
- <div className="fixed inset-0 z-50 grid place-items-center p-4">
   <DialogPrimitive.Content
   ref={ref}
   className={cn(
-  "relative grid w-full max-w-lg gap-4 border p-6 shadow-lg sm:rounded-lg",
+  "fixed inset-0 z-50 m-auto grid w-full max-w-lg h-fit gap-4 border p-6 shadow-lg sm:rounded-lg",
   "bg-[var(--color-surface-0)] text-[var(--color-text-primary)]",
   "data-[state=open]:animate-dialog-show data-[state=closed]:animate-dialog-close",
   className
@@ -48,7 +47,6 @@ const DialogContent = React.forwardRef<
  <span className="sr-only">Close</span>
  </DialogPrimitive.Close>
  </DialogPrimitive.Content>
- </div>
  </DialogPortal>
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
