@@ -55,6 +55,15 @@ export default function ProjectLayout({
   }, [])
 
   useEffect(() => {
+    const handle = (e: Event) => {
+      const name = (e as CustomEvent<{ name: string }>).detail?.name
+      if (name) setProjectName(name)
+    }
+    window.addEventListener('project-updated', handle)
+    return () => window.removeEventListener('project-updated', handle)
+  }, [])
+
+  useEffect(() => {
     fetch(`/api/projects/${projectId}/access`, { method: 'POST' }).catch(() => {})
   }, [projectId])
 

@@ -101,6 +101,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     } else {
       toast.success('Project saved')
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+      window.dispatchEvent(new CustomEvent('project-updated', { detail: { name } }))
     }
     setSaving(false)
   }

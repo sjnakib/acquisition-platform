@@ -6,7 +6,6 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -16,9 +15,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ImportPreviewTable } from '@/components/import/ImportPreviewTable'
+import { FileDropZone } from '@/components/shared/FileDropZone'
 import { useQuery } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Label } from '@/components/ui/label'
+import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
 
@@ -140,11 +141,14 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
     enabled: !!selectedCampaignId && step === 2,
   })
 
-  const { control, handleSubmit, setValue, getValues, formState: { errors, isSubmitting } } =
+  const { control, handleSubmit, setValue, getValues, watch, formState: { errors, isSubmitting } } =
     useForm<UploadSchema>({
       resolver: zodResolver(uploadSchema),
       defaultValues: { campaignId: defaultCampaignId ?? '' },
     })
+
+  const campaignId = watch('campaignId')
+  const selectedFile = watch('file')
 
   // Auto-detect mapping when preview data + fieldDefs are ready
   const buildDefaultMapping = useCallback(
@@ -286,24 +290,36 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
                 </p>
               )}
             </div>
-            <div>
-              <Label htmlFor="file">Excel File</Label>
-              <Input
-                id="file"
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) setValue('file', file, { shouldValidate: true })
-                }}
-              />
-              {errors.file && (
-                <p className="text-sm mt-1" style={errText}>
-                  {errors.file.message}
+            <Tooltip
+              content={!campaignId ? 'Select a campaign first, then choose a file to upload' : ''}
+              position="top"
+            >
+              <div>
+                <Label>Excel File</Label>
+                {campaignId && (
+                  <p className="text-sm mb-2" style={descText}>
+                    CoStar property export — .xlsx, .xls, or .csv
+                  </p>
+                )}
+                <FileDropZone
+                  accept=".xlsx,.xls,.csv"
+                  disabled={!campaignId}
+                  value={selectedFile}
+                  onChange={(file) => setValue('file', file as File, { shouldValidate: true })}
+                />
+                {errors.file && (
+                  <p className="text-sm mt-1" style={errText}>
+                    {errors.file.message}
+                  </p>
+                )}
+                <p className="text-sm mt-2" style={descText}>
+                  Expected: CoStar property export with columns for Property Name, Address, City,
+                  State, Zip, Type, Units, Year Built, etc. The system auto-detects known column
+                  names and maps them to deal fields.
                 </p>
-              )}
-            </div>
-            <Button type="submit" disabled={isSubmitting}>
+              </div>
+            </Tooltip>
+            <Button type="submit" disabled={isSubmitting || !campaignId || !selectedFile}>
               {isSubmitting ? 'Uploading...' : 'Upload and Preview'}
             </Button>
           </form>

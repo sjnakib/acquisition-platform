@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Plus, FolderKanban, Users, ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -92,17 +93,26 @@ export default function ProjectsPage() {
   // Internal user: show project management view
   return (
     <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
-        <PageHeader title="Projects" description="Select or create a project to get started" />
+        <PageHeader
+          title="Projects"
+          description="Select or create a project to get started"
+          actions={
+            <Button size="sm" onClick={() => setCreateOpen(true)} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
+              <Plus className="h-4 w-4 mr-1" /> New Project
+            </Button>
+          }
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((p) => (
+          {projects.map((p, idx) => (
             <button
               key={p.id}
               onClick={() => router.push(`/projects/${p.id}/dashboard`)}
-              className="group text-left p-5 rounded-lg border transition-all duration-300 ease-[var(--ease-fluid)] hover:shadow-md hover:-translate-y-[2px] cursor-pointer"
+              className="animate-item-entrance group text-left p-5 rounded-lg border transition-all duration-300 ease-[var(--ease-fluid)] hover:shadow-md hover:-translate-y-[2px] cursor-pointer"
               style={{
                 background: 'var(--color-surface-0)',
                 borderColor: 'var(--color-border)',
+                animationDelay: `${idx * 40}ms`,
               }}
             >
               <div className="flex items-start justify-between mb-3">
@@ -137,25 +147,6 @@ export default function ProjectsPage() {
               </div>
             </button>
           ))}
-
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="group text-left p-5 rounded-lg border-2 border-dashed transition-all duration-300 ease-[var(--ease-fluid)] hover:border-[var(--accent)] hover:-translate-y-[2px] cursor-pointer flex flex-col items-center justify-center min-h-[160px]"
-            style={{
-              background: 'var(--color-surface-0)',
-              borderColor: 'var(--color-border)',
-            }}
-          >
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center mb-2 transition-all duration-300 ease-[var(--ease-spring)] group-hover:scale-110"
-              style={{ background: 'var(--color-surface-1)', color: 'var(--color-text-secondary)' }}
-            >
-              <Plus size={20} className="transition-transform duration-300 ease-[var(--ease-spring)] group-hover:rotate-90 group-hover:text-[var(--accent)]" />
-            </div>
-            <span className="text-sm font-medium transition-colors duration-300 group-hover:text-[var(--color-text-primary)]" style={{ color: 'var(--color-text-secondary)' }}>
-              New Project
-            </span>
-          </button>
         </div>
 
         <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
