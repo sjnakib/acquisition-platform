@@ -60,7 +60,7 @@ interface Props {
 function detectAction(header: string, fieldDefs: FieldDef[]): ColumnActionInput {
   const h = header.toLowerCase().trim().replace(/\s+/g, ' ')
 
-  if (/email/i.test(h)) return { action: 'email_target' }
+  if (/^e-?mail(\s|$)/i.test(h)) return { action: 'email_target' }
 
   // Check if an existing field_definitions key matches
   const key = header.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')

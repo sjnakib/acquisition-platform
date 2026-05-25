@@ -30,17 +30,20 @@ npm run db:reset     # reset + re-seed local DB
 - **Next.js 16.2.6 App Router** — `src/` directory, `@/*` alias
 - **Tailwind CSS v4** (`@tailwindcss/postcss`, no `tailwind.config.ts`)
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
-- **`src/proxy.ts`** handles auth routing. NO `src/middleware.ts` — don't create one.
+- **`src/proxy.ts`** handles auth routing. Reads role from JWT `app_metadata` (no DB round-trip). Legacy routes (`/dashboard`, `/deals`, `/overview`, etc.) redirect → `/projects`. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
-- **45 API route files** — domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting
+- **14 API route domains** — admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import, batch), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting
 - **Supabase client layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`), `types.ts` (manual placeholder)
-- **RLS** is sole access control. `createAdminClient()` bypasses RLS.
+- **RLS** is sole access control. `get_my_role()` reads role from JWT (set by `handle_new_user` trigger on `auth.users` insert). `SECURITY DEFINER` functions (`get_pipeline_summary()`, `store_ca_credential()`) aggregate across tables users can't directly read. `createAdminClient()` (service role) bypasses RLS — ONLY for Gmail webhook + `/api/admin/*`.
 - **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`
 - **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`. Files: `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`.
-- **Other lib files:** `batch-delete.ts`, `navigation.ts` (sidebar nav item definitions), `stage-machine.ts`, `rate-limit.ts`, `brand.ts`, `page-headings.ts`.
+- **Other lib files:** `batch-delete.ts`, `navigation.ts` (sidebar nav item definitions), `stage-machine.ts`, `rate-limit.ts`, `brand.ts`, `page-headings.ts`, `utils.ts`.
+- **`src/lib/validations/`** — 9 Zod schemas: `activity`, `auth`, `call`, `campaign`, `contact`, `deal`, `import`, `portfolio`, `project`. API routes import from here for request body validation.
+- **`src/lib/import/`** — `file-parser.ts` (ExcelJS CoStar .xlsx parsing), `mapping.ts` (field mapping logic).
 - **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles (outside route groups). Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. Profile at `(internal)/profile` (standalone, not under projects).
-- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0027). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
-- **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications, send), Drive API (folder provisioning), OAuth (token refresh).
+- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0028). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
+- **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications via `gmail.users.watch()`, Pub/Sub webhook at `/api/emails/webhook`), Drive API (folder provisioning for deals), OAuth (offline refresh tokens stored in `google_tokens`).
+- **CoStar import pipeline:** ExcelJS parses `.xlsx` in-memory → cross-references `property_id` against DB to prevent duplicates → background polling tracks progress (bypasses Vercel 60s timeout).
 - **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
 
 ## Key design rules
@@ -70,7 +73,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (27 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (28 exist, PLAN.md describes 17). |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |
