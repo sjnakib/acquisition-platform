@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
-import { Bold, Italic, Underline, Link, List, ListOrdered } from 'lucide-react'
+import { useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
+import { Bold, Italic, Underline, Link, List, ListOrdered, Palette, Paperclip } from 'lucide-react'
 
 export interface RichTextEditorHandle {
   insertHTML: (html: string) => void
@@ -14,6 +14,8 @@ interface RichTextEditorProps {
   placeholder?: string
   disabled?: boolean
   minHeight?: number
+  showAttach?: boolean
+  onAttach?: (files: FileList) => void
 }
 
 type FormatCommand = 'bold' | 'italic' | 'underline' | 'insertUnorderedList' | 'insertOrderedList'
@@ -26,40 +28,39 @@ const FORMAT_BUTTONS: { command: FormatCommand; icon: typeof Bold; label: string
   { command: 'insertOrderedList', icon: ListOrdered, label: 'Numbered list' },
 ]
 
+const FONT_SIZES = [
+  { label: 'Small', value: '2' },
+  { label: 'Normal', value: '3' },
+  { label: 'Medium', value: '4' },
+  { label: 'Large', value: '5' },
+]
+
+const TEXT_COLORS = [
+  '#1e293b', '#334155', '#475569', '#64748b',
+  '#dc2626', '#ea580c', '#ca8a04', '#16a34a',
+  '#2563eb', '#7c3aed', '#db2777', '#0891b2',
+]
+
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
-  function RichTextEditor({ value, onChange, placeholder, disabled, minHeight = 200 }, ref) {
+  function RichTextEditor({ value, onChange, placeholder, disabled, minHeight = 200, showAttach, onAttach }, ref) {
     const editorRef = useRef<HTMLDivElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const isUpdatingRef = useRef(false)
-
-    // Sync external value into editor (only when not mid-edit)
-    const syncValue = useCallback(() => {
-      if (!editorRef.current || isUpdatingRef.current) return
-      if (editorRef.current.innerHTML !== value) {
-        editorRef.current.innerHTML = value
-      }
-    }, [value])
-
-    // Ensure editor ref always has latest value when focused
-    const editor = editorRef.current
-    if (editor && document.activeElement !== editor && editor.innerHTML !== value) {
-      editor.innerHTML = value
-    }
+    const [showColorPicker, setShowColorPicker] = useState(false)
+    const [showFontSizes, setShowFontSizes] = useState(false)
 
     useImperativeHandle(ref, () => ({
       insertHTML: (html: string) => {
         const el = editorRef.current
         if (!el) return
         el.focus()
-        // If editor is empty, replace placeholder; otherwise append
         if (el.textContent?.trim() === '' || el.innerHTML === '' || el.innerHTML === '<br>') {
           el.innerHTML = html
         } else {
-          // Append at cursor position or end
           el.innerHTML += html
         }
         isUpdatingRef.current = true
         onChange(el.innerHTML)
-        // Move cursor to end
         const range = document.createRange()
         range.selectNodeContents(el)
         range.collapse(false)
@@ -76,11 +77,35 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       },
     }))
 
+    // Sync external value into editor
+    const editor = editorRef.current
+    if (editor && document.activeElement !== editor && editor.innerHTML !== value) {
+      editor.innerHTML = value
+    }
+
     const execFormat = useCallback((command: FormatCommand) => {
       const el = editorRef.current
       if (!el) return
       el.focus()
       document.execCommand(command, false)
+      onChange(el.innerHTML)
+    }, [onChange])
+
+    const execFontSize = useCallback((size: string) => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      document.execCommand('fontSize', false, size)
+      setShowFontSizes(false)
+      onChange(el.innerHTML)
+    }, [onChange])
+
+    const execForeColor = useCallback((color: string) => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      document.execCommand('foreColor', false, color)
+      setShowColorPicker(false)
       onChange(el.innerHTML)
     }, [onChange])
 
@@ -103,7 +128,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       if (!el) return
       isUpdatingRef.current = true
       onChange(el.innerHTML)
-      // Use microtask to reset flag after React re-render
       queueMicrotask(() => { isUpdatingRef.current = false })
     }, [onChange])
 
@@ -137,6 +161,72 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             </button>
           ))}
           <div className="w-px h-4 mx-1" style={{ background: 'var(--color-surface-3)' }} />
+
+          {/* Font Size */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { setShowFontSizes(!showFontSizes); setShowColorPicker(false) }}
+              className="h-7 px-2 flex items-center gap-1 rounded transition-colors hover:bg-[var(--color-surface-2)]"
+              style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}
+              title="Font size"
+            >
+              A<span style={{ fontSize: 9 }}>▼</span>
+            </button>
+            {showFontSizes && (
+              <div
+                className="absolute top-full left-0 mt-1 rounded-md border shadow-lg z-10 py-1"
+                style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', minWidth: 100 }}
+              >
+                {FONT_SIZES.map((fs) => (
+                  <button
+                    key={fs.value}
+                    type="button"
+                    onClick={() => execFontSize(fs.value)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-[var(--color-surface-1)] transition-colors"
+                    style={{ fontSize: 13, color: 'var(--color-text-primary)' }}
+                  >
+                    {fs.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Text Color */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowColorPicker(!showColorPicker); setShowFontSizes(false) }}
+              className="h-7 w-7 flex items-center justify-center rounded transition-colors hover:bg-[var(--color-surface-2)]"
+              style={{ color: 'var(--color-text-secondary)' }}
+              title="Text color"
+            >
+              <Palette size={14} />
+            </button>
+            {showColorPicker && (
+              <div
+                className="absolute top-full left-0 mt-1 rounded-md border shadow-lg z-10 p-2"
+                style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}
+              >
+                <div className="grid grid-cols-6 gap-1">
+                  {TEXT_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => execForeColor(color)}
+                      className="h-5 w-5 rounded-sm border transition-transform hover:scale-110"
+                      style={{ background: color, borderColor: 'var(--color-surface-3)' }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="w-px h-4 mx-1" style={{ background: 'var(--color-surface-3)' }} />
+
           <button
             type="button"
             onClick={insertLink}
@@ -146,6 +236,34 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           >
             <Link size={14} />
           </button>
+
+          {/* Attach button */}
+          {showAttach && onAttach && (
+            <>
+              <div className="w-px h-4 mx-1" style={{ background: 'var(--color-surface-3)' }} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-7 w-7 flex items-center justify-center rounded transition-colors hover:bg-[var(--color-surface-2)]"
+                style={{ color: 'var(--color-text-secondary)' }}
+                title="Attach file"
+              >
+                <Paperclip size={14} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    onAttach(e.target.files)
+                    e.target.value = ''
+                  }
+                }}
+              />
+            </>
+          )}
         </div>
 
         {/* Editor */}
@@ -169,8 +287,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
               color: 'var(--color-text-primary)',
               lineHeight: 1.6,
             }}
-            // syncValue is used to prevent external overwrites during editing
-            onFocus={syncValue}
           />
         </div>
       </div>

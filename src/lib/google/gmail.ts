@@ -1,34 +1,80 @@
 import { google } from 'googleapis'
 import { getAuthedClientByConnection } from './oauth'
 
+export interface EmailAttachment {
+  filename: string
+  mimeType: string
+  content: Buffer
+}
+
+function buildMimeMessage(
+  to: string,
+  subject: string,
+  htmlBody: string,
+  cc?: string,
+  attachments?: EmailAttachment[],
+): string {
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`
+  const lines: string[] = []
+
+  lines.push(`To: ${to}`)
+  if (cc) lines.push(`Cc: ${cc}`)
+  lines.push(`Subject: ${utf8Subject}`)
+  lines.push('MIME-Version: 1.0')
+
+  if (attachments?.length) {
+    lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
+    lines.push('')
+    lines.push(`--${boundary}`)
+    lines.push('Content-Type: text/html; charset=utf-8')
+    lines.push('')
+    lines.push(htmlBody)
+
+    for (const att of attachments) {
+      lines.push(`--${boundary}`)
+      lines.push(`Content-Type: ${att.mimeType}`)
+      lines.push('Content-Transfer-Encoding: base64')
+      lines.push(`Content-Disposition: attachment; filename="${att.filename}"`)
+      lines.push('')
+      lines.push(att.content.toString('base64'))
+    }
+
+    lines.push(`--${boundary}--`)
+  } else {
+    lines.push('Content-Type: text/html; charset=utf-8')
+    lines.push('')
+    lines.push(htmlBody)
+  }
+
+  return lines.join('\n')
+}
+
+function encodeMessage(raw: string): string {
+  return Buffer.from(raw)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
 export async function sendEmail(
   connectionId: string,
   to: string,
   subject: string,
   htmlBody: string,
-  cc?: string
+  cc?: string,
+  attachments?: EmailAttachment[],
 ): Promise<{ messageId: string; threadId: string }> {
   const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
-  const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`
-  const headers = [
-    `To: ${to}`,
-    ...(cc ? [`Cc: ${cc}`] : []),
-    `Subject: ${utf8Subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-  ]
-  const messageParts = [...headers, '', htmlBody]
-  const message = Buffer.from(messageParts.join('\n'))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+  const mime = buildMimeMessage(to, subject, htmlBody, cc, attachments)
+  const raw = encodeMessage(mime)
 
   const res = await gmail.users.messages.send({
     userId: 'me',
-    requestBody: { raw: message },
+    requestBody: { raw },
   })
 
   return {
@@ -58,32 +104,51 @@ export async function sendReply(
   subject: string,
   htmlBody: string,
   inReplyTo: string,
-  cc?: string
+  cc?: string,
+  attachments?: EmailAttachment[],
 ): Promise<{ messageId: string; threadId: string }> {
   const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
   const utf8Subject = subject.startsWith('Re:') ? subject : `Re: ${subject}`
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const encodedSubject = `=?utf-8?B?${Buffer.from(utf8Subject).toString('base64')}?=`
-  const headers = [
-    `To: ${to}`,
-    ...(cc ? [`Cc: ${cc}`] : []),
-    `Subject: ${encodedSubject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    `In-Reply-To: ${inReplyTo}`,
-    `References: ${inReplyTo}`,
-  ]
-  const messageParts = [...headers, '', htmlBody]
-  const message = Buffer.from(messageParts.join('\n'))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+  const lines: string[] = []
+
+  lines.push(`To: ${to}`)
+  if (cc) lines.push(`Cc: ${cc}`)
+  lines.push(`Subject: ${encodedSubject}`)
+  lines.push('MIME-Version: 1.0')
+  lines.push(`In-Reply-To: ${inReplyTo}`)
+  lines.push(`References: ${inReplyTo}`)
+
+  if (attachments?.length) {
+    lines.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
+    lines.push('')
+    lines.push(`--${boundary}`)
+    lines.push('Content-Type: text/html; charset=utf-8')
+    lines.push('')
+    lines.push(htmlBody)
+    for (const att of attachments) {
+      lines.push(`--${boundary}`)
+      lines.push(`Content-Type: ${att.mimeType}`)
+      lines.push('Content-Transfer-Encoding: base64')
+      lines.push(`Content-Disposition: attachment; filename="${att.filename}"`)
+      lines.push('')
+      lines.push(att.content.toString('base64'))
+    }
+    lines.push(`--${boundary}--`)
+  } else {
+    lines.push('Content-Type: text/html; charset=utf-8')
+    lines.push('')
+    lines.push(htmlBody)
+  }
+
+  const raw = encodeMessage(lines.join('\n'))
 
   const res = await gmail.users.messages.send({
     userId: 'me',
-    requestBody: { raw: message, threadId },
+    requestBody: { raw, threadId },
   })
 
   return {

@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Mail, Target, BarChart3 } from 'lucide-react'
+import { Target, BarChart3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
@@ -12,14 +12,17 @@ import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { toast } from 'sonner'
 
 interface Campaign {
   id: string; name: string; market: string; listing_type: string | null
-  email_template: string | null; email_subject_template: string | null
+  email_template: string | null; email_template_id: string | null
+  email_subject_template: string | null; email_body_template: string | null
   target_response_rate_pct: number | null; target_loi_count: number | null
   is_active: boolean; created_at: string
 }
-interface FieldDef { id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number }
+interface FieldDef { id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number; source?: string | null }
 const STAGE_ORDER = ['lead', 'outreach', 'response', 'underwriting', 'loi', 'closed', 'failed', 'archived'] as const
 const STAGE_LABELS: Record<string, string> = {
   lead: 'Lead', outreach: 'Outreach', response: 'Response', underwriting: 'Underwriting',
@@ -142,6 +145,31 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     },
   })
 
+  // Gmail connection status for this project
+  const { data: gmailConnected = false } = useQuery<boolean>({
+    queryKey: ['project', projectId, 'gmail-status'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`)
+      if (!res.ok) return false
+      const json = await res.json()
+      return !!json.google_connections?.google_email
+    },
+  })
+
+  const handleCampaignUpdate = async (updates: Partial<Campaign>) => {
+    try {
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) throw new Error('Failed to update campaign')
+      queryClient.invalidateQueries({ queryKey: ['campaigns', campaignId] })
+    } catch {
+      toast.error('Failed to save template')
+    }
+  }
+
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
 
@@ -190,44 +218,43 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
         <div className="flex-1 min-h-0 overflow-auto">
           <TabsContent value="details">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4">
-              <div style={sectionStyle}>
-                <div style={sectionTitleStyle}><Mail className="h-3.5 w-3.5" />Template Configuration</div>
-                {campaign.email_template ? (
-                  <div style={{ marginBottom: campaign.email_subject_template ? 14 : 0 }}>
-                    <div style={labelStyle}>Email Template</div>
-                    <div style={valueStyle}>{campaign.email_template.replace(/_/g, ' ')}</div>
-                  </div>
-                ) : <div style={mutedStyle}>No template selected.</div>}
-                {campaign.email_subject_template && (
-                  <div><div style={labelStyle}>Subject Template</div>
-                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{campaign.email_subject_template}</div>
-                  </div>
-                )}
+            <div style={{ display: 'flex', gap: 16, paddingBottom: 16, alignItems: 'flex-start' }}>
+              {/* Left 70% — Email Template Manager */}
+              <div style={{ width: '70%', minWidth: 0 }}>
+                <EmailTemplateManager
+                  campaign={campaign}
+                  projectId={projectId}
+                  leadsCount={total}
+                  gmailConnected={gmailConnected}
+                  onCampaignUpdate={handleCampaignUpdate}
+                />
               </div>
-              <div style={sectionStyle}>
-                <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
-                {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                    {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
-                    {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
+              {/* Right 30% — Pipeline, Targets, Summary */}
+              <div style={{ width: '30%', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={sectionStyle}>
+                  <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
+                  {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
+                </div>
+                <div style={sectionStyle}>
+                  <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
+                  {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
+                      {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
+                    </div>
+                  ) : <div style={mutedStyle}>No targets set.</div>}
+                </div>
+                <div style={sectionStyle}>
+                  <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
+                    <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
+                      const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
+                      return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
+                    }, 0)}</div></div>
+                    <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
+                    <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
                   </div>
-                ) : <div style={mutedStyle}>No targets set.</div>}
-              </div>
-              <div style={sectionStyle}>
-                <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
-                {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
-              </div>
-              <div style={sectionStyle}>
-                <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
-                  <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
-                    const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
-                    return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
-                  }, 0)}</div></div>
-                  <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
-                  <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
                 </div>
               </div>
             </div>

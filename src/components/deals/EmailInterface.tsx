@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
@@ -10,9 +9,8 @@ import {
   ChevronDown, ChevronUp, ExternalLink, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
-import { ContactSuggestInput, type ContactSuggestion } from './ContactSuggestInput'
 import { ContactsPanel } from './ContactsPanel'
+import { EmailComposer, type ComposeSendData, type EmailComposerHandle } from '@/components/shared/EmailComposer'
 import { render } from '@react-email/render'
 import OutreachEmail from '@/lib/email/templates/outreach'
 import ThankYouEmail from '@/lib/email/templates/thank-you'
@@ -96,16 +94,9 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
 
   // Compose
   const [composeMode, setComposeMode] = useState<'new' | 'reply' | null>(null)
-  const [composeTo, setComposeTo] = useState('')
-  const [composeCc, setComposeCc] = useState('')
-  const [showCc, setShowCc] = useState(false)
-  const [composeSubject, setComposeSubject] = useState('')
-  const [composeBody, setComposeBody] = useState('')
-  const [composeContactId, setComposeContactId] = useState('')
+  const [composerDefaults, setComposerDefaults] = useState<{ to?: string; subject?: string }>({})
   const [sending, setSending] = useState(false)
   const [gmailError, setGmailError] = useState('')
-
-  const editorRef = useRef<RichTextEditorHandle>(null)
 
   // ── Data fetching ────────────────────────────────────────────────────────
 
@@ -178,13 +169,7 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
 
   const openCompose = useCallback(() => {
     setComposeMode('new')
-    setComposeTo('')
-    setComposeCc('')
-    setShowCc(false)
-    setComposeSubject('')
-    setComposeBody('')
-    setComposeContactId('')
-    editorRef.current?.clear()
+    setComposerDefaults({})
     setSelectedThread(null)
     setMessages([])
   }, [])
@@ -192,32 +177,21 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
   const startReply = useCallback(() => {
     if (!selectedThread || messages.length === 0) return
     const lastMsg = messages[messages.length - 1]!
+    setComposerDefaults({
+      to: lastMsg.from,
+      subject: selectedThread.subject ?? '',
+    })
     setComposeMode('reply')
-    setComposeTo(lastMsg.from)
-    setComposeCc('')
-    setShowCc(false)
-    setComposeSubject(selectedThread.subject ?? '')
-    setComposeBody('')
-    setComposeContactId('')
-    editorRef.current?.clear()
   }, [selectedThread, messages])
 
-  const handleContactEmailClick = useCallback((email: string, contactId: string) => {
+  const handleContactEmailClick = useCallback((email: string, _contactId: string) => {
+    setComposerDefaults({ to: email })
     setComposeMode('new')
-    setComposeTo(email)
-    setComposeCc('')
-    setShowCc(false)
-    setComposeSubject('')
-    setComposeBody('')
-    setComposeContactId(contactId)
-    editorRef.current?.clear()
     setSelectedThread(null)
     setMessages([])
   }, [])
 
-  const handleContactSelect = useCallback((contact: ContactSuggestion) => {
-    setComposeContactId(contact.id)
-  }, [])
+  const emailComposerRef = useRef<EmailComposerHandle>(null)
 
   const insertTemplate = useCallback(async (template: 'outreach' | 'thank_you' | 'declination') => {
     try {
@@ -230,16 +204,14 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
       } else {
         html = await render(DeclinationEmail({ ownerName: 'Owner', propertyAddress: dealName ?? 'the property', senderName }))
       }
-      editorRef.current?.insertHTML(html)
+      emailComposerRef.current?.insertHTML(html)
     } catch {
       toast.error('Failed to insert template')
     }
   }, [dealName])
 
-  const handleSend = useCallback(async () => {
-    if (!composeTo || !composeSubject) return
-    const body = editorRef.current ? composeBody : composeBody
-    if (!body) return
+  const handleSend = useCallback(async (data: ComposeSendData) => {
+    if (!data.to || !data.subject) return
     setSending(true)
     try {
       const lastMsg = messages.length > 0 ? messages[messages.length - 1]! : null
@@ -247,11 +219,11 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: composeTo,
-          subject: composeSubject,
-          htmlBody: body,
-          contact_id: composeContactId || undefined,
-          cc: composeCc || undefined,
+          to: data.to,
+          subject: data.subject,
+          htmlBody: data.htmlBody,
+          contact_id: data.contactId || undefined,
+          cc: data.cc || undefined,
           threadId: composeMode === 'reply' && selectedThread ? selectedThread.threadId : undefined,
           inReplyTo: composeMode === 'reply' && lastMsg ? lastMsg.id : undefined,
         }),
@@ -269,7 +241,7 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
     } finally {
       setSending(false)
     }
-  }, [composeTo, composeSubject, composeBody, composeCc, composeContactId, composeMode, selectedThread, messages, dealId, fetchThreads, includePortfolio])
+  }, [composeMode, selectedThread, messages, dealId, fetchThreads, includePortfolio])
 
   const dismissCompose = useCallback(() => {
     setComposeMode(null)
@@ -482,56 +454,10 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
             </div>
 
             {/* Compose body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {/* To field with contact suggestions */}
-              <ContactSuggestInput
-                value={composeTo}
-                onChange={setComposeTo}
-                onSelect={handleContactSelect}
-                dealId={dealId}
-                placeholder="To: email@example.com"
-                disabled={composeMode === 'reply'}
-              />
-
-              {/* CC/BCC toggle */}
-              {!showCc ? (
-                <button
-                  onClick={() => setShowCc(true)}
-                  className="text-[11px] font-medium hover:underline"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                >
-                  Cc / Bcc
-                </button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={composeCc}
-                    onChange={(e) => setComposeCc(e.target.value)}
-                    placeholder="Cc: email@example.com"
-                    className="h-8 text-[13px] flex-1 bg-[var(--color-surface-0)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
-                  />
-                  <button
-                    onClick={() => { setShowCc(false); setComposeCc('') }}
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors flex-shrink-0"
-                    style={{ color: 'var(--color-text-tertiary)' }}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              )}
-
-              {/* Subject */}
-              <Input
-                value={composeSubject}
-                onChange={(e) => setComposeSubject(e.target.value)}
-                placeholder="Subject"
-                className="h-8 text-[13px] bg-[var(--color-surface-0)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
-                disabled={composeMode === 'reply'}
-              />
-
+            <div className="flex-1 overflow-y-auto p-4">
               {/* Template pills (new message only) */}
               {composeMode === 'new' && (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 mb-3">
                   <span className="text-[10px] font-medium flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }}>
                     Templates:
                   </span>
@@ -557,41 +483,16 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
                 </div>
               )}
 
-              {/* Rich text editor */}
-              <RichTextEditor
-                ref={editorRef}
-                value={composeBody}
-                onChange={setComposeBody}
-                placeholder="Write your message..."
-                disabled={sending}
-                minHeight={200}
+              <EmailComposer
+                ref={emailComposerRef}
+                mode="compose"
+                dealId={dealId}
+                defaultTo={composerDefaults.to}
+                defaultSubject={composerDefaults.subject}
+                onSend={handleSend}
+                sending={sending}
+                showCcToggle
               />
-            </div>
-
-            {/* Compose footer */}
-            <div
-              className="flex items-center justify-end gap-2 px-4 py-3 border-t"
-              style={{ borderColor: 'var(--color-surface-2)' }}
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={dismissCompose}
-                disabled={sending}
-                className="h-8 text-[12px]"
-              >
-                Discard
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSend}
-                disabled={!composeTo || !composeSubject || sending}
-                className="h-8 text-[12px]"
-                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', border: 'none' }}
-              >
-                <Send size={13} />
-                {sending ? 'Sending...' : 'Send'}
-              </Button>
             </div>
           </div>
         ) : !selectedThread ? (

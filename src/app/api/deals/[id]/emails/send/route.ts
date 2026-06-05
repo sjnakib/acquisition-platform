@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { emailSendRateLimit } from '@/lib/rate-limit'
-import { sendEmail, sendReply } from '@/lib/google/gmail'
+import { sendEmail, sendReply, type EmailAttachment } from '@/lib/google/gmail'
 
 async function resolveConnectionId(dealId: string): Promise<string | null> {
   const supabase = await createClient()
@@ -44,18 +44,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const body = await req.json()
-    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc } = body
+    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc, attachment_ids } = body
 
     if (!to || !subject || !htmlBody) {
       return NextResponse.json({ error: 'to, subject, and htmlBody required' }, { status: 400 })
     }
 
+    // Resolve attachments: download file content from storage
+    const gmailAttachments: EmailAttachment[] = []
+    if (attachment_ids?.length) {
+      for (const attId of attachment_ids as string[]) {
+        const { data: attachment } = await supabase
+          .from('email_attachments')
+          .select('*')
+          .eq('id', attId)
+          .single()
+
+        if (!attachment) continue
+
+        const { data: fileBlob, error: downloadErr } = await supabase.storage
+          .from('email-attachments')
+          .download(attachment.storage_path)
+
+        if (downloadErr || !fileBlob) continue
+
+        const buffer = Buffer.from(await fileBlob.arrayBuffer())
+        gmailAttachments.push({
+          filename: attachment.filename,
+          mimeType: attachment.mime_type,
+          content: buffer,
+        })
+      }
+    }
+
     let result: { messageId: string; threadId: string }
 
     if (threadId && inReplyTo) {
-      result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc)
+      result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc, gmailAttachments)
     } else {
-      result = await sendEmail(connectionId, to, subject, htmlBody, cc)
+      result = await sendEmail(connectionId, to, subject, htmlBody, cc, gmailAttachments)
     }
 
     const { data: outreach, error } = await supabase.from('email_outreach').insert({
@@ -69,6 +96,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }).select().single()
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Link attachments to the outreach record
+    if (attachment_ids?.length && outreach) {
+      await supabase
+        .from('email_attachments')
+        .update({ email_outreach_id: outreach.id })
+        .in('id', attachment_ids as string[])
+    }
+
     return NextResponse.json(outreach, { status: 201 })
   } catch (err) {
     console.error('Email send error:', err)

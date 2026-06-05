@@ -53,6 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
         data_type: action.dataType,
         project_id: projectId,
         show_in_grid: true,
+        source: 'import',
       }, { onConflict: 'key, project_id' })
       if (fdError) {
         console.error('Failed to create field definition:', fdError)

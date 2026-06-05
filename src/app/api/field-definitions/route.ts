@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const projectId = req.nextUrl.searchParams.get('project_id')
+  const source = req.nextUrl.searchParams.get('source')
 
   let query = supabase
     .from('field_definitions')
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
     .order('sort_order')
 
   if (projectId) query = query.eq('project_id', projectId)
+  if (source) query = query.eq('source', source)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
