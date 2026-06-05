@@ -15,13 +15,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: deal } = await supabase
       .from('deals')
-      .select('deal_name')
+      .select('deal_name, project_id')
       .eq('id', id)
       .single()
 
     if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
-    const { folderUrl } = await createDealFolder(user.id, deal.deal_name ?? 'Untitled Deal')
+    // Resolve Google connection from project
+    const { data: project } = await supabase
+      .from('projects')
+      .select('google_connection_id')
+      .eq('id', deal.project_id)
+      .single()
+
+    if (!project?.google_connection_id) {
+      return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
+    }
+
+    const { folderUrl } = await createDealFolder(project.google_connection_id, deal.deal_name ?? 'Untitled Deal')
 
     const { data: updated } = await supabase
       .from('deals')

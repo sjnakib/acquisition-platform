@@ -1,12 +1,12 @@
 import { google } from 'googleapis'
-import { getAuthedClient } from './oauth'
+import { getAuthedClientByConnection } from './oauth'
 
 export async function createDealFolder(
-  userId: string,
+  connectionId: string,
   dealName: string,
   parentFolderId?: string
 ): Promise<{ folderId: string; folderUrl: string }> {
-  const auth = await getAuthedClient(userId)
+  const auth = await getAuthedClientByConnection(connectionId)
   const drive = google.drive({ version: 'v3', auth })
 
   const folder = await drive.files.create({

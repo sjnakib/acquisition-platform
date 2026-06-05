@@ -41,7 +41,7 @@ npm run db:reset     # reset + re-seed local DB
 - **`src/lib/validations/`** — 9 Zod schemas: `activity`, `auth`, `call`, `campaign`, `contact`, `deal`, `import`, `portfolio`, `project`. API routes import from here for request body validation.
 - **`src/lib/import/`** — `file-parser.ts` (ExcelJS CoStar .xlsx parsing), `mapping.ts` (field mapping logic).
 - **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles (outside route groups). Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. Profile at `(internal)/profile` (standalone, not under projects).
-- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0028). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
+- **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0029). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; API routes at `/api/projects/*`.
 - **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications via `gmail.users.watch()`, Pub/Sub webhook at `/api/emails/webhook`), Drive API (folder provisioning for deals), OAuth (offline refresh tokens stored in `google_tokens`).
 - **CoStar import pipeline:** ExcelJS parses `.xlsx` in-memory → cross-references `property_id` against DB to prevent duplicates → background polling tracks progress (bypasses Vercel 60s timeout).
 - **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
@@ -73,7 +73,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (28 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (29 exist, PLAN.md describes 17). |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |

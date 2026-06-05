@@ -9,9 +9,33 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const threadId = req.nextUrl.searchParams.get('threadId')
-    if (!threadId) return NextResponse.json({ error: 'threadId required' }, { status: 400 })
+    const dealId = req.nextUrl.searchParams.get('dealId')
 
-    const thread = await getThread(user.id, threadId)
+    if (!threadId) return NextResponse.json({ error: 'threadId required' }, { status: 400 })
+    if (!dealId) return NextResponse.json({ error: 'dealId required' }, { status: 400 })
+
+    // Resolve Google connection from the deal's project
+    const { data: deal } = await supabase
+      .from('deals')
+      .select('project_id')
+      .eq('id', dealId)
+      .single()
+
+    if (!deal?.project_id) {
+      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
+    }
+
+    const { data: project } = await supabase
+      .from('projects')
+      .select('google_connection_id')
+      .eq('id', deal.project_id)
+      .single()
+
+    if (!project?.google_connection_id) {
+      return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
+    }
+
+    const thread = await getThread(project.google_connection_id, threadId)
 
     const messages = (thread.messages ?? []).map((msg) => {
       const headers: Record<string, string> = {}

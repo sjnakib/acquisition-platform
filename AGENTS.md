@@ -23,7 +23,7 @@ Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. i
 
 ## Database
 
-- **26 migrations** (`supabase/migrations/0001–0026`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields.
+- **29 migrations** (`supabase/migrations/0001–0029`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access.
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **8-stage `deal_stage`:** `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
 - **Flexible schema:** `deals` table stores only system fields (outreach_emails, unit_count, stage, score). Property data in `deal_fields` as key/value rows catalogued by `field_definitions`. Deals API response includes `deal_fields` with nested `field_definitions` join — new code touching deals must include this join.

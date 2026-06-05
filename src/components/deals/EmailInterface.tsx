@@ -1,17 +1,24 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
   Mail, Send, Reply, RefreshCw, FolderKanban,
-  User
+  ChevronDown, ChevronUp, ExternalLink, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { formatDate } from '@/lib/utils'
+import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
+import { ContactSuggestInput, type ContactSuggestion } from './ContactSuggestInput'
+import { ContactsPanel } from './ContactsPanel'
+import { render } from '@react-email/render'
+import OutreachEmail from '@/lib/email/templates/outreach'
+import ThankYouEmail from '@/lib/email/templates/thank-you'
+import DeclinationEmail from '@/lib/email/templates/declination'
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface Thread {
   threadId: string
@@ -39,31 +46,79 @@ interface Message {
   body: string
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function relativeTime(dateStr: string | null): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const now = Date.now()
+  const diff = now - d.getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function initials(name: string | null): string {
+  if (!name) return '?'
+  return name
+    .split(' ')
+    .map((w) => w[0] ?? '')
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
+
+function avatarColor(name: string | null): string {
+  let hash = 0
+  const str = name ?? '?'
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  return `hsl(${hash % 360}, 55%, 50%)`
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
 export function EmailInterface({ dealId, dealName }: { dealId: string; dealName: string | null }) {
+  // Thread list
   const [threads, setThreads] = useState<Thread[]>([])
   const [loading, setLoading] = useState(true)
+  const [includePortfolio, setIncludePortfolio] = useState(false)
+
+  // Selected thread
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [includePortfolio, setIncludePortfolio] = useState(false)
-  const [showCompose, setShowCompose] = useState(false)
-  const [showReply, setShowReply] = useState(false)
+  const [allMessagesExpanded, setAllMessagesExpanded] = useState(false)
+
+  // Compose
+  const [composeMode, setComposeMode] = useState<'new' | 'reply' | null>(null)
   const [composeTo, setComposeTo] = useState('')
+  const [composeCc, setComposeCc] = useState('')
+  const [showCc, setShowCc] = useState(false)
   const [composeSubject, setComposeSubject] = useState('')
   const [composeBody, setComposeBody] = useState('')
   const [composeContactId, setComposeContactId] = useState('')
   const [sending, setSending] = useState(false)
   const [gmailError, setGmailError] = useState('')
 
+  const editorRef = useRef<RichTextEditorHandle>(null)
+
+  // ── Data fetching ────────────────────────────────────────────────────────
+
   const fetchThreads = useCallback(async (portfolio: boolean) => {
+    console.log('[EmailInterface] fetchThreads called, dealId:', dealId)
     setLoading(true)
     setGmailError('')
     try {
       const url = `/api/deals/${dealId}/emails${portfolio ? '?portfolio=true' : ''}`
+      console.log('[EmailInterface] fetching:', url)
       const res = await fetch(url)
       if (res.ok) {
-        const data = await res.json()
-        setThreads(data)
+        setThreads(await res.json())
       } else {
         const json = await res.json()
         if (json.error?.includes('Google account not connected')) {
@@ -79,19 +134,27 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
     }
   }, [dealId])
 
+  // Fetch threads on mount and when portfolio toggle changes.
+  // Deferred via requestIdleCallback to avoid sync setState in effect (React 19 rule).
   useEffect(() => {
-    setTimeout(() => {
-      fetchThreads(includePortfolio)
-    }, 0)
+    const doFetch = () => fetchThreads(includePortfolio)
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(doFetch)
+      return () => window.cancelIdleCallback(id)
+    } else {
+      const id = setTimeout(doFetch, 0)
+      return () => clearTimeout(id)
+    }
   }, [includePortfolio, fetchThreads])
 
   const openThread = useCallback(async (thread: Thread) => {
     setSelectedThread(thread)
     setMessagesLoading(true)
-    setShowReply(false)
+    setComposeMode(null)
+    setAllMessagesExpanded(false)
     setGmailError('')
     try {
-      const res = await fetch(`/api/deals/${dealId}/emails/threads?threadId=${thread.threadId}`)
+      const res = await fetch(`/api/deals/${dealId}/emails/threads?threadId=${thread.threadId}&dealId=${dealId}`)
       if (res.ok) {
         const data = await res.json()
         setMessages(data.messages ?? [])
@@ -111,30 +174,91 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
     }
   }, [dealId])
 
+  // ── Compose actions ──────────────────────────────────────────────────────
+
+  const openCompose = useCallback(() => {
+    setComposeMode('new')
+    setComposeTo('')
+    setComposeCc('')
+    setShowCc(false)
+    setComposeSubject('')
+    setComposeBody('')
+    setComposeContactId('')
+    editorRef.current?.clear()
+    setSelectedThread(null)
+    setMessages([])
+  }, [])
+
+  const startReply = useCallback(() => {
+    if (!selectedThread || messages.length === 0) return
+    const lastMsg = messages[messages.length - 1]!
+    setComposeMode('reply')
+    setComposeTo(lastMsg.from)
+    setComposeCc('')
+    setShowCc(false)
+    setComposeSubject(selectedThread.subject ?? '')
+    setComposeBody('')
+    setComposeContactId('')
+    editorRef.current?.clear()
+  }, [selectedThread, messages])
+
+  const handleContactEmailClick = useCallback((email: string, contactId: string) => {
+    setComposeMode('new')
+    setComposeTo(email)
+    setComposeCc('')
+    setShowCc(false)
+    setComposeSubject('')
+    setComposeBody('')
+    setComposeContactId(contactId)
+    editorRef.current?.clear()
+    setSelectedThread(null)
+    setMessages([])
+  }, [])
+
+  const handleContactSelect = useCallback((contact: ContactSuggestion) => {
+    setComposeContactId(contact.id)
+  }, [])
+
+  const insertTemplate = useCallback(async (template: 'outreach' | 'thank_you' | 'declination') => {
+    try {
+      let html = ''
+      const senderName = 'Team'
+      if (template === 'outreach') {
+        html = await render(OutreachEmail({ ownerName: 'Owner', propertyAddress: dealName ?? 'the property', senderName }))
+      } else if (template === 'thank_you') {
+        html = await render(ThankYouEmail({ ownerName: 'Owner', propertyAddress: dealName ?? 'the property', senderName }))
+      } else {
+        html = await render(DeclinationEmail({ ownerName: 'Owner', propertyAddress: dealName ?? 'the property', senderName }))
+      }
+      editorRef.current?.insertHTML(html)
+    } catch {
+      toast.error('Failed to insert template')
+    }
+  }, [dealName])
+
   const handleSend = useCallback(async () => {
-    if (!composeTo || !composeSubject || !composeBody) return
+    if (!composeTo || !composeSubject) return
+    const body = editorRef.current ? composeBody : composeBody
+    if (!body) return
     setSending(true)
     try {
+      const lastMsg = messages.length > 0 ? messages[messages.length - 1]! : null
       const res = await fetch(`/api/deals/${dealId}/emails/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: composeTo,
           subject: composeSubject,
-          htmlBody: composeBody,
+          htmlBody: body,
           contact_id: composeContactId || undefined,
-          threadId: showReply && selectedThread ? selectedThread.threadId : undefined,
-          inReplyTo: showReply && messages.length > 0 ? messages[messages.length - 1]!.id : undefined,
+          cc: composeCc || undefined,
+          threadId: composeMode === 'reply' && selectedThread ? selectedThread.threadId : undefined,
+          inReplyTo: composeMode === 'reply' && lastMsg ? lastMsg.id : undefined,
         }),
       })
       if (res.ok) {
         toast.success('Email sent')
-        setShowCompose(false)
-        setShowReply(false)
-        setComposeTo('')
-        setComposeSubject('')
-        setComposeBody('')
-        setComposeContactId('')
+        setComposeMode(null)
         fetchThreads(includePortfolio)
       } else {
         const json = await res.json()
@@ -145,22 +269,13 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
     } finally {
       setSending(false)
     }
-  }, [composeTo, composeSubject, composeBody, composeContactId, dealId, showReply, selectedThread, messages, fetchThreads, includePortfolio])
+  }, [composeTo, composeSubject, composeBody, composeCc, composeContactId, composeMode, selectedThread, messages, dealId, fetchThreads, includePortfolio])
 
-  const startReply = useCallback(() => {
-    if (!selectedThread || messages.length === 0) return
-    const lastMsg = messages[messages.length - 1]!
-    setComposeTo(lastMsg.from)
-    setComposeSubject(selectedThread.subject ?? '')
-    setComposeBody('')
-    setShowReply(true)
-  }, [selectedThread, messages])
-
-  const handlePortfolioToggle = useCallback((checked: boolean) => {
-    setIncludePortfolio(checked)
-    setSelectedThread(null)
-    setMessages([])
+  const dismissCompose = useCallback(() => {
+    setComposeMode(null)
   }, [])
+
+  // ── Error state ──────────────────────────────────────────────────────────
 
   if (gmailError && !loading) {
     return (
@@ -173,37 +288,48 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
     )
   }
 
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  const visibleMessages = allMessagesExpanded || messages.length <= 3
+    ? messages
+    : messages.slice(messages.length - 3)
+
   return (
-    <div className="flex h-[calc(100vh-340px)] min-h-[420px] border rounded-xl overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
-      {/* Thread list panel */}
+    <div className="flex h-[calc(100vh-340px)] min-h-[460px] border rounded-xl overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+      {/* ═══ Thread List (left) ══════════════════════════════════════════════ */}
       <div
-        className="w-[340px] flex-shrink-0 flex flex-col border-r"
+        className="w-[320px] flex-shrink-0 flex flex-col border-r"
         style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-0)' }}
       >
-        {/* Panel header */}
+        {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3 border-b"
           style={{ borderColor: 'var(--color-surface-2)' }}
         >
-          <h4 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-            Conversations
+          <h4 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+            Inbox
           </h4>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => handlePortfolioToggle(!includePortfolio)}
+              onClick={() => {
+                setIncludePortfolio(!includePortfolio)
+                setSelectedThread(null)
+                setMessages([])
+              }}
               className={`flex items-center gap-1.5 h-6 px-2 rounded text-[10px] font-medium transition-colors ${
-                includePortfolio
-                  ? 'bg-[var(--color-accent-bg)] text-[var(--color-accent)]'
-                  : ''
+                includePortfolio ? '' : ''
               }`}
-              style={!includePortfolio ? { color: 'var(--color-text-tertiary)' } : {}}
+              style={{
+                background: includePortfolio ? 'var(--color-accent-bg)' : 'transparent',
+                color: includePortfolio ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+              }}
               title="Include portfolio emails"
             >
               <FolderKanban size={11} />
               Portfolio
             </button>
             <button
-              onClick={() => { setShowCompose(true); setShowReply(false); fetchThreads(includePortfolio) }}
+              onClick={() => fetchThreads(includePortfolio)}
               className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors"
               style={{ color: 'var(--color-text-secondary)' }}
               title="Refresh"
@@ -211,145 +337,288 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
               <RefreshCw size={12} />
             </button>
             <button
-              onClick={() => { setShowCompose(!showCompose); setShowReply(false) }}
+              onClick={openCompose}
               className="h-7 px-3 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1"
               style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
             >
-              <Send size={11} />
+              <Mail size={11} />
               New
             </button>
           </div>
         </div>
 
-        {/* Thread list */}
+        {/* Contacts panel */}
+        <ContactsPanel dealId={dealId} onEmailClick={handleContactEmailClick} />
+
+        {/* Thread items */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex justify-center py-10">
-              <LoadingSpinner size="md" />
+            <div className="space-y-0.5 p-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="rounded-lg px-3 py-3 animate-pulse">
+                  <div className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-full flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex justify-between">
+                        <div className="h-3 w-24 rounded" style={{ background: 'var(--color-surface-2)' }} />
+                        <div className="h-3 w-10 rounded" style={{ background: 'var(--color-surface-2)' }} />
+                      </div>
+                      <div className="h-3 w-20 rounded" style={{ background: 'var(--color-surface-2)' }} />
+                      <div className="h-3 w-full rounded" style={{ background: 'var(--color-surface-2)' }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : threads.length === 0 ? (
-            <div className="p-6 text-center">
-              <p className="text-[12px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                No email conversations found.
+            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+              <Mail size={28} style={{ color: 'var(--color-text-tertiary)', opacity: 0.5, marginBottom: 12 }} />
+              <p className="text-[13px] font-medium" style={{ color: 'var(--color-text-primary)' }}>No conversations yet</p>
+              <p className="text-[11px] mt-1 mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
+                Send your first outreach email
               </p>
+              <button
+                onClick={openCompose}
+                className="h-7 px-3 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1"
+                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+              >
+                <Send size={11} />
+                New Message
+              </button>
             </div>
           ) : (
-            threads.map((thread) => (
-              <button
-                key={thread.threadId}
-                onClick={() => openThread(thread)}
-                className={`w-full text-left px-4 py-3 border-b transition-colors hover:bg-[var(--color-surface-1)] ${
-                  selectedThread?.threadId === thread.threadId ? 'bg-[var(--color-surface-1)]' : ''
-                }`}
-                style={{ borderColor: 'var(--color-surface-2)' }}
-              >
-                <div className="flex items-start justify-between mb-1">
-                  <span className="text-[13px] font-medium truncate max-w-[200px]" style={{ color: 'var(--color-text-primary)' }}>
-                    {thread.contactName ?? 'Unknown'}
-                  </span>
-                  <span className="text-[10px] flex-shrink-0 ml-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                    {thread.lastDate ? formatDate(thread.lastDate) : ''}
-                  </span>
-                </div>
-                <p className="text-[12px] truncate mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-                  {thread.subject ?? '(no subject)'}
-                </p>
-                <div className="flex items-center gap-2">
-                  {thread.isPortfolioSibling && (
-                    <Badge variant="neutral" size="sm">
-                      <FolderKanban size={9} />
-                      {thread.dealName ?? 'Portfolio'}
-                    </Badge>
-                  )}
-                  {thread.status === 'replied' && (
-                    <span className="text-[10px] font-medium" style={{ color: 'var(--color-success-text)' }}>Replied</span>
-                  )}
-                  {thread.status === 'sent' && (
-                    <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Sent</span>
-                  )}
-                </div>
-              </button>
-            ))
+            threads.map((thread) => {
+              const isSelected = selectedThread?.threadId === thread.threadId
+              return (
+                <button
+                  key={thread.threadId}
+                  onClick={() => openThread(thread)}
+                  className={`w-full text-left px-3 py-3 border-b transition-colors hover:bg-[var(--color-surface-1)] ${
+                    isSelected ? '' : ''
+                  }`}
+                  style={{
+                    borderColor: 'var(--color-surface-2)',
+                    background: isSelected ? 'var(--color-surface-1)' : undefined,
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Avatar */}
+                    <div
+                      className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+                      style={{
+                        background: avatarColor(thread.contactName),
+                        color: '#fff',
+                      }}
+                    >
+                      {initials(thread.contactName)}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Name + date + status */}
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+                            {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
+                          </span>
+                          {thread.status === 'replied' && (
+                            <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--color-success-text)' }} />
+                          )}
+                          {thread.status === 'gmail' && (
+                            <span className="text-[9px] font-medium px-1 rounded flex-shrink-0" style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-tertiary)' }}>Gmail</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] flex-shrink-0 ml-2" style={{ color: 'var(--color-text-tertiary)' }}>
+                          {relativeTime(thread.lastDate)}
+                        </span>
+                      </div>
+
+                      {/* Subject */}
+                      <p className="text-[12px] truncate mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {thread.subject ?? '(no subject)'}
+                      </p>
+
+                      {/* Badges */}
+                      <div className="flex items-center gap-1.5">
+                        {thread.isPortfolioSibling && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                            style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
+                            <FolderKanban size={9} />
+                            {thread.dealName ?? 'Portfolio'}
+                          </span>
+                        )}
+                        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                          {thread.messageCount} {thread.messageCount === 1 ? 'msg' : 'msgs'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })
           )}
         </div>
       </div>
 
-      {/* Message view panel */}
+      {/* ═══ Right Panel (thread view OR compose) ════════════════════════════ */}
       <div className="flex-1 flex flex-col" style={{ background: 'var(--color-canvas)' }}>
-        {!selectedThread && !showCompose ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center space-y-3">
-              <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4 }} />
-              <p className="text-[13px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                Select a conversation to view emails
-              </p>
-            </div>
-          </div>
-        ) : showCompose || showReply ? (
-          /* Compose / Reply form */
+        {/* ── Compose mode ────────────────────────────────────────────────── */}
+        {composeMode ? (
           <div className="flex flex-col h-full">
+            {/* Compose header */}
             <div
               className="flex items-center justify-between px-4 py-3 border-b"
               style={{ borderColor: 'var(--color-surface-2)' }}
             >
-              <span className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                {showReply ? 'Reply' : 'New Message'}
+              <span className="text-[14px] font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+                {composeMode === 'reply' ? 'Reply' : 'New Message'}
               </span>
               <button
-                onClick={() => { setShowCompose(false); setShowReply(false) }}
-                className="text-[11px] hover:underline"
+                onClick={dismissCompose}
+                className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors"
                 style={{ color: 'var(--color-text-tertiary)' }}
               >
-                Cancel
+                <X size={14} />
               </button>
             </div>
-            <div className="flex-1 p-4 space-y-3 overflow-y-auto">
-              <Input
-                placeholder="To: broker@example.com"
+
+            {/* Compose body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {/* To field with contact suggestions */}
+              <ContactSuggestInput
                 value={composeTo}
-                onChange={(e) => setComposeTo(e.target.value)}
-                className="h-8 text-[13px] bg-[var(--color-surface-0)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
+                onChange={setComposeTo}
+                onSelect={handleContactSelect}
+                dealId={dealId}
+                placeholder="To: email@example.com"
+                disabled={composeMode === 'reply'}
               />
+
+              {/* CC/BCC toggle */}
+              {!showCc ? (
+                <button
+                  onClick={() => setShowCc(true)}
+                  className="text-[11px] font-medium hover:underline"
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                >
+                  Cc / Bcc
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={composeCc}
+                    onChange={(e) => setComposeCc(e.target.value)}
+                    placeholder="Cc: email@example.com"
+                    className="h-8 text-[13px] flex-1 bg-[var(--color-surface-0)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
+                  />
+                  <button
+                    onClick={() => { setShowCc(false); setComposeCc('') }}
+                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors flex-shrink-0"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
+
+              {/* Subject */}
               <Input
-                placeholder="Subject"
                 value={composeSubject}
                 onChange={(e) => setComposeSubject(e.target.value)}
+                placeholder="Subject"
                 className="h-8 text-[13px] bg-[var(--color-surface-0)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
+                disabled={composeMode === 'reply'}
               />
-              <textarea
-                placeholder="Write your message..."
+
+              {/* Template pills (new message only) */}
+              {composeMode === 'new' && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-medium flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Templates:
+                  </span>
+                  {([
+                    ['outreach', 'Outreach'],
+                    ['thank_you', 'Thank You'],
+                    ['declination', 'Declination'],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => insertTemplate(key)}
+                      className="h-6 px-2 rounded text-[10px] font-medium transition-colors border"
+                      style={{
+                        color: 'var(--color-text-secondary)',
+                        borderColor: 'var(--color-surface-3)',
+                        background: 'var(--color-surface-0)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Rich text editor */}
+              <RichTextEditor
+                ref={editorRef}
                 value={composeBody}
-                onChange={(e) => setComposeBody(e.target.value)}
-                rows={10}
-                className="w-full text-[13px] rounded-md border px-3 py-2 resize-none outline-none focus:ring-1 focus:ring-[var(--accent)]"
-                style={{
-                  background: 'var(--color-surface-0)',
-                  borderColor: 'var(--color-surface-3)',
-                  color: 'var(--color-text-primary)',
-                }}
+                onChange={setComposeBody}
+                placeholder="Write your message..."
+                disabled={sending}
+                minHeight={200}
               />
             </div>
+
+            {/* Compose footer */}
             <div
               className="flex items-center justify-end gap-2 px-4 py-3 border-t"
               style={{ borderColor: 'var(--color-surface-2)' }}
             >
               <Button
+                variant="outline"
+                size="sm"
+                onClick={dismissCompose}
+                disabled={sending}
+                className="h-8 text-[12px]"
+              >
+                Discard
+              </Button>
+              <Button
                 size="sm"
                 onClick={handleSend}
-                disabled={!composeTo || !composeSubject || !composeBody || sending}
-                className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]"
+                disabled={!composeTo || !composeSubject || sending}
+                className="h-8 text-[12px]"
+                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)', border: 'none' }}
               >
                 <Send size={13} />
                 {sending ? 'Sending...' : 'Send'}
               </Button>
             </div>
           </div>
+        ) : !selectedThread ? (
+          /* ── Empty / placeholder ─────────────────────────────────────── */
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4 }} />
+              <p className="text-[13px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                Select a conversation to view emails
+              </p>
+              <button
+                onClick={openCompose}
+                className="h-7 px-3 rounded-md text-[11px] font-medium transition-colors inline-flex items-center gap-1"
+                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+              >
+                <Send size={11} />
+                New Message
+              </button>
+            </div>
+          </div>
         ) : messagesLoading ? (
+          /* ── Loading messages ────────────────────────────────────────── */
           <div className="flex-1 flex items-center justify-center">
             <LoadingSpinner size="md" />
           </div>
         ) : (
-          /* Message thread */
+          /* ── Thread view ────────────────────────────────────────────── */
           <div className="flex flex-col h-full">
             {/* Thread header */}
             <div
@@ -357,55 +626,139 @@ export function EmailInterface({ dealId, dealName }: { dealId: string; dealName:
               style={{ borderColor: 'var(--color-surface-2)' }}
             >
               <div className="min-w-0">
-                <h4 className="text-[13px] font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+                <h4 className="text-[14px] font-semibold truncate" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
                   {selectedThread?.subject ?? '(no subject)'}
                 </h4>
-                <p className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {selectedThread?.contactName} &middot; {selectedThread?.contactEmail}
-                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    {selectedThread?.contactName ?? 'Unknown'}
+                  </span>
+                  {selectedThread?.contactEmail && (
+                    <>
+                      <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>&middot;</span>
+                      <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{selectedThread.contactEmail}</span>
+                    </>
+                  )}
+                  {selectedThread && (
+                    <>
+                      <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>&middot;</span>
+                      <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {selectedThread.messageCount} {selectedThread.messageCount === 1 ? 'message' : 'messages'}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={startReply}
-                className="h-7 text-[11px]"
-              >
-                <Reply size={12} />
-                Reply
-              </Button>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Button size="sm" variant="outline" onClick={startReply} className="h-7 text-[11px] gap-1">
+                  <Reply size={12} />
+                  Reply
+                </Button>
+                {selectedThread?.threadId && (
+                  <a
+                    href={`https://mail.google.com/mail/u/0/#inbox/${selectedThread.threadId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-7 w-7 flex items-center justify-center rounded transition-colors hover:bg-[var(--color-surface-2)]"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    title="Open in Gmail"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg) => (
+              {!allMessagesExpanded && messages.length > 3 && (
+                <button
+                  onClick={() => setAllMessagesExpanded(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-medium transition-colors hover:bg-[var(--color-surface-1)]"
+                  style={{ color: 'var(--color-accent)' }}
+                >
+                  <ChevronDown size={14} />
+                  Show all {messages.length} messages
+                </button>
+              )}
+
+              {visibleMessages.map((msg, idx) => (
                 <div
                   key={msg.id}
                   className="rounded-lg border p-4"
-                  style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}
+                  style={{
+                    background: 'var(--color-surface-0)',
+                    borderColor: 'var(--color-surface-2)',
+                    boxShadow: 'var(--shadow-xs)',
+                  }}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <User size={14} style={{ color: 'var(--color-text-tertiary)' }} />
-                      <span className="text-[12px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {msg.from}
-                      </span>
+                  {/* Message header */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+                        style={{ background: avatarColor(msg.from), color: '#fff' }}
+                      >
+                        {initials(msg.from)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                            {msg.from}
+                          </span>
+                          {idx === messages.length - 1 && messages.length > 1 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                              style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
+                              latest
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                            To: {msg.to}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span className="text-[10px] flex-shrink-0 ml-3" style={{ color: 'var(--color-text-tertiary)' }}>
                       {msg.date}
                     </span>
                   </div>
+
+                  {/* Message body */}
                   <div
-                    className="text-[13px] prose prose-sm max-w-none"
-                    style={{ color: 'var(--color-text-secondary)' }}
+                    className="text-[13px] leading-relaxed max-w-none"
+                    style={{
+                      color: 'var(--color-text-secondary)',
+                      wordBreak: 'break-word',
+                    }}
                   >
                     {msg.body ? (
-                      <div dangerouslySetInnerHTML={{ __html: msg.body }} />
+                      <div
+                        dangerouslySetInnerHTML={{ __html: msg.body }}
+                        className="prose prose-sm max-w-none"
+                        style={{
+                          // Scope styles to message body so inline styles from emails render properly
+                          lineHeight: 1.7,
+                        }}
+                      />
                     ) : (
                       <p className="italic" style={{ color: 'var(--color-text-tertiary)' }}>{msg.snippet}</p>
                     )}
                   </div>
                 </div>
               ))}
+
+              {allMessagesExpanded && messages.length > 3 && (
+                <button
+                  onClick={() => setAllMessagesExpanded(false)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[12px] font-medium transition-colors hover:bg-[var(--color-surface-1)]"
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                >
+                  <ChevronUp size={14} />
+                  Show less
+                </button>
+              )}
             </div>
           </div>
         )}

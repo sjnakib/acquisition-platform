@@ -1,20 +1,20 @@
 import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedClient } from '@/lib/google/oauth'
+import { getAuthedClientByConnection } from '@/lib/google/oauth'
 
 export async function GET() {
   try {
     const supabase = createAdminClient()
-    const { data: tokens } = await supabase
-      .from('google_tokens')
-      .select('user_id')
+    const { data: connections } = await supabase
+      .from('google_connections')
+      .select('id')
 
-    if (!tokens) return NextResponse.json({ ok: true })
+    if (!connections) return NextResponse.json({ ok: true })
 
-    for (const token of tokens) {
+    for (const conn of connections) {
       try {
-        const auth = await getAuthedClient(token.user_id)
+        const auth = await getAuthedClientByConnection(conn.id, { useAdminClient: true })
         const gmail = google.gmail({ version: 'v1', auth })
         const watchRes = await gmail.users.watch({
           userId: 'me',
@@ -23,11 +23,11 @@ export async function GET() {
             labelIds: ['INBOX'],
           },
         })
-        await supabase.from('google_tokens').update({
+        await supabase.from('google_connections').update({
           last_history_id: watchRes.data.historyId ?? null,
-        }).eq('user_id', token.user_id)
+        }).eq('id', conn.id)
       } catch (err) {
-        console.error(`Failed to refresh watch for user ${token.user_id}:`, err)
+        console.error(`Failed to refresh watch for connection ${conn.id}:`, err)
       }
     }
 

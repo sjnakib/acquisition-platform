@@ -30,13 +30,25 @@ export default function ProjectLayout({
   const router = useRouter()
 
   useEffect(() => {
+    let cancelled = false
     fetch(`/api/projects/${projectId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.name) setProjectName(data.name)
-        else if (data?.error) router.push('/projects')
+      .then(async (r) => {
+        const data = await r.json()
+        if (cancelled) return
+        if (data?.name) {
+          setProjectName(data.name)
+        } else if (!r.ok && r.status === 404) {
+          // Project genuinely doesn't exist — navigate away
+          router.push('/projects')
+        } else {
+          // Server error, network issue, etc. — show error, don't redirect
+          setProjectName('Error loading project')
+        }
       })
-      .catch(() => router.push('/projects'))
+      .catch(() => {
+        if (!cancelled) setProjectName('Error loading project')
+      })
+    return () => { cancelled = true }
   }, [projectId, router])
 
   useEffect(() => {

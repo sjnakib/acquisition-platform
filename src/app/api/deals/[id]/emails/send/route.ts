@@ -3,6 +3,25 @@ import { createClient } from '@/lib/supabase/server'
 import { emailSendRateLimit } from '@/lib/rate-limit'
 import { sendEmail, sendReply } from '@/lib/google/gmail'
 
+async function resolveConnectionId(dealId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: deal } = await supabase
+    .from('deals')
+    .select('project_id')
+    .eq('id', dealId)
+    .single()
+
+  if (!deal?.project_id) return null
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('google_connection_id')
+    .eq('id', deal.project_id)
+    .single()
+
+  return project?.google_connection_id ?? null
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
@@ -19,8 +38,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Daily email limit reached (100/day)' }, { status: 429 })
     }
 
+    const connectionId = await resolveConnectionId(dealId)
+    if (!connectionId) {
+      return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
+    }
+
     const body = await req.json()
-    const { contact_id, to, subject, htmlBody, threadId, inReplyTo } = body
+    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc } = body
 
     if (!to || !subject || !htmlBody) {
       return NextResponse.json({ error: 'to, subject, and htmlBody required' }, { status: 400 })
@@ -29,9 +53,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let result: { messageId: string; threadId: string }
 
     if (threadId && inReplyTo) {
-      result = await sendReply(user.id, threadId, to, subject, htmlBody, inReplyTo)
+      result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc)
     } else {
-      result = await sendEmail(user.id, to, subject, htmlBody)
+      result = await sendEmail(connectionId, to, subject, htmlBody, cc)
     }
 
     const { data: outreach, error } = await supabase.from('email_outreach').insert({

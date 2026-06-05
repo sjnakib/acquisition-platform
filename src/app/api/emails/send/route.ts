@@ -6,6 +6,25 @@ import { render } from '@react-email/render'
 import OutreachEmail from '@/lib/email/templates/outreach'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
 
+async function resolveConnectionId(dealId: string): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: deal } = await supabase
+    .from('deals')
+    .select('project_id')
+    .eq('id', dealId)
+    .single()
+
+  if (!deal?.project_id) return null
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('google_connection_id')
+    .eq('id', deal.project_id)
+    .single()
+
+  return project?.google_connection_id ?? null
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
@@ -24,6 +43,11 @@ export async function POST(req: NextRequest) {
     const { deal_id, contact_id } = await req.json()
     if (!deal_id || !contact_id) {
       return NextResponse.json({ error: 'deal_id and contact_id required' }, { status: 400 })
+    }
+
+    const connectionId = await resolveConnectionId(deal_id)
+    if (!connectionId) {
+      return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
     }
 
     const { data: contact } = await supabase.from('contacts').select('*').eq('id', contact_id).single()
@@ -46,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     let result: { messageId: string; threadId: string }
     try {
-      result = await sendEmail(user.id, contact.email[0]!, `Acquisition Inquiry — ${propertyLabel}`, html)
+      result = await sendEmail(connectionId, contact.email[0]!, `Acquisition Inquiry — ${propertyLabel}`, html)
     } catch (err: unknown) {
       const status = err instanceof Error && err.message?.includes('not found') ? 'invalid_address' : 'gmail_error'
       await supabase.from('email_outreach').insert({

@@ -19,19 +19,9 @@ export async function GET() {
       return NextResponse.json({ error: profileError.message }, { status: 500 })
     }
 
-    // Check if user has connected their Gmail/Google account
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('google_tokens')
-      .select('user_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    const gmail_connected = !tokenError && !!tokenData
-
     return NextResponse.json({
       user: { id: user.id, email: user.email },
       profile,
-      gmail_connected,
     })
   } catch (err) {
     console.error('Profile fetch error:', err)

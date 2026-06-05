@@ -1,24 +1,25 @@
 import { google } from 'googleapis'
-import { getAuthedClient } from './oauth'
+import { getAuthedClientByConnection } from './oauth'
 
 export async function sendEmail(
-  userId: string,
+  connectionId: string,
   to: string,
   subject: string,
-  htmlBody: string
+  htmlBody: string,
+  cc?: string
 ): Promise<{ messageId: string; threadId: string }> {
-  const auth = await getAuthedClient(userId)
+  const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`
-  const messageParts = [
+  const headers = [
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     `Subject: ${utf8Subject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
-    '',
-    htmlBody,
   ]
+  const messageParts = [...headers, '', htmlBody]
   const message = Buffer.from(messageParts.join('\n'))
     .toString('base64')
     .replace(/\+/g, '-')
@@ -36,43 +37,44 @@ export async function sendEmail(
   }
 }
 
-export async function getThread(userId: string, threadId: string) {
-  const auth = await getAuthedClient(userId)
+export async function getThread(connectionId: string, threadId: string) {
+  const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
   const res = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' })
   return res.data
 }
 
-export async function listThreads(userId: string, query: string, maxResults = 20) {
-  const auth = await getAuthedClient(userId)
+export async function listThreads(connectionId: string, query: string, maxResults = 20) {
+  const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
   const res = await gmail.users.threads.list({ userId: 'me', q: query, maxResults })
   return res.data.threads ?? []
 }
 
 export async function sendReply(
-  userId: string,
+  connectionId: string,
   threadId: string,
   to: string,
   subject: string,
   htmlBody: string,
-  inReplyTo: string
+  inReplyTo: string,
+  cc?: string
 ): Promise<{ messageId: string; threadId: string }> {
-  const auth = await getAuthedClient(userId)
+  const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
   const utf8Subject = subject.startsWith('Re:') ? subject : `Re: ${subject}`
   const encodedSubject = `=?utf-8?B?${Buffer.from(utf8Subject).toString('base64')}?=`
-  const messageParts = [
+  const headers = [
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     `Subject: ${encodedSubject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=utf-8',
     `In-Reply-To: ${inReplyTo}`,
     `References: ${inReplyTo}`,
-    '',
-    htmlBody,
   ]
+  const messageParts = [...headers, '', htmlBody]
   const message = Buffer.from(messageParts.join('\n'))
     .toString('base64')
     .replace(/\+/g, '-')
@@ -90,8 +92,8 @@ export async function sendReply(
   }
 }
 
-export async function watchGmail(userId: string) {
-  const auth = await getAuthedClient(userId)
+export async function watchGmail(connectionId: string) {
+  const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
   const res = await gmail.users.watch({

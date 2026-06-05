@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { patchProjectSchema } from '@/lib/validations/project.schema'
+import { cleanupOrphanedConnection } from '@/lib/google/oauth'
 
 export async function GET(
   req: NextRequest,
@@ -19,21 +20,35 @@ export async function GET(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 404 })
-
-  // Get deal and campaign counts
-  const { count: dealCount } = await supabase
-    .from('deals')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', id)
-
-  const { count: campaignCount } = await supabase
-    .from('campaigns')
-    .select('*', { count: 'exact', head: true })
-    .eq('project_id', id)
-
   if (!data) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+
+  // Fetch deal and campaign counts in parallel
+  const [dealCountRes, campaignCountRes] = await Promise.all([
+    supabase.from('deals').select('*', { count: 'exact', head: true }).eq('project_id', id),
+    supabase.from('campaigns').select('*', { count: 'exact', head: true }).eq('project_id', id),
+  ])
+
+  // Optionally fetch Google connection email (table may not exist until migration 0030)
+  let googleEmail: string | null = null
+  const connectionId = (data as Record<string, unknown>).google_connection_id as string | undefined
+  if (connectionId) {
+    const { data: connData, error: connErr } = await supabase
+      .from('google_connections')
+      .select('google_email')
+      .eq('id', connectionId)
+      .maybeSingle()
+    if (!connErr && connData) {
+      googleEmail = (connData as Record<string, unknown>).google_email as string ?? null
+    }
+  }
+
   const project = data as unknown as Record<string, unknown>
-  return NextResponse.json({ ...project, dealCount, campaignCount })
+  return NextResponse.json({
+    ...project,
+    dealCount: dealCountRes.count,
+    campaignCount: campaignCountRes.count,
+    google_connections: googleEmail ? { google_email: googleEmail } : null,
+  })
 }
 
 export async function PATCH(
@@ -80,8 +95,22 @@ export async function DELETE(
 
   const { id } = await params
 
+  // Read current connection before deleting project (for orphan cleanup)
+  const { data: project } = await supabase
+    .from('projects')
+    .select('google_connection_id')
+    .eq('id', id)
+    .single()
+
+  const oldConnectionId = project?.google_connection_id ?? null
+
   const { error } = await supabase.from('projects').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Clean up Google connection if no other project references it
+  if (oldConnectionId) {
+    await cleanupOrphanedConnection(oldConnectionId)
+  }
 
   return NextResponse.json({ success: true })
 }

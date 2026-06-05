@@ -1,7 +1,7 @@
 import { OAuth2Client } from 'google-auth-library'
 import { google } from 'googleapis'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedClient } from '@/lib/google/oauth'
+import { getAuthedClientByConnection } from '@/lib/google/oauth'
 import { NextRequest, NextResponse } from 'next/server'
 
 const pubsubClient = new OAuth2Client()
@@ -29,19 +29,22 @@ export async function POST(req: NextRequest) {
     const notification = JSON.parse(messageData) as { emailAddress: string; historyId: string }
 
     const supabase = createAdminClient()
-    const { data: tokenRow } = await supabase
-      .from('google_tokens')
-      .select('user_id, last_history_id')
-      .single()
 
-    if (!tokenRow) return NextResponse.json({ ok: true })
+    // Look up connection by Google email (from Pub/Sub notification)
+    const { data: connectionRow } = await supabase
+      .from('google_connections')
+      .select('id, last_history_id')
+      .eq('google_email', notification.emailAddress)
+      .maybeSingle()
 
-    const auth = await getAuthedClient(tokenRow.user_id)
+    if (!connectionRow) return NextResponse.json({ ok: true })
+
+    const auth = await getAuthedClientByConnection(connectionRow.id, { useAdminClient: true })
     const gmailClient = google.gmail({ version: 'v1', auth })
 
     const historyRes = await gmailClient.users.history.list({
       userId: 'me',
-      startHistoryId: tokenRow.last_history_id ?? notification.historyId,
+      startHistoryId: connectionRow.last_history_id ?? notification.historyId,
       historyTypes: ['messageAdded'],
       labelId: 'INBOX',
     })
@@ -66,9 +69,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await supabase.from('google_tokens').update({
+    await supabase.from('google_connections').update({
       last_history_id: notification.historyId,
-    }).eq('user_id', tokenRow.user_id)
+    }).eq('id', connectionRow.id)
 
     return NextResponse.json({ ok: true })
   } catch (err) {

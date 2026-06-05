@@ -11,7 +11,6 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 import { Trash2, Plus, X, Save } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { RemoveSponsorDialog } from '@/components/projects/RemoveSponsorDialog'
@@ -29,12 +28,13 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const { projectName } = useProjectContext()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const supabase = createClient()
-  const [project, setProject] = useState<{ name: string; description: string | null } | null>(null)
+  const [project, setProject] = useState<{ name: string; description: string | null; google_connections: { google_email: string } | null } | null>(null)
   const [sponsors, setSponsors] = useState<Sponsor[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [gmailConnected, setGmailConnected] = useState(false)
+  const [gmailEmail, setGmailEmail] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   // Form state
   const [name, setName] = useState('')
@@ -51,21 +51,16 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   // Remove sponsor dialog
   const [removingSponsor, setRemovingSponsor] = useState<Sponsor | null>(null)
 
+  // Check Gmail connection status from URL param after OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('gmail') === 'connected') {
-      setTimeout(() => setGmailConnected(true), 0)
-    } else {
-      supabase
-        .from('google_tokens')
-        .select('user_id')
-        .then(({ data }) => {
-          if (data && data.length > 0) {
-            setGmailConnected(true)
-          }
-        })
+      const cb = () => setGmailConnected(true)
+      if (window.requestIdleCallback) { window.requestIdleCallback(cb) } else { setTimeout(cb, 0) }
+      // Clear the query param from URL
+      window.history.replaceState({}, '', window.location.pathname)
     }
-  }, [supabase])
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -83,6 +78,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         setName(proj.name ?? '')
         setDescription(proj.description ?? '')
         setSponsors(spons ?? [])
+        // Check per-project Gmail connection
+        if (proj.google_connections?.google_email) {
+          setGmailConnected(true)
+          setGmailEmail(proj.google_connections.google_email)
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -134,6 +134,25 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       throw new Error(json.error ?? 'Failed to remove sponsor')
     }
     setSponsors((prev) => prev.filter((s) => s.id !== sponsorId))
+  }
+
+  async function disconnectGmail() {
+    setDisconnecting(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/google/disconnect`, { method: 'POST' })
+      if (!res.ok) {
+        const json = await res.json()
+        toast.error(json.error ?? 'Failed to disconnect Gmail')
+      } else {
+        setGmailConnected(false)
+        setGmailEmail(null)
+        toast.success('Gmail disconnected')
+      }
+    } catch {
+      toast.error('Failed to disconnect Gmail')
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   async function deleteProject() {
@@ -282,14 +301,24 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
           <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Gmail Connection</h2>
           {gmailConnected ? (
-            <Badge variant="success" dot>Gmail Connected</Badge>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="success" dot>Connected</Badge>
+                {gmailEmail && (
+                  <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{gmailEmail}</span>
+                )}
+              </div>
+              <Button variant="outline" onClick={disconnectGmail} disabled={disconnecting}>
+                {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+              </Button>
+            </div>
           ) : (
             <div className="space-y-3">
               <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
-                Gmail not connected
+                Gmail not connected — required for sending outreach emails and receiving replies for this project.
               </div>
               <Button asChild>
-                <a href="/api/auth/google">Connect Gmail</a>
+                <a href={`/api/auth/google?projectId=${projectId}`}>Connect Gmail</a>
               </Button>
             </div>
           )}
