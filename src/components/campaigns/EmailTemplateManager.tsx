@@ -625,24 +625,34 @@ export function EmailTemplateManager({
         {/* Right pane: Helper panel (40%) */}
         <div className="w-2/5 min-w-[290px] flex flex-col border border-[var(--color-surface-2)] rounded-[var(--radius-lg)] bg-[var(--color-surface-0)] overflow-hidden h-full shadow-[var(--shadow-xs)]">
           {/* Subtabs header */}
-          <div className="flex border-b border-[var(--color-surface-2)] bg-[var(--color-surface-1)]">
+          <div className="relative flex border-b border-[var(--color-surface-2)] bg-[var(--color-surface-1)]">
+            {/* Sliding active tab indicator */}
+            <div
+              className="absolute top-0 bottom-0 left-0 w-1/2 bg-[var(--color-surface-0)] border-t-2 border-t-[var(--accent)] pointer-events-none"
+              style={{
+                transform: `translateX(${helperTab === 'preview' ? '0%' : '100%'})`,
+                transition: 'transform 220ms var(--ease-premium)',
+              }}
+            />
             <button
               type="button"
               onClick={() => setHelperTab('preview')}
-              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center border-r border-[var(--color-surface-2)] transition-all ${helperTab === 'preview'
-                ? 'bg-[var(--color-surface-0)] text-[var(--accent)] border-t-2 border-t-[var(--accent)]'
-                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
-                }`}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center border-r border-[var(--color-surface-2)] relative z-10 transition-colors duration-200 ${
+                helperTab === 'preview'
+                  ? 'text-[var(--accent)]'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
+              }`}
             >
               Live Preview
             </button>
             <button
               type="button"
               onClick={() => setHelperTab('merge_fields')}
-              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center transition-all ${helperTab === 'merge_fields'
-                ? 'bg-[var(--color-surface-0)] text-[var(--accent)] border-t-2 border-t-[var(--accent)]'
-                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
-                }`}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center relative z-10 transition-colors duration-200 ${
+                helperTab === 'merge_fields'
+                  ? 'text-[var(--accent)]'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
+              }`}
             >
               Merge Fields
             </button>
@@ -651,7 +661,7 @@ export function EmailTemplateManager({
           {/* Tab content */}
           <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
             {helperTab === 'preview' && (
-              <div className="flex-1 flex flex-col h-full">
+              <div className="flex-1 flex flex-col h-full animate-tab-entrance">
                 <div className="flex items-center gap-2 mb-3 flex-shrink-0">
                   <span className="text-xs text-[var(--color-text-tertiary)] font-medium">Preview with deal:</span>
                   <Select value={previewDealId} onValueChange={setPreviewDealId}>
@@ -701,7 +711,7 @@ export function EmailTemplateManager({
             )}
 
             {helperTab === 'merge_fields' && (
-              <div className="flex-1 flex flex-col h-full">
+              <div className="flex-1 flex flex-col h-full animate-tab-entrance">
                 <div className="relative mb-3 flex-shrink-0">
                   <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />
                   <Input
