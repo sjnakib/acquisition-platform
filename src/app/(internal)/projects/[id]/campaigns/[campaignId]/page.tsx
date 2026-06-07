@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Target, BarChart3 } from 'lucide-react'
+import { BarChart3, Mail } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
@@ -13,6 +13,7 @@ import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 
 interface Campaign {
@@ -22,61 +23,9 @@ interface Campaign {
   target_response_rate_pct: number | null; target_loi_count: number | null
   is_active: boolean; created_at: string
 }
-interface FieldDef { id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number; source?: string | null }
-const STAGE_ORDER = ['lead', 'outreach', 'response', 'underwriting', 'loi', 'closed', 'failed', 'archived'] as const
-const STAGE_LABELS: Record<string, string> = {
-  lead: 'Lead', outreach: 'Outreach', response: 'Response', underwriting: 'Underwriting',
-  loi: 'LOI', closed: 'Closed', failed: 'Failed', archived: 'Archived',
-}
 
-// Custom styles for campaign sections
-const sectionStyle = {
-  background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)',
-  borderRadius: 'var(--radius-lg)', padding: 20,
-} as const
-
-const sectionTitleStyle = {
-  fontSize: 12, fontWeight: 500, color: 'var(--color-text-tertiary)', textTransform: 'uppercase' as const,
-  letterSpacing: '0.04em', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6,
-} as const
-
-const labelStyle = { fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 2 } as const
-const valueStyle = { fontSize: 14, color: 'var(--color-text-primary)', fontWeight: 500 } as const
-const mutedStyle = { fontSize: 13, color: 'var(--color-text-secondary)' } as const
-
-function StageBar({ deals }: { deals: Pick<Deal, 'stage'>[] }) {
-  const counts = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const d of deals) map.set(d.stage, (map.get(d.stage) ?? 0) + 1)
-    return map
-  }, [deals])
-  const total = deals.length
-  const maxCount = Math.max(1, ...counts.values())
-  return (
-    <div className="space-y-2">
-      {STAGE_ORDER.map((stage) => {
-        const count = counts.get(stage) ?? 0
-        const pct = total > 0 ? Math.round((count / total) * 100) : 0
-        const barPct = Math.round((count / maxCount) * 100)
-        return (
-          <div key={stage} className="flex items-center gap-3">
-            <span style={{ width: 90, fontSize: 12, color: 'var(--color-text-secondary)', textAlign: 'right' as const }}>
-              {STAGE_LABELS[stage] ?? stage}
-            </span>
-            <div className="flex-1 h-[18px] rounded-sm relative" style={{ background: 'var(--color-surface-1)' }}>
-              {count > 0 && (
-                <div className="h-full rounded-sm absolute left-0 top-0 transition-all duration-300"
-                  style={{ width: `${barPct}%`, background: 'var(--accent)', opacity: 0.7 }} />
-              )}
-            </div>
-            <span style={{ width: 48, fontSize: 12, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
-              {count > 0 ? <><span style={{ color: 'var(--color-text-primary)', fontWeight: 500 }}>{count}</span> <span style={{ color: 'var(--color-text-tertiary)' }}>{pct}%</span></> : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
+interface FieldDef {
+  id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number; source?: string | null
 }
 
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string; campaignId: string }> }) {
@@ -145,16 +94,17 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     },
   })
 
-  // Gmail connection status for this project
-  const { data: gmailConnected = false } = useQuery<boolean>({
-    queryKey: ['project', projectId, 'gmail-status'],
+  // Google connection details for this project
+  const { data: googleEmail = null } = useQuery<string | null>({
+    queryKey: ['project', projectId, 'google-email'],
     queryFn: async () => {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`)
-      if (!res.ok) return false
+      if (!res.ok) return null
       const json = await res.json()
-      return !!json.google_connections?.google_email
+      return json.google_connections?.google_email ?? null
     },
   })
+  const gmailConnected = !!googleEmail
 
   const handleCampaignUpdate = async (updates: Partial<Campaign>) => {
     try {
@@ -176,8 +126,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
-  // Count only stage='lead' deals — the send-emails API only processes leads
   const leadCount = (allDeals ?? []).filter((d) => d.stage === 'lead').length
+
+  const stageCounts = useMemo(() => {
+    const counts = { lead: 0, outreach: 0, response: 0, active: 0 }
+    if (!allDeals) return counts
+    for (const d of allDeals) {
+      if (d.stage === 'lead') counts.lead++
+      if (d.stage === 'outreach') counts.outreach++
+      if (d.stage === 'response') counts.response++
+      if (d.stage !== 'archived') counts.active++
+    }
+    return counts
+  }, [allDeals])
 
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
@@ -190,10 +151,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   }, [deals.length, total, page, pageSize])
 
   if (campaignLoading) return <div className="flex justify-center py-20"><LoadingSpinner size="page" /></div>
-  if (!campaign) return <div className="text-center py-20" style={{ color: 'var(--color-text-tertiary)' }}>Campaign not found.</div>
+  if (!campaign) return <div className="text-center py-20 text-[var(--color-text-tertiary)]">Campaign not found.</div>
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 130px)' }}>
+    <div className="flex flex-col h-[calc(100vh-48px)] -mb-4">
       <Breadcrumb
         items={[
           { label: 'Projects', href: '/projects' },
@@ -204,13 +165,13 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       />
 
       <div className="flex items-center gap-2 flex-shrink-0 mb-3 mt-1">
-        <h1 className="text-[17px] font-medium tracking-[-0.02em] truncate" style={{ fontFamily: 'var(--font-dm-sans)', color: 'var(--color-text-primary)' }}>
+        <h1 className="text-[17px] font-medium tracking-[-0.02em] truncate text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-dm-sans)' }}>
           {campaign.name}
         </h1>
         <Badge variant={campaign.is_active ? 'success' : 'neutral'} size="sm">{campaign.is_active ? 'Active' : 'Inactive'}</Badge>
-        <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{campaign.market}</span>
+        <span className="text-xs text-[var(--color-text-secondary)]">{campaign.market}</span>
         {campaign.listing_type && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 8px', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-1)', fontSize: 12, color: 'var(--color-text-secondary)' }}>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-[var(--radius-md)] bg-[var(--color-surface-1)] text-xs text-[var(--color-text-secondary)]">
             {campaign.listing_type.replace(/_/g, ' ')}
           </span>
         )}
@@ -218,15 +179,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
       <Tabs defaultValue="leads" value={tab} onValueChange={(v) => setTab(v as 'details' | 'leads')} className="flex-1 flex flex-col min-h-0">
         <TabsList className="mb-4 flex-shrink-0">
-          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="details">Mass Emailing</TabsTrigger>
           <TabsTrigger value="leads">Leads{total > 0 ? ` (${total})` : ''}</TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 min-h-0 overflow-auto">
-          <TabsContent value="details">
-            <div style={{ display: 'flex', gap: 16, paddingBottom: 16, alignItems: 'flex-start' }}>
-              {/* Left 70% — Email Template Manager */}
-              <div style={{ width: '70%', minWidth: 0 }}>
+        <div className="flex-1 min-h-0 flex flex-col">
+          <TabsContent value="details" className="h-full">
+            <div className="flex gap-6 h-full min-h-0 pb-4">
+              {/* Left 75% — Email Template Workspace */}
+              <div className="flex-1 min-w-0 h-full flex flex-col">
                 <EmailTemplateManager
                   campaign={campaign}
                   projectId={projectId}
@@ -235,32 +196,104 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   onCampaignUpdate={handleCampaignUpdate}
                 />
               </div>
-              {/* Right 30% — Pipeline, Targets, Summary */}
-              <div style={{ width: '30%', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div style={sectionStyle}>
-                  <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
-                  {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
-                </div>
-                <div style={sectionStyle}>
-                  <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
-                  {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
-                      {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
-                    </div>
-                  ) : <div style={mutedStyle}>No targets set.</div>}
-                </div>
-                <div style={sectionStyle}>
-                  <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
-                    <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
-                      const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
-                      return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
-                    }, 0)}</div></div>
-                    <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
-                    <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
+
+              {/* Right 25% — Compact stats & Google Status */}
+              <div className="w-80 flex-shrink-0 flex flex-col gap-4 h-full overflow-y-auto pr-1">
+                {/* Outreach Funnel stats card */}
+                <div className="bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-xs)] flex flex-col gap-4">
+                  <div className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] flex items-center gap-1.5 pb-2 border-b border-[var(--color-surface-2)]">
+                    <BarChart3 className="h-4 w-4" /> Outreach Funnel
                   </div>
+
+                  <div className="space-y-4">
+                    {/* Leads Ready */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-[var(--color-text-secondary)] font-medium">Leads (not emailed)</span>
+                      <span className="text-xs font-semibold font-mono text-[var(--color-text-primary)] bg-[var(--color-surface-1)] px-2 py-0.5 rounded-[var(--radius-sm)] border border-[var(--color-surface-2)]">
+                        {stageCounts.lead}
+                      </span>
+                    </div>
+
+                    {/* Emailed */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-[var(--color-text-secondary)] font-medium">Outreach Sent</span>
+                      <span className="text-xs font-semibold font-mono text-[var(--color-text-primary)] bg-[var(--color-surface-1)] px-2 py-0.5 rounded-[var(--radius-sm)] border border-[var(--color-surface-2)]">
+                        {stageCounts.outreach}
+                      </span>
+                    </div>
+
+                    {/* Responses */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-[var(--color-text-secondary)] font-medium">Responses Received</span>
+                      <span className="text-xs font-semibold font-mono text-[var(--color-success-text)] bg-[var(--color-success-bg)] border border-[var(--color-success-border)] px-2 py-0.5 rounded-[var(--radius-sm)]">
+                        {stageCounts.response}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-[var(--color-surface-2)] pt-3 flex flex-col gap-2">
+                      {/* Response Rate */}
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-[var(--color-text-secondary)] font-medium">Response Rate</span>
+                        <span className="font-semibold font-mono text-[var(--color-text-primary)]">
+                          {(() => {
+                            const contacted = stageCounts.outreach + stageCounts.response
+                            if (contacted === 0) return '0%'
+                            return `${Math.round((stageCounts.response / contacted) * 100)}%`
+                          })()}
+                        </span>
+                      </div>
+
+                      {campaign.target_response_rate_pct != null && (
+                        <div className="flex justify-between items-center text-[10px] text-[var(--color-text-tertiary)]">
+                          <span>Target Rate</span>
+                          <span className="font-mono">{campaign.target_response_rate_pct}%</span>
+                        </div>
+                      )}
+
+                      {campaign.target_loi_count != null && (
+                        <div className="flex justify-between items-center text-[10px] text-[var(--color-text-tertiary)]">
+                          <span>Target LOIs</span>
+                          <span className="font-mono">{campaign.target_loi_count}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Gmail Connection Status Card */}
+                <div className="bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-lg)] p-5 shadow-[var(--shadow-xs)] flex flex-col gap-4">
+                  <div className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] flex items-center gap-1.5 pb-2 border-b border-[var(--color-surface-2)]">
+                    <Mail className="h-4 w-4" /> Sending Identity
+                  </div>
+
+                  {googleEmail ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-success-text)]">
+                        <span className="h-2 w-2 rounded-full bg-[var(--color-success-solid)] animate-pulse" />
+                        Gmail Connected
+                      </div>
+                      <div className="text-xs font-mono text-[var(--color-text-secondary)] bg-[var(--color-surface-1)] p-2.5 rounded-[var(--radius-md)] border border-[var(--color-surface-2)] break-all leading-normal">
+                        {googleEmail}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-warning-text)]">
+                        <span className="h-2 w-2 rounded-full bg-[var(--color-warning-solid)]" />
+                        Gmail Disconnected
+                      </div>
+                      <p className="text-[11px] text-[var(--color-text-tertiary)] leading-normal">
+                        Outreach emails cannot be sent until you authenticate a Gmail connection.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => router.push(`/projects/${projectId}/settings`)}
+                        className="w-full h-8 text-xs font-semibold bg-[var(--accent)] text-[var(--color-text-inverse)] hover:opacity-95"
+                      >
+                        Connect Gmail Account
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

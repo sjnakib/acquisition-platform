@@ -135,7 +135,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
     return (
       <div
-        className={`rounded-lg border overflow-hidden transition-colors ${
+        className={`rounded-lg border overflow-hidden transition-colors flex flex-col flex-1 min-h-0 ${
           disabled ? 'opacity-50 pointer-events-none' : ''
         }`}
         style={{
@@ -267,7 +267,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         </div>
 
         {/* Editor */}
-        <div className="relative" style={{ minHeight }}>
+        <div className="relative flex-1 min-h-0 overflow-y-auto" style={{ minHeight }}>
           {showPlaceholder && (
             <div
               className="absolute inset-x-0 top-0 px-3 py-2.5 text-[13px] pointer-events-none select-none"
@@ -283,7 +283,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             onInput={handleInput}
             className="w-full text-[13px] px-3 py-2.5 outline-none focus:outline-none"
             style={{
-              minHeight,
+              minHeight: '100%',
               color: 'var(--color-text-primary)',
               lineHeight: 1.6,
             }}

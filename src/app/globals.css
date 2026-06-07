@@ -43,15 +43,15 @@
   /* Canvas */
   --color-canvas: #F7F5F0;
   --color-surface-0: #FFFFFF;
-  --color-surface-1: #F2F0EB;
-  --color-surface-2: #E8E5DE;
-  --color-surface-3: #D9D5CC;
+  --color-surface-1: #ECE9E0;
+  --color-surface-2: #D8D3C5;
+  --color-surface-3: #BEB9A9;
 
   /* Sidebar — light mode (warm surface matching canvas) */
   --color-sidebar-bg: #F7F5F0;
   --color-sidebar-hover: var(--color-accent-bg);
   --color-sidebar-active: var(--accent);
-  --color-sidebar-border: #E0DDD5;
+  --color-sidebar-border: #C5C0B3;
   --color-sidebar-text: #6B6560;
   --color-sidebar-text-active: var(--color-text-inverse);
   --color-sidebar-text-hover: var(--accent);
@@ -92,8 +92,8 @@
   --color-info-text: #1A4F8A;
   --color-info-solid: #2461B8;
 
-  --color-neutral-bg: #F2F0EB;
-  --color-neutral-border: #D9D5CC;
+  --color-neutral-bg: #ECE9E0;
+  --color-neutral-border: #BEB9A9;
   --color-neutral-text: #6B6560;
 
   /* Scoring */

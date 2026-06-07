@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Mail, Send, Loader2, CheckCircle, XCircle, AlertTriangle,
-  Plus, Pencil, Trash2, Settings,
+  Plus, Pencil, Trash2, Settings, Search, Info, HelpCircle
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { toast } from 'sonner'
-import { EmailComposer, type MergeField } from '@/components/shared/EmailComposer'
+import { EmailComposer, type MergeField, type EmailComposerHandle } from '@/components/shared/EmailComposer'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -93,6 +93,11 @@ function resolveMergeFields(template: string, deal: PreviewDeal | null, campaign
   if (addressField) {
     result = result.replaceAll('{deal_name}', addressField.value ?? '')
   }
+  // Fallback for legacy {units} -> mapped to unit_count field value
+  const unitsField = deal.deal_fields.find((f) => f.field_definitions?.key === 'unit_count')
+  if (unitsField) {
+    result = result.replaceAll('{units}', unitsField.value ?? '')
+  }
   const primaryContact = deal.contacts.find((c) => c.is_primary) ?? deal.contacts[0]
   for (const cf of CONTACT_MERGE_FIELDS) {
     let value = ''
@@ -109,15 +114,6 @@ function resolveMergeFields(template: string, deal: PreviewDeal | null, campaign
   return result
 }
 
-// ── Styles ──────────────────────────────────────────────────────────────────
-
-const sectionStyle = {
-  background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)',
-  borderRadius: 'var(--radius-lg)', padding: 20,
-} as const
-
-const mutedStyle = { fontSize: 13, color: 'var(--color-text-secondary)' } as const
-
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function EmailTemplateManager({
@@ -125,6 +121,7 @@ export function EmailTemplateManager({
 }: Props) {
   const { data: user } = useAuth()
   const queryClient = useQueryClient()
+  const composerRef = useRef<EmailComposerHandle>(null)
 
   // ── Template type state ──
   const [templateType, setTemplateType] = useState<string>(
@@ -132,6 +129,10 @@ export function EmailTemplateManager({
   )
   const [subject, setSubject] = useState(campaign.email_subject_template ?? '')
   const [body, setBody] = useState(campaign.email_body_template ?? '')
+
+  // ── Split screen helper state ──
+  const [helperTab, setHelperTab] = useState<'preview' | 'merge_fields'>('preview')
+  const [mergeFieldSearch, setMergeFieldSearch] = useState('')
 
   // ── Preview state ──
   const [previewDealId, setPreviewDealId] = useState<string>('')
@@ -159,21 +160,39 @@ export function EmailTemplateManager({
     },
   })
 
-  // ── Merge fields (imported only) ──
-  const { data: importedFields = [] } = useQuery<FieldDef[]>({
-    queryKey: ['field-definitions', projectId, 'imported'],
+  // ── Merge fields (imported + system + manual) ──
+  const { data: dealFields = [] } = useQuery<FieldDef[]>({
+    queryKey: ['field-definitions', projectId, 'deals-merge'],
     queryFn: async () => {
-      const res = await fetch(`/api/field-definitions?project_id=${encodeURIComponent(projectId)}&source=import`)
+      const res = await fetch(`/api/field-definitions?project_id=${encodeURIComponent(projectId)}`)
       if (!res.ok) return []
       return res.json()
     },
   })
 
   const mergeFields: MergeField[] = useMemo(() => [
-    ...importedFields.map((f) => ({ key: f.key, label: f.label, group: 'Deal Fields' })),
+    ...dealFields.map((f) => ({ key: f.key, label: f.label, group: 'Deal Fields' })),
     ...CONTACT_MERGE_FIELDS.map((f) => ({ ...f, group: 'Contact Fields' })),
     ...CAMPAIGN_MERGE_FIELDS.map((f) => ({ ...f, group: 'Campaign Info' })),
-  ], [importedFields])
+  ], [dealFields])
+
+  const filteredMergeFields = useMemo(() => {
+    if (!mergeFieldSearch.trim()) return mergeFields
+    const q = mergeFieldSearch.toLowerCase()
+    return mergeFields.filter(
+      (f) => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q)
+    )
+  }, [mergeFields, mergeFieldSearch])
+
+  const groupedMergeFields = useMemo(() => {
+    const map = new Map<string, MergeField[]>()
+    for (const f of filteredMergeFields) {
+      const group = map.get(f.group) ?? []
+      group.push(f)
+      if (!map.has(f.group)) map.set(f.group, group)
+    }
+    return Array.from(map.entries())
+  }, [filteredMergeFields])
 
   // ── Available templates for EmailComposer pills ──
   const composerTemplates = useMemo(() =>
@@ -183,7 +202,7 @@ export function EmailTemplateManager({
       subject: t.subject_template,
       body: t.body_template,
     })),
-  [customTemplates])
+    [customTemplates])
 
   // ── Persist to campaign (debounced) ──
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -311,6 +330,11 @@ export function EmailTemplateManager({
       })
     },
   })
+
+  // ── Merge field insert callback ──
+  const handleMergeFieldClick = useCallback((key: string) => {
+    composerRef.current?.insertHTML(`{${key}}`)
+  }, [])
 
   // ── Mass send ──
   const handleSend = useCallback(async () => {
@@ -446,17 +470,13 @@ export function EmailTemplateManager({
   }, [sendResults])
 
   return (
-    <div style={sectionStyle}>
-      {/* ── Top bar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Mail className="h-3.5 w-3.5" style={{ color: 'var(--color-text-tertiary)' }} />
+    <div className="flex flex-col h-full bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-lg)] p-5">
+      {/* ── Top Utility Header ── */}
+      <div className="flex items-center justify-between pb-4 border-b border-[var(--color-surface-2)] mb-4 flex-wrap gap-4">
+        <div className="flex items-center gap-3">
+          <Mail className="h-4 w-4 text-[var(--color-text-tertiary)]" />
           <Select value={templateType} onValueChange={handleTypeChange}>
-            <SelectTrigger style={{
-              height: 28, fontSize: 13, minWidth: 170,
-              background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)',
-              borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
-            }}>
+            <SelectTrigger className="h-8 text-xs min-w-[190px] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-md)] text-[var(--color-text-primary)] font-medium">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -464,7 +484,7 @@ export function EmailTemplateManager({
                 <SelectItem key={bt.value} value={bt.value}>{bt.label}</SelectItem>
               ))}
               {customTemplates.length > 0 && (
-                <div style={{ padding: '4px 8px', fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <div className="px-2 py-1.5 text-[9px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] select-none">
                   Custom Templates
                 </div>
               )}
@@ -477,31 +497,31 @@ export function EmailTemplateManager({
             size="sm"
             variant="ghost"
             onClick={() => setShowTemplateDialog(!showTemplateDialog)}
-            style={{ height: 28, fontSize: 12, color: 'var(--color-text-secondary)' }}
+            className="h-8 text-xs text-[var(--color-text-secondary)] font-medium hover:bg-[var(--color-surface-1)]"
           >
-            <Settings className="h-3 w-3" style={{ marginRight: 4 }} />
+            <Settings className="h-3.5 w-3.5 mr-1.5" />
             Manage
           </Button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="flex items-center gap-3">
           {!gmailConnected && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 'var(--radius-md)', background: 'var(--color-warning)', fontSize: 12, color: 'var(--color-text-inverse)' }}>
-              <AlertTriangle className="h-3 w-3" />Connect Gmail to send
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-[var(--radius-md)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-xs text-[var(--color-warning-text)] font-medium animate-pulse">
+              <AlertTriangle className="h-3.5 w-3.5" />Connect Gmail Account to send
             </div>
           )}
           {gmailConnected && leadsCount === 0 && (
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              No leads to send — import deals or move deals to Lead stage
+            <span className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5" /> No leads to send — import deals or move them to Lead stage
             </span>
           )}
           <Button
             size="sm"
             onClick={handleSend}
             disabled={sending || !gmailConnected || leadsCount === 0}
-            style={{ height: 32, fontSize: 13, gap: 6, background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+            className="h-9 px-4 text-xs font-semibold gap-2 bg-[var(--accent)] text-[var(--color-text-inverse)] rounded-[var(--radius-md)] shadow-[var(--shadow-sm)] hover:opacity-95 transition-opacity"
           >
-            <Send className="h-3.5 w-3.5" />
+            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
             Send to {leadsCount} lead{leadsCount !== 1 ? 's' : ''}
           </Button>
         </div>
@@ -509,73 +529,67 @@ export function EmailTemplateManager({
 
       {/* ── Template CRUD Dialog (inline panel) ── */}
       {showTemplateDialog && (
-        <div style={{
-          marginBottom: 16, border: '1px solid var(--color-surface-2)', borderRadius: 'var(--radius-md)',
-          background: 'var(--color-surface-1)', padding: 14,
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 12 }}>
+        <div className="mb-4 border border-[var(--color-surface-2)] rounded-[var(--radius-md)] bg-[var(--color-surface-1)] p-4 shadow-[var(--shadow-xs)] animate-dropdown-show">
+          <div className="text-xs font-semibold text-[var(--color-text-primary)] mb-3">
             Manage Custom Templates
           </div>
 
           {/* Create new */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div className="flex gap-2 mb-3">
             <Input
               value={newTemplateName}
               onChange={(e) => setNewTemplateName(e.target.value)}
               placeholder="New template name..."
-              style={{ height: 30, fontSize: 13, flex: 1 }}
+              className="h-8 text-xs flex-1 bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-sm)]"
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTemplate() }}
             />
             <Button size="sm" onClick={handleCreateTemplate} disabled={!newTemplateName.trim()}
-              style={{ height: 30, fontSize: 12, gap: 4, background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}>
+              className="h-8 text-xs gap-1.5 bg-[var(--accent)] text-[var(--color-text-inverse)] hover:opacity-95">
               <Plus className="h-3.5 w-3.5" />Create
             </Button>
           </div>
 
           {/* Existing templates list */}
           {customTemplates.length === 0 ? (
-            <div style={mutedStyle}>No custom templates yet. Edit your email below and click Create to save it as a template.</div>
+            <div className="text-xs text-[var(--color-text-secondary)] italic">No custom templates yet. Edit your email below and click Create to save it as a template.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto pr-1">
               {customTemplates.map((tpl) => (
-                <div key={tpl.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px',
-                  borderRadius: 'var(--radius-md)', background: 'var(--color-surface-0)',
-                }}>
+                <div key={tpl.id} className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)]">
                   {editingTemplateId === tpl.id ? (
                     <>
                       <Input
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
-                        style={{ height: 28, fontSize: 13, flex: 1 }}
+                        className="h-7 text-xs flex-1 bg-[var(--color-surface-0)] border border-[var(--color-surface-3)]"
                         onKeyDown={(e) => { if (e.key === 'Enter') handleRenameTemplate(tpl.id) }}
                         autoFocus
                       />
-                      <Button size="sm" onClick={() => handleRenameTemplate(tpl.id)} style={{ height: 28, fontSize: 11 }}>
+                      <Button size="sm" onClick={() => handleRenameTemplate(tpl.id)} className="h-7 text-[10px] px-2">
                         Save
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingTemplateId(null); setEditingName('') }} style={{ height: 28, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingTemplateId(null); setEditingName('') }} className="h-7 text-[10px] px-2 text-[var(--color-text-secondary)]">
                         Cancel
                       </Button>
                     </>
                   ) : (
                     <>
-                      <span style={{ flex: 1, fontSize: 13, color: 'var(--color-text-primary)' }}>{tpl.name}</span>
+                      <span className="flex-1 text-xs text-[var(--color-text-primary)] font-medium truncate">{tpl.name}</span>
                       <button
                         type="button"
                         onClick={() => { setEditingTemplateId(tpl.id); setEditingName(tpl.name) }}
-                        style={{ color: 'var(--color-text-tertiary)', cursor: 'pointer', background: 'none', border: 'none', padding: 4 }}
+                        className="text-[var(--color-text-tertiary)] hover:text-[var(--accent)] cursor-pointer p-1 rounded transition-colors"
                         title="Rename"
                       >
-                        <Pencil className="h-3 w-3" />
+                        <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteTemplate(tpl.id)}
-                        style={{ color: 'var(--color-text-tertiary)', cursor: 'pointer', background: 'none', border: 'none', padding: 4 }}
+                        className="text-[var(--color-text-tertiary)] hover:text-[var(--color-danger-solid)] cursor-pointer p-1 rounded transition-colors"
                         title="Delete"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </>
                   )}
@@ -586,60 +600,149 @@ export function EmailTemplateManager({
         </div>
       )}
 
-      {/* ── Email Composer (template-edit mode) ── */}
-      <div style={{ marginBottom: 14 }}>
-        <EmailComposer
-          mode="template-edit"
-          subjectTemplate={subject}
-          bodyTemplate={body}
-          onSubjectChange={(v) => { setSubject(v); scheduleSave({ email_subject_template: v }) }}
-          onBodyChange={(v) => { setBody(v); scheduleSave({ email_body_template: v }) }}
-          mergeFields={mergeFields}
-          availableTemplates={composerTemplates}
-          minHeight={200}
-          placeholder="Dear {owner_name},&#10;&#10;I am reaching out regarding {property_address}..."
-        />
-      </div>
-
-      {/* ── Preview ── */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>Preview with:</span>
-          <Select value={previewDealId} onValueChange={setPreviewDealId}>
-            <SelectTrigger style={{
-              height: 28, fontSize: 12, minWidth: 180,
-              background: 'var(--color-surface-0)', border: '1px solid var(--color-surface-2)',
-              borderRadius: 'var(--radius-md)', color: 'var(--color-text-primary)',
-            }}>
-              <SelectValue placeholder="Select a deal..." />
-            </SelectTrigger>
-            <SelectContent>
-              {campaignDeals.map((d) => (
-                <SelectItem key={d.id} value={d.id}>{d.deal_name ?? 'Untitled Deal'}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* ── Main Workspace split screen ── */}
+      <div className="flex-1 min-h-0 flex gap-6">
+        {/* Left pane: Editor (60%) */}
+        <div className="w-3/5 min-w-0 flex flex-col h-full">
+          <div className="flex-1 min-h-0 flex flex-col">
+            <EmailComposer
+              ref={composerRef}
+              mode="template-edit"
+              subjectTemplate={subject}
+              bodyTemplate={body}
+              onSubjectChange={(v) => { setSubject(v); scheduleSave({ email_subject_template: v }) }}
+              onBodyChange={(v) => { setBody(v); scheduleSave({ email_body_template: v }) }}
+              mergeFields={mergeFields}
+              availableTemplates={composerTemplates}
+              minHeight={320}
+              placeholder="Dear {owner_name},&#10;&#10;I am reaching out regarding {property_address}..."
+              hideMergeFields={true}
+              className="flex-1 min-h-0"
+            />
+          </div>
         </div>
 
-        {previewDeal ? (
-          <div style={{ border: '1px dashed var(--color-surface-2)', borderRadius: 'var(--radius-md)', padding: 16, background: 'var(--color-canvas)' }}>
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 12, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Preview</div>
-            <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
-              {mergedSubject || <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(no subject)</span>}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' as const, lineHeight: 1.7 }}
-              dangerouslySetInnerHTML={{ __html: mergedBody || '<span style="color:var(--color-text-tertiary)">(no body)</span>' }}
-            />
-            <div style={{ marginTop: 12, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-              From: {senderEmail}
-              {previewDeal.contacts[0] && <> · To: {previewDeal.contacts[0].name ?? previewDeal.contacts[0].email?.[0]}</>}
-            </div>
+        {/* Right pane: Helper panel (40%) */}
+        <div className="w-2/5 min-w-[290px] flex flex-col border border-[var(--color-surface-2)] rounded-[var(--radius-lg)] bg-[var(--color-surface-0)] overflow-hidden h-full shadow-[var(--shadow-xs)]">
+          {/* Subtabs header */}
+          <div className="flex border-b border-[var(--color-surface-2)] bg-[var(--color-surface-1)]">
+            <button
+              type="button"
+              onClick={() => setHelperTab('preview')}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center border-r border-[var(--color-surface-2)] transition-all ${helperTab === 'preview'
+                ? 'bg-[var(--color-surface-0)] text-[var(--accent)] border-t-2 border-t-[var(--accent)]'
+                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+                }`}
+            >
+              Live Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setHelperTab('merge_fields')}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center transition-all ${helperTab === 'merge_fields'
+                ? 'bg-[var(--color-surface-0)] text-[var(--accent)] border-t-2 border-t-[var(--accent)]'
+                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+                }`}
+            >
+              Merge Fields
+            </button>
           </div>
-        ) : (
-          <div style={{ border: '1px dashed var(--color-surface-2)', borderRadius: 'var(--radius-md)', padding: 24, textAlign: 'center' as const }}>
-            <span style={mutedStyle}>Select a deal to preview the merged email.</span>
+
+          {/* Tab content */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
+            {helperTab === 'preview' && (
+              <div className="flex-1 flex flex-col h-full">
+                <div className="flex items-center gap-2 mb-3 flex-shrink-0">
+                  <span className="text-xs text-[var(--color-text-tertiary)] font-medium">Preview with deal:</span>
+                  <Select value={previewDealId} onValueChange={setPreviewDealId}>
+                    <SelectTrigger className="h-7 text-xs flex-1 max-w-[200px] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)]">
+                      <SelectValue placeholder="Select a deal..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {campaignDeals.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.deal_name ?? 'Untitled Deal'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {previewDeal ? (
+                  <div className="flex-1 flex flex-col border border-[var(--color-surface-2)] rounded-[var(--radius-md)] bg-[var(--color-canvas)] overflow-hidden shadow-[var(--shadow-xs)] min-h-[300px]">
+                    {/* Simulated email header */}
+                    <div className="bg-[var(--color-surface-1)] border-b border-[var(--color-surface-2)] p-3 text-xs text-[var(--color-text-secondary)] space-y-1 flex-shrink-0 min-w-0">
+                      <div className="flex min-w-0"><span className="w-12 flex-shrink-0 text-[var(--color-text-tertiary)] font-medium">From:</span> <span className="font-mono min-w-0 truncate">{senderEmail}</span></div>
+                      <div className="flex min-w-0">
+                        <span className="w-12 flex-shrink-0 text-[var(--color-text-tertiary)] font-medium">To:</span>
+                        <span className="font-semibold text-[var(--color-text-primary)] min-w-0 truncate">
+                          {previewDeal.contacts[0] ? `"${previewDeal.contacts[0].name ?? 'Contact'}" <${previewDeal.contacts[0].email?.[0] ?? ''}>` : '(No contact set)'}
+                        </span>
+                      </div>
+                      <div className="flex items-start min-w-0">
+                        <span className="w-12 flex-shrink-0 text-[var(--color-text-tertiary)] font-medium mt-0.5">Subject:</span>
+                        <span className="font-semibold text-[var(--color-text-primary)] flex-1 min-w-0 line-clamp-2">{mergedSubject || '(no subject)'}</span>
+                      </div>
+                    </div>
+                    {/* Email body render */}
+                    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-white dark:bg-[var(--color-surface-0)] min-h-0">
+                      <div
+                        className="text-[13px] text-[var(--color-text-primary)] space-y-3 leading-relaxed break-words outline-none"
+                        style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                        dangerouslySetInnerHTML={{ __html: mergedBody || '<span class="text-[var(--color-text-tertiary)] italic">(no body)</span>' }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-[var(--color-surface-3)] rounded-[var(--radius-md)] p-6 text-center text-[var(--color-text-tertiary)] min-h-[300px]">
+                    <HelpCircle className="h-8 w-8 mb-2 opacity-50 text-[var(--color-text-tertiary)]" />
+                    <span className="text-xs">Select a deal to preview the merged email.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {helperTab === 'merge_fields' && (
+              <div className="flex-1 flex flex-col h-full">
+                <div className="relative mb-3 flex-shrink-0">
+                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />
+                  <Input
+                    value={mergeFieldSearch}
+                    onChange={(e) => setMergeFieldSearch(e.target.value)}
+                    placeholder="Search merge fields..."
+                    className="h-8 pl-8 text-xs bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-sm)]"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1 min-h-0">
+                  {groupedMergeFields.map(([label, fields]) => (
+                    <div key={label} className="space-y-1.5">
+                      <h4 className="text-[10px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] mb-1">
+                        {label}
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fields.map((f) => (
+                          <button
+                            key={f.key}
+                            type="button"
+                            onClick={() => handleMergeFieldClick(f.key)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-sm)] bg-[var(--color-surface-1)] border border-[var(--color-surface-2)] text-[10px] font-mono text-[var(--accent)] hover:bg-[var(--color-surface-2)] hover:text-[var(--accent)] active:scale-[0.98] transition-all cursor-pointer"
+                            title={`Insert ${f.label}`}
+                          >
+                            {'{' + f.key + '}'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {groupedMergeFields.length === 0 && (
+                    <div className="text-center py-8 text-xs text-[var(--color-text-tertiary)]">
+                      No matching fields found.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* ── Send progress & results dialog ── */}

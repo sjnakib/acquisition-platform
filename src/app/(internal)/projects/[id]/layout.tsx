@@ -158,7 +158,7 @@ export default function ProjectLayout({
           transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <div className="pt-4 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-2">
+        <div className="pt-8 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-4">
           <ProjectProvider projectId={projectId} projectName={projectName}>
             <PageTransition>{children}</PageTransition>
           </ProjectProvider>

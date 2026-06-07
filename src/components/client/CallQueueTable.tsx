@@ -172,17 +172,19 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
   ]
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader title={pageHeadings.callQueue.title} description={pageHeadings.callQueue.description} breadcrumb={breadcrumb} />
-      <DataGrid
-        columns={columns}
-        data={calls}
-        rowKey={(r) => r.id}
-        loading={loading}
-        emptyMessage="No calls queued yet — your team will notify you."
-        maxHeight="calc(100vh - 230px)"
-        onRowClick={onRowClick}
-      />
+      <div className="flex-1 min-h-0">
+        <DataGrid
+          columns={columns}
+          data={calls}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyMessage="No calls queued yet — your team will notify you."
+          fillHeight
+          onRowClick={onRowClick}
+        />
+      </div>
     </div>
   )
 }

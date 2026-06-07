@@ -245,7 +245,7 @@ export default function CampaignDetailPage() {
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 130px)' }}>
+    <div className="flex flex-col -mb-4" style={{ height: 'calc(100vh - 48px)' }}>
       {/* Header */}
       <div className="flex items-center gap-2 flex-shrink-0 mb-3">
         <Button variant="ghost" size="icon" onClick={() => router.push('/campaigns')} className="h-8 w-8">

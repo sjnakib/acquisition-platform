@@ -63,16 +63,18 @@ export default function ActiveDealsTable({ projectId, breadcrumb }: { projectId?
   }, [projectId])
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader title={pageHeadings.activeDeals.title} description={pageHeadings.activeDeals.description} breadcrumb={breadcrumb} />
-      <DataGrid
-        columns={columns}
-        data={deals}
-        rowKey={(r) => r.id}
-        loading={loading}
-        emptyMessage="No active deals yet — your team will notify you when deals are ready."
-        maxHeight="calc(100vh - 230px)"
-      />
+      <div className="flex-1 min-h-0">
+        <DataGrid
+          columns={columns}
+          data={deals}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyMessage="No active deals yet — your team will notify you when deals are ready."
+          fillHeight
+        />
+      </div>
     </div>
   )
 }

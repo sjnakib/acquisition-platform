@@ -315,10 +315,10 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
           ) : (
             <div className="space-y-3">
               <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
-                Gmail not connected — required for sending outreach emails and receiving replies for this project.
+                Gmail account not connected — required for sending outreach emails and receiving replies for this project.
               </div>
               <Button asChild>
-                <a href={`/api/auth/google?projectId=${projectId}`}>Connect Gmail</a>
+                <a href={`/api/auth/google?projectId=${projectId}`}>Connect Gmail Account</a>
               </Button>
             </div>
           )}

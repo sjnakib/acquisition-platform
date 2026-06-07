@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/deals/RichTextEditor'
 import { ContactSuggestInput } from '@/components/deals/ContactSuggestInput'
+import { cn } from '@/lib/utils'
 
 export interface EmailComposerHandle {
   insertHTML: (html: string) => void
@@ -85,6 +86,8 @@ interface Props {
   minHeight?: number
   placeholder?: string
   showCcToggle?: boolean
+  hideMergeFields?: boolean
+  className?: string
 }
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -124,6 +127,8 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
     minHeight = 200,
     placeholder = 'Write your message...',
     showCcToggle = true,
+    hideMergeFields = false,
+    className,
   }: Props, ref) {
   // Compose mode state
   const [composeTo, setComposeTo] = useState(defaultTo ?? '')
@@ -212,7 +217,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
   const subjectValue = isCompose ? composeSubject : subjectTemplate
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={cn("flex flex-col gap-4", className)}>
       {/* ── Templates (both modes) ── */}
       {availableTemplates.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
@@ -304,7 +309,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
       </div>
 
       {/* ── Body ── */}
-      <div>
+      <div className="flex-1 min-h-0 flex flex-col">
         <div style={labelStyle}>Body</div>
         <RichTextEditor
           ref={editorRef}
@@ -318,7 +323,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
       </div>
 
       {/* ── Merge field palette (template-edit only) ── */}
-      {!isCompose && mergeFields.length > 0 && (
+      {!isCompose && !hideMergeFields && mergeFields.length > 0 && (
         <div style={{
           background: 'var(--color-surface-1)', borderRadius: 'var(--radius-md)',
           padding: '10px 12px',
