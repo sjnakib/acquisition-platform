@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/google/gmail'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
+import { formatNameFromEmail } from '@/lib/utils'
+import { lookupNamesByEmail } from '@/lib/google/people'
 
 /**
  * GET /api/campaigns/[id]/send-emails?status=results
@@ -12,6 +14,15 @@ import { canTransition, type DealStage } from '@/lib/stage-machine'
  * POST /api/campaigns/[id]/send-emails
  *   → sends campaign template emails to all eligible leads
  */
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+type DealFieldRow = { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }
+
+function getDealName(dealFields: DealFieldRow[]): string {
+  const nameField = dealFields.find((df) => df.field_definitions?.key === 'deal_name')
+  return nameField?.value || 'Untitled Deal'
+}
 
 // ── Resolve merge fields in a template string ─────────────────────────────
 
@@ -48,11 +59,13 @@ function resolveTemplate(
 
 // ── In-memory job store (sessions only, acceptable for mass-email batches) ─
 
+type JobResult = { dealId: string; dealName: string; recipient: string; success: boolean; error?: string }
+
 const jobs = new Map<string, {
   campaignId: string
   total: number
   sent: number
-  results: { dealId: string; dealName: string; success: boolean; error?: string }[]
+  results: JobResult[]
   stillProcessing: boolean
 }>()
 
@@ -77,7 +90,7 @@ export async function GET(
 
   if (status === 'results' || status === 'progress') {
     // Return results for the most recent job for this campaign
-    let targetJob: { campaignId: string; total: number; sent: number; results: { dealId: string; dealName: string; success: boolean; error?: string }[]; stillProcessing: boolean } | undefined
+    let targetJob: { campaignId: string; total: number; sent: number; results: JobResult[]; stillProcessing: boolean } | undefined
 
     if (jobId) {
       targetJob = jobs.get(jobId)
@@ -131,8 +144,18 @@ export async function POST(
       .single()
 
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
-    if (!campaign.email_template) {
+
+    // Template required: either built-in (email_template enum) OR custom (email_template_id)
+    const hasTemplate = !!campaign.email_template || !!campaign.email_template_id
+    if (!hasTemplate) {
       return NextResponse.json({ error: 'No email template selected for this campaign' }, { status: 400 })
+    }
+
+    // Validate that template content is available
+    const subjectTemplate = campaign.email_subject_template as string | null
+    const bodyTemplate = campaign.email_body_template as string | null
+    if (!subjectTemplate && !bodyTemplate) {
+      return NextResponse.json({ error: 'Email template has no subject or body content' }, { status: 400 })
     }
 
     // Resolve Gmail connection
@@ -150,23 +173,58 @@ export async function POST(
     }
 
     // Fetch deals in campaign with contacts (stage = 'lead', not already emailed)
-    const { data: deals } = await supabase
+    // Note: deal_name was dropped from deals in migration 0024 — it lives in deal_fields now
+    const { data: deals, error: dealsQueryError } = await supabase
       .from('deals')
       .select(`
-        id, deal_name, stage, outreach_emails,
+        id, stage, outreach_emails,
         contacts(id, name, company, email, phone_office, phone_cell, is_primary),
-        deal_fields(value, field_definitions(key, label, data_type)),
-        email_outreach(id, status)
+        deal_fields(value, field_definitions(key, label, data_type))
       `)
       .eq('campaign_id', campaignId)
       .eq('stage', 'lead')
 
-    if (!deals?.length) {
-      return NextResponse.json({ error: 'No leads to send to in this campaign', total: 0, sent: 0 }, { status: 200 })
+    if (dealsQueryError) {
+      console.error('[send-emails] deals query error:', dealsQueryError)
+      return NextResponse.json({
+        error: 'Failed to query deals',
+        detail: dealsQueryError.message || String(dealsQueryError),
+        total: 0,
+        sent: 0,
+      }, { status: 200 })
     }
 
-    // Filter: must have at least one contact with email (or outreach_emails fallback),
-    // must not have already been sent
+    if (!deals?.length) {
+      // Diagnostics: query all deals in this campaign and show stage distribution
+      const { data: allDeals, error: allDealsError } = await supabase
+        .from('deals')
+        .select('id, stage, campaign_id')
+        .eq('campaign_id', campaignId)
+
+      const stageCounts: Record<string, number> = {}
+      const campaignIds = new Set<string>()
+      if (allDeals) {
+        for (const d of allDeals) {
+          const s = (d as Record<string, unknown>).stage as string ?? 'null'
+          stageCounts[s] = (stageCounts[s] ?? 0) + 1
+          campaignIds.add((d as Record<string, unknown>).campaign_id as string)
+        }
+      }
+
+      const distribution = Object.entries(stageCounts)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(', ') || 'none'
+
+      return NextResponse.json({
+        error: 'No leads to send to in this campaign',
+        detail: `Campaign ${campaignId} has ${allDeals?.length ?? 0} deal(s). Stage distribution: ${distribution}.${allDealsError ? ` Query error: ${allDealsError.message}` : ''}`,
+        total: 0,
+        sent: 0,
+      }, { status: 200 })
+    }
+
+    // Filter: must have at least one contact email or outreach_emails
+    // Note: no longer blocks previously-sent deals — per-email dedup handles re-sends
     const eligible = deals.filter((d) => {
       const contacts = (d.contacts as unknown[]) ?? []
       const hasContactEmail = contacts.some((c: unknown) => {
@@ -177,165 +235,206 @@ export async function POST(
         (d as Record<string, unknown>).outreach_emails != null &&
         Array.isArray((d as Record<string, unknown>).outreach_emails) &&
         ((d as Record<string, unknown>).outreach_emails as unknown[]).length > 0
-      const alreadySent = ((d.email_outreach as unknown[]) ?? []).some(
-        (e: unknown) => (e as { status: string }).status === 'sent',
-      )
-      return (hasContactEmail || hasOutreachEmails) && !alreadySent
+      return hasContactEmail || hasOutreachEmails
     })
 
     if (eligible.length === 0) {
-      return NextResponse.json({ error: 'All leads have already been emailed or have no contact email', total: 0, sent: 0 }, { status: 200 })
+      const totalFetched = deals?.length ?? 0
+      const withContactEmail = deals?.filter((d) => {
+        const contacts = (d.contacts as unknown[]) ?? []
+        return contacts.some((c: unknown) => {
+          const emails = (c as { email?: string[] | null }).email
+          return emails && emails.length > 0
+        })
+      }).length ?? 0
+      const withOutreachEmails = deals?.filter((d) => {
+        const oe = (d as Record<string, unknown>).outreach_emails
+        return oe != null && Array.isArray(oe) && oe.length > 0
+      }).length ?? 0
+
+      return NextResponse.json({
+        error: 'No eligible leads found',
+        detail: `${totalFetched} lead(s) fetched. ${withContactEmail} with contact email, ${withOutreachEmails} with outreach emails.`,
+        total: 0,
+        sent: 0,
+      }, { status: 200 })
     }
 
-    // Create job
-    const jobId = crypto.randomUUID()
-    const jobResults: { dealId: string; dealName: string; success: boolean; error?: string }[] = []
+    // Create or resume job
+    const existingJobId = body.jobId as string | undefined
+    const jobId = existingJobId ?? crypto.randomUUID()
+    const jobResults: JobResult[] = []
+    const previousSent = existingJobId ? (jobs.get(existingJobId)?.sent ?? 0) : 0
 
     jobs.set(jobId, {
       campaignId,
-      total: eligible.length,
-      sent: 0,
+      total: 0, // will update after counting
+      sent: previousSent,
       results: jobResults,
       stillProcessing: true,
     })
 
-    // Process sends (each iteration doesn't await so it runs in background)
+    // Count total unique emails across all eligible deals for progress tracking
+    let totalEmailCount = 0
+    for (const deal of eligible) {
+      const emailSet = new Set<string>()
+      const dcontacts = (deal.contacts as Array<{ email?: string[] | null }>) ?? []
+      for (const c of dcontacts) {
+        for (const e of c.email ?? []) { if (e) emailSet.add(e.toLowerCase()) }
+      }
+      const oe = (deal as Record<string, unknown>).outreach_emails as string[] | undefined
+      for (const e of oe ?? []) { if (e) emailSet.add(e.toLowerCase()) }
+      totalEmailCount += emailSet.size
+    }
+
+    const jobTotal = totalEmailCount + previousSent
+    const job = jobs.get(jobId)!
+    job.total = jobTotal
+
     const senderEmail = user.email ?? 'team@acquire.com'
 
-    // We process synchronously to respect rate limits, but return after first batch
-    // to avoid Vercel timeout. Client polls for remaining.
-    const startTime = Date.now()
-    const TIMEOUT_MS = 45_000 // return before Vercel 60s limit
+    // Pre-fetch display names from Gmail People API for all recipient emails
+    let nameMap = new Map<string, string>()
+    try {
+      const allEmails: string[] = []
+      for (const deal of eligible) {
+        const dcontacts = (deal.contacts as Array<{ email?: string[] | null }>) ?? []
+        for (const c of dcontacts) {
+          for (const e of c.email ?? []) { if (e) allEmails.push(e) }
+        }
+        const oe = (deal as Record<string, unknown>).outreach_emails as string[] | undefined
+        for (const e of oe ?? []) { if (e) allEmails.push(e) }
+      }
+      nameMap = await lookupNamesByEmail(connectionId, allEmails)
+    } catch { /* non-fatal — fall back to formatNameFromEmail */ }
 
+    const startTime = Date.now()
+    const TIMEOUT_MS = 45_000
+    type ContactRow = { id: string; name: string | null; company: string | null; email: string[] | null; phone_office: string | null; phone_cell: string | null; is_primary: boolean | null }
+
+    let emailsSent = 0
     for (let i = 0; i < eligible.length; i++) {
       if (Date.now() - startTime > TIMEOUT_MS) {
-        // Return partial — client should retry
-        const job = jobs.get(jobId)
-        if (job) {
-          job.sent = i
-          job.stillProcessing = true
-        }
-
+        job.sent = previousSent + emailsSent
+        job.stillProcessing = true
         return NextResponse.json({
           jobId,
-          total: eligible.length,
-          sent: i,
+          total: jobTotal,
+          sent: job.sent,
           stillProcessing: true,
-          message: `Processed ${i} of ${eligible.length}. Retry to send remaining.`,
         })
       }
 
       const deal = eligible[i]!
-      const contacts = (deal.contacts as Array<{ id: string; name: string | null; company: string | null; email: string[] | null; phone_office: string | null; phone_cell: string | null; is_primary: boolean | null }>) ?? []
+      const dealName = getDealName((deal.deal_fields as unknown as DealFieldRow[]) ?? [])
+      const contacts = (deal.contacts as unknown as ContactRow[]) ?? []
 
-      // Pick primary contact, or first with email
-      const primaryContact = contacts.find((c) => c.is_primary) ?? contacts.find((c) => c.email?.length)
-
-      // Fallback: use outreach_emails if no contact has an email
-      let recipientEmail: string | undefined = primaryContact?.email?.[0]
-      let contactId: string | null = primaryContact?.id ?? null
-
-      if (!recipientEmail) {
-        const outreachEmails = (deal as Record<string, unknown>).outreach_emails as string[] | undefined
-        if (outreachEmails?.length) {
-          recipientEmail = outreachEmails[0]
-          contactId = null // no contact row to reference
-        }
+      // Collect all unique emails for this deal
+      const uniqueEmails = new Set<string>()
+      for (const c of contacts) {
+        for (const e of c.email ?? []) { if (e) uniqueEmails.add(e.toLowerCase()) }
       }
+      const outreachEmails = (deal as Record<string, unknown>).outreach_emails as string[] | undefined
+      for (const e of outreachEmails ?? []) { if (e) uniqueEmails.add(e.toLowerCase()) }
 
-      if (!recipientEmail) {
-        jobResults.push({ dealId: deal.id, dealName: deal.deal_name ?? 'Untitled Deal', success: false, error: 'No contact email' })
+      if (uniqueEmails.size === 0) {
+        jobResults.push({ dealId: deal.id, dealName, recipient: '', success: false, error: 'No email addresses' })
+        emailsSent++
         continue
       }
 
-      try {
-        type DealFieldRow = { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }
-        const dealFields = (deal.deal_fields as unknown as DealFieldRow[]) ?? []
+      const dealFields = (deal.deal_fields as unknown as DealFieldRow[]) ?? []
+      let dealHadSuccess = false
 
-        // Build a synthetic contact object for template resolution when using outreach_emails fallback
-        const contactForTemplate = primaryContact ?? {
-          name: recipientEmail.split('@')[0] ?? null,
+      for (const recipientEmail of uniqueEmails) {
+        const matchingContact = contacts.find((c) =>
+          (c.email ?? []).some((e: string) => e.toLowerCase() === recipientEmail),
+        )
+        const contactId: string | null = matchingContact?.id ?? null
+
+        const contactForTemplate = matchingContact ?? {
+          name: nameMap.get(recipientEmail.toLowerCase()) ?? formatNameFromEmail(recipientEmail),
           email: [recipientEmail],
           phone_cell: null,
           phone_office: null,
           company: null,
         }
 
-        const subject = resolveTemplate(
-          campaign.email_subject_template ?? '{property_address} — Investment Opportunity',
-          { deal_fields: dealFields },
-          contactForTemplate,
-          campaign.name,
-          senderEmail,
-        )
+        try {
+          const subject = resolveTemplate(
+            subjectTemplate ?? '{property_address} — Investment Opportunity',
+            { deal_fields: dealFields },
+            contactForTemplate,
+            campaign.name,
+            senderEmail,
+          )
 
-        const bodyText = resolveTemplate(
-          campaign.email_body_template ?? '',
-          { deal_fields: dealFields },
-          contactForTemplate,
-          campaign.name,
-          senderEmail,
-        )
+          const bodyText = resolveTemplate(
+            bodyTemplate ?? '',
+            { deal_fields: dealFields },
+            contactForTemplate,
+            campaign.name,
+            senderEmail,
+          )
 
-        // Build simple HTML email from body text
-        const htmlBody = `
-          <html><body style="font-family:Arial,sans-serif;color:#1e293b;max-width:600px;margin:0 auto;padding:24px">
-            <div style="white-space:pre-wrap">${bodyText.replaceAll('\n', '<br>')}</div>
-          </body></html>`
+          const htmlBody = `
+            <html><body style="font-family:Arial,sans-serif;color:#1e293b;padding:16px 0">
+              <div style="white-space:pre-wrap">${bodyText.replaceAll('\n', '<br>')}</div>
+            </body></html>`
 
-        const result = await sendEmail(connectionId, recipientEmail, subject, htmlBody)
+          const result = await sendEmail(connectionId, recipientEmail, subject, htmlBody)
 
-        // Insert email_outreach record
-        await supabase.from('email_outreach').insert({
-          deal_id: deal.id,
-          contact_id: contactId,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-          subject,
-          template_used: campaign.email_template as 'outreach' | 'thank_you' | 'declination',
-          gmail_message_id: result.messageId,
-          gmail_thread_id: result.threadId,
-        })
-
-        // Transition deal stage lead → outreach
-        const transition = canTransition('lead' as DealStage, 'outreach' as DealStage)
-        if (transition.ok) {
-          await supabase.from('deals').update({ stage: 'outreach' }).eq('id', deal.id)
-        }
-
-        jobResults.push({ dealId: deal.id, dealName: deal.deal_name ?? 'Untitled Deal', success: true })
-
-        // Small delay between sends to avoid Gmail rate limiting
-        await new Promise((r) => setTimeout(r, 300))
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error'
-        jobResults.push({ dealId: deal.id, dealName: deal.deal_name ?? 'Untitled Deal', success: false, error: message })
-
-        // On Gmail errors that aren't transient, don't stop the batch
-        if (message.includes('not found') || message.includes('invalid')) {
+          const templateUsed = (campaign.email_template as string) || 'custom'
           await supabase.from('email_outreach').insert({
             deal_id: deal.id,
             contact_id: contactId,
-            status: message.includes('not found') ? 'invalid_address' : 'gmail_error',
-            error_message: message,
-            template_used: campaign.email_template as 'outreach' | 'thank_you' | 'declination',
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            subject,
+            template_used: templateUsed,
+            gmail_message_id: result.messageId,
+            gmail_thread_id: result.threadId,
           })
+
+          jobResults.push({ dealId: deal.id, dealName, recipient: recipientEmail, success: true })
+          dealHadSuccess = true
+
+          await new Promise((r) => setTimeout(r, 300))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error'
+          jobResults.push({ dealId: deal.id, dealName, recipient: recipientEmail, success: false, error: message })
+
+          if (message.includes('not found') || message.includes('invalid')) {
+            await supabase.from('email_outreach').insert({
+              deal_id: deal.id,
+              contact_id: contactId,
+              status: message.includes('not found') ? 'invalid_address' : 'gmail_error',
+              error_message: message,
+              template_used: (campaign.email_template as string) || 'custom',
+            })
+          }
+        }
+        emailsSent++
+      }
+
+      // Transition deal stage if at least one email succeeded
+      if (dealHadSuccess) {
+        const transition = canTransition('lead' as DealStage, 'outreach' as DealStage)
+        if (transition.ok) {
+          await supabase.from('deals').update({ stage: 'outreach' }).eq('id', deal.id)
         }
       }
     }
 
     // All done
-    const job = jobs.get(jobId)
-    if (job) {
-      job.sent = eligible.length
-      job.stillProcessing = false
-      cleanupJob(jobId)
-    }
+    job.sent = previousSent + emailsSent
+    job.stillProcessing = false
+    cleanupJob(jobId)
 
     return NextResponse.json({
       jobId,
-      total: eligible.length,
-      sent: eligible.length,
+      total: jobTotal,
+      sent: job.sent,
       stillProcessing: false,
       results: jobResults,
     })

@@ -264,6 +264,13 @@ body {
   animation: cell-flash-glow 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }
 
+/* Import preview — dropped column full-column dimming */
+.column-dropped {
+  opacity: 0.45;
+  background: var(--color-surface-1);
+  transition: opacity 200ms ease, background 200ms ease;
+}
+
 /* ----------------------------------------------------
    MODAL DIALOG POPUPS & OVERLAYS
    ---------------------------------------------------- */

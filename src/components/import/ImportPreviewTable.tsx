@@ -7,13 +7,12 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Tooltip } from '@/components/ui/tooltip'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
-import { detectAction } from '@/lib/import/mapping'
 import { toast } from 'sonner'
 
 interface FieldDef {
@@ -126,35 +125,44 @@ export function ImportPreviewTable({
       // No-op if value hasn't changed
       if (value === currentVal) return
 
-      // Check if user is overriding a non-default custom mapping
-      const existingKeys = fieldDefs.map((fd) => fd.key)
-      const defaultAction = detectAction(header, existingKeys)
-      const isDefault =
-        currentAction &&
-        JSON.stringify(currentAction) === JSON.stringify(defaultAction)
+      // Warn whenever user changes an already-mapped column
+      if (currentAction && currentAction.action !== 'drop') {
+        const currentLabel =
+          resolveTargetLabel(header, mapping, previousMapping, fieldDefs) ||
+          'a field'
+        const newLabel =
+          value === 'email_target'
+            ? 'Email Target'
+            : value.startsWith('field:')
+              ? `"${fieldDefs.find((fd) => fd.key === value.slice(6))?.label ?? value.slice(6)}"`
+              : value === 'new_field'
+                ? '"New Field"'
+                : '"Drop"'
 
-      if (currentAction && currentAction.action !== 'drop' && !isDefault) {
-        toast.warning(`Column "${header}" is already custom-mapped. Change it?`, {
-          action: {
-            label: 'Change',
-            onClick: () => {
-              applyMappingChange(header, value)
-              setLastChanged({ header })
+        toast.warning(
+          `Column "${header}" is already mapped to ${currentLabel}. Change to ${newLabel}?`,
+          {
+            action: {
+              label: 'Change',
+              onClick: () => {
+                applyMappingChange(header, value)
+                setLastChanged({ header })
+              },
             },
+            cancel: {
+              label: 'Cancel',
+              onClick: () => {},
+            },
+            duration: 5000,
           },
-          cancel: {
-            label: 'Cancel',
-            onClick: () => {},
-          },
-          duration: 5000,
-        })
+        )
         return
       }
 
       applyMappingChange(header, value)
       setLastChanged({ header })
     },
-    [mapping, fieldDefs, applyMappingChange],
+    [mapping, fieldDefs, previousMapping, applyMappingChange],
   )
 
   const availableFields = useMemo(
@@ -182,8 +190,7 @@ export function ImportPreviewTable({
 
           return (
             <div
-              className="flex flex-col gap-0.5 w-full min-w-0"
-              style={{ opacity: isDropped ? 0.4 : 1 }}
+              className={`flex flex-col gap-0.5 w-full min-w-0${isDropped ? ' column-dropped rounded-sm px-1' : ''}`}
             >
               {/* Target label — or new-field inline form */}
               {currentAction === 'new_field' && isNewFieldExpanded ? (
@@ -252,26 +259,31 @@ export function ImportPreviewTable({
                     <X size={11} />
                   </button>
                 </div>
-              ) : lastChanged?.header === header ? (
-                <span
-                  className="text-[10px] leading-tight truncate w-full"
-                  style={{
-                    color: 'var(--color-success-solid)',
-                    minHeight: 14,
-                  }}
-                >
-                  ✓ mapped
-                </span>
               ) : (
-                <span
-                  className="text-[10px] leading-tight truncate w-full"
-                  style={{
-                    color: 'var(--color-text-tertiary)',
-                    minHeight: 14,
-                  }}
-                >
-                  {targetLabel || ' '}
-                </span>
+                <div className="min-h-[16px] flex items-center">
+                  {currentAction !== 'drop' && targetLabel ? (
+                    <Badge
+                      variant={lastChanged?.header === header ? 'success' : 'accent'}
+                      size="sm"
+                      className={
+                        lastChanged?.header === header ? 'animate-cell-success' : ''
+                      }
+                    >
+                      {targetLabel}
+                    </Badge>
+                  ) : currentAction === 'drop' ? (
+                    <Badge variant="neutral" size="sm">
+                      Dropped
+                    </Badge>
+                  ) : (
+                    <span
+                      className="text-[10px] leading-tight"
+                      style={{ color: 'var(--color-text-tertiary)' }}
+                    >
+                      Select mapping
+                    </span>
+                  )}
+                </div>
               )}
 
               {/* Source column name + controls */}
@@ -375,11 +387,8 @@ export function ImportPreviewTable({
           ? {
               render: (row: Record<string, unknown>) => (
                 <span
-                  className="truncate"
-                  style={{
-                    opacity: 0.4,
-                    color: 'var(--color-text-tertiary)',
-                  }}
+                  className="truncate px-1 rounded-sm column-dropped"
+                  style={{ color: 'var(--color-text-tertiary)' }}
                 >
                   {(row[header] ?? '—') as string}
                 </span>

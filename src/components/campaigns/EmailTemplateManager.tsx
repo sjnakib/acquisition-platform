@@ -9,6 +9,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { toast } from 'sonner'
 import { EmailComposer, type MergeField } from '@/components/shared/EmailComposer'
@@ -42,7 +50,7 @@ interface PreviewDeal {
 }
 
 interface SendResult {
-  dealId: string; dealName: string; success: boolean; error?: string
+  dealId: string; dealName: string; recipient: string; success: boolean; error?: string
 }
 
 interface Props {
@@ -127,6 +135,8 @@ export function EmailTemplateManager({
   const [sending, setSending] = useState(false)
   const [sendResults, setSendResults] = useState<SendResult[] | null>(null)
   const [sendProgress, setSendProgress] = useState({ sent: 0, total: 0 })
+  const [showSendDialog, setShowSendDialog] = useState(false)
+  const [sendComplete, setSendComplete] = useState(false)
 
   // ── Template CRUD dialog state ──
   const [showTemplateDialog, setShowTemplateDialog] = useState(false)
@@ -296,7 +306,11 @@ export function EmailTemplateManager({
   // ── Mass send ──
   const handleSend = useCallback(async () => {
     if (!gmailConnected) { toast.error('Gmail not connected for this project.'); return }
-    setSending(true); setSendResults(null); setSendProgress({ sent: 0, total: 0 })
+    setSending(true)
+    setSendResults(null)
+    setSendProgress({ sent: 0, total: 0 })
+    setSendComplete(false)
+    setShowSendDialog(true)
 
     try {
       const saveRes = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}`, {
@@ -309,44 +323,118 @@ export function EmailTemplateManager({
           email_body_template: body,
         }),
       })
-      if (!saveRes.ok) throw new Error('Failed to save template')
-    } catch { toast.error('Failed to save template before sending'); setSending(false); return }
+      if (!saveRes.ok) {
+        const errBody = await saveRes.json().catch(() => ({}))
+        const msg = (errBody as Record<string, unknown>).error
+          ?? (errBody as Record<string, unknown>).details
+          ?? `Failed to save template (HTTP ${saveRes.status})`
+        throw new Error(String(msg))
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save template before sending')
+      setSending(false)
+      setShowSendDialog(false)
+      return
+    }
 
     try {
-      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/send-emails`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
-      })
-      if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Unknown error' })); throw new Error(err.error) }
-      const result = await res.json()
+      let currentJobId: string | undefined
+      const allResults: SendResult[] = []
 
-      if (result.stillProcessing) {
-        for (let attempt = 0; attempt < 12; attempt++) {
-          await new Promise((r) => setTimeout(r, 2000))
-          const statusRes = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/send-emails?status=progress&jobId=${encodeURIComponent(result.jobId)}`)
-          if (!statusRes.ok) break
-          const status = await statusRes.json()
-          setSendProgress({ sent: status.sent ?? 0, total: status.total ?? 0 })
-          if (!status.stillProcessing) break
+      // Loop: send batches, re-POSTing if the API returns stillProcessing for large campaigns
+      for (let batch = 0; batch < 30; batch++) {
+        const res = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/send-emails`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId, jobId: currentJobId }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error((err as Record<string, unknown>).detail as string || (err as Record<string, unknown>).error as string || 'Unknown error')
         }
+        const result = await res.json()
+
+        // If the API returned an error or no emails were queued, surface it immediately
+        if (result.error && result.total === 0) {
+          setSendResults([{ dealId: '', dealName: result.detail as string || result.error as string, recipient: '', success: false, error: result.detail as string || result.error as string }])
+          setSendComplete(true)
+          setSending(false)
+          return
+        }
+
+        currentJobId = result.jobId as string
+        if (result.total > 0) {
+          setSendProgress({ sent: result.sent ?? 0, total: result.total })
+        }
+
+        // Poll for progress while stillProcessing
+        if (result.stillProcessing) {
+          for (let attempt = 0; attempt < 15; attempt++) {
+            await new Promise((r) => setTimeout(r, 3000))
+            const statusRes = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/send-emails?status=progress&jobId=${encodeURIComponent(currentJobId)}`)
+            if (!statusRes.ok) break
+            const status = await statusRes.json()
+            setSendProgress({ sent: status.sent ?? 0, total: status.total ?? 0 })
+
+            // Results may come through progress polling
+            if (status.results) {
+              const newResults = (status.results as SendResult[]).filter(
+                (r) => !allResults.some((a) => a.dealId === r.dealId && a.recipient === r.recipient),
+              )
+              allResults.push(...newResults)
+            }
+
+            if (!status.stillProcessing) {
+              // Merge final results
+              if (status.results) {
+                setSendResults(status.results as SendResult[])
+              } else {
+                setSendResults(allResults)
+              }
+              setSendComplete(true)
+              queryClient.invalidateQueries({ queryKey: ['deals', { campaign_id: campaign.id }] })
+              setSending(false)
+              return
+            }
+          }
+          // Poll loop ended but still processing — re-POST to continue
+          continue
+        }
+
+        // No stillProcessing — all done in this batch
+        if (result.results) {
+          allResults.push(...(result.results as SendResult[]))
+        }
+        setSendResults(allResults)
+        setSendComplete(true)
+        queryClient.invalidateQueries({ queryKey: ['deals', { campaign_id: campaign.id }] })
+        setSending(false)
+        return
       }
 
-      const finalRes = await fetch(`/api/campaigns/${encodeURIComponent(campaign.id)}/send-emails?status=results`)
-      if (finalRes.ok) {
-        const final = await finalRes.json()
-        setSendResults(final.results ?? [])
-        const sent = final.results?.filter((r: SendResult) => r.success).length ?? 0
-        const failed = final.results?.filter((r: SendResult) => !r.success).length ?? 0
-        toast.success(`Emails sent: ${sent} succeeded${failed > 0 ? `, ${failed} failed` : ''}`)
-      }
-      queryClient.invalidateQueries({ queryKey: ['deals', { campaign_id: campaign.id }] })
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed to send emails') }
-    finally { setSending(false) }
+      // Exhausted batch retries
+      setSendResults(allResults.length > 0 ? allResults : [{ dealId: '', dealName: 'Send incomplete', recipient: '', success: false, error: 'Maximum send batches reached. Some emails may not have been sent.' }])
+      setSendComplete(true)
+    } catch (err) {
+      setSendResults([{ dealId: '', dealName: 'Send failed', recipient: '', success: false, error: err instanceof Error ? err.message : 'Failed to send emails' }])
+      setSendComplete(true)
+    } finally { setSending(false) }
   }, [campaign, templateType, subject, body, projectId, gmailConnected, queryClient])
 
   const senderEmail = user?.email ?? 'owner@example.com'
   const mergedSubject = useMemo(() => resolveMergeFields(subject, previewDeal ?? null, campaign, senderEmail), [subject, previewDeal, campaign, senderEmail])
   const mergedBody = useMemo(() => resolveMergeFields(body, previewDeal ?? null, campaign, senderEmail), [body, previewDeal, campaign, senderEmail])
+
+  // Pre-group send results by deal for the report dialog
+  const groupedSendResults = useMemo(() => {
+    if (!sendResults) return []
+    const groups = new Map<string, SendResult[]>()
+    for (const r of sendResults) {
+      const key = r.dealId || '__error__'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(r)
+    }
+    return Array.from(groups.entries())
+  }, [sendResults])
 
   return (
     <div style={sectionStyle}>
@@ -390,8 +478,13 @@ export function EmailTemplateManager({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {!gmailConnected && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 'var(--radius-md)', background: 'var(--color-warning)', fontSize: 12, color: 'var(--color-text-inverse)' }}>
-              <AlertTriangle className="h-3 w-3" />Gmail not connected
+              <AlertTriangle className="h-3 w-3" />Connect Gmail to send
             </div>
+          )}
+          {gmailConnected && leadsCount === 0 && (
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              No leads to send — import deals or move deals to Lead stage
+            </span>
           )}
           <Button
             size="sm"
@@ -399,8 +492,8 @@ export function EmailTemplateManager({
             disabled={sending || !gmailConnected || leadsCount === 0}
             style={{ height: 32, fontSize: 13, gap: 6, background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
           >
-            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-            {sending ? `Sending (${sendProgress.sent}/${sendProgress.total})` : `Send to ${leadsCount} leads`}
+            <Send className="h-3.5 w-3.5" />
+            Send to {leadsCount} lead{leadsCount !== 1 ? 's' : ''}
           </Button>
         </div>
       </div>
@@ -540,38 +633,150 @@ export function EmailTemplateManager({
         )}
       </div>
 
-      {/* ── Send results ── */}
-      {sendResults && sendResults.length > 0 && (
-        <div style={{ marginTop: 14, border: '1px solid var(--color-surface-2)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-surface-2)', background: 'var(--color-surface-1)', fontSize: 12, color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            {sendResults.filter((r) => r.success).length === sendResults.length
-              ? <CheckCircle className="h-3.5 w-3.5" style={{ color: 'var(--color-success)' }} />
-              : sendResults.some((r) => r.success)
-                ? <AlertTriangle className="h-3.5 w-3.5" style={{ color: 'var(--color-warning)' }} />
-                : <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--color-danger)' }} />
-            }
-            {sendResults.filter((r) => r.success).length} sent, {sendResults.filter((r) => !r.success).length} failed
-          </div>
-          <div style={{ maxHeight: 180, overflow: 'auto', padding: '4px 0' }}>
-            {sendResults.map((r) => (
-              <div key={r.dealId} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', fontSize: 12 }}>
-                {r.success
-                  ? <CheckCircle className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-success)' }} />
-                  : <XCircle className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-danger)' }} />
-                }
-                <span style={{ color: 'var(--color-text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                  {r.dealName || 'Untitled Deal'}
+      {/* ── Send progress & results dialog ── */}
+      <Dialog open={showSendDialog} onOpenChange={(open) => { if (!open && !sending) { setShowSendDialog(false); setSendComplete(false); setSendResults(null) } }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {sendComplete ? 'Send Report' : 'Sending Emails'}
+            </DialogTitle>
+            <DialogDescription>
+              {sendComplete
+                ? `Campaign: ${campaign.name}`
+                : `Sending outreach emails to ${leadsCount} lead${leadsCount !== 1 ? 's' : ''}…`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Progress phase */}
+          {!sendComplete && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" style={{ color: 'var(--color-accent)' }} />
+                <span style={{ fontSize: 14, color: 'var(--color-text-primary)' }}>
+                  {sendProgress.total > 0
+                    ? `Sending ${sendProgress.sent} of ${sendProgress.total}…`
+                    : 'Preparing…'}
                 </span>
-                {!r.success && r.error && (
-                  <span style={{ color: 'var(--color-text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                    {r.error}
-                  </span>
-                )}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              {sendProgress.total > 0 && (
+                <div
+                  className="h-2 rounded-full overflow-hidden"
+                  style={{ background: 'var(--color-surface-2)' }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.round((sendProgress.sent / sendProgress.total) * 100)}%`,
+                      background: 'var(--color-accent)',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Results phase */}
+          {sendComplete && sendResults && (
+            <div className="space-y-3">
+              {/* Summary */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {(() => {
+                  const succeeded = sendResults.filter((r) => r.success).length
+                  const failed = sendResults.filter((r) => !r.success).length
+                  const allOk = failed === 0 && succeeded > 0
+                  const mixed = succeeded > 0 && failed > 0
+                  return (
+                    <>
+                      {allOk ? (
+                        <CheckCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--color-success-solid)' }} />
+                      ) : mixed ? (
+                        <AlertTriangle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--color-warning-solid)' }} />
+                      ) : (
+                        <XCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--color-danger-solid)' }} />
+                      )}
+                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                        {succeeded} succeeded
+                        {failed > 0 && `, ${failed} failed`}
+                      </span>
+                    </>
+                  )
+                })()}
+              </div>
+
+              {/* Per-email breakdown */}
+              <div
+                className="max-h-64 overflow-auto rounded border"
+                style={{
+                  borderColor: 'var(--color-surface-2)',
+                  background: 'var(--color-surface-0)',
+                }}
+              >
+                <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--color-surface-2)' }}>
+                      <th className="text-left px-3 py-2" style={{ color: 'var(--color-text-tertiary)', fontWeight: 500, width: 28 }}></th>
+                      <th className="text-left px-0 py-2" style={{ color: 'var(--color-text-tertiary)', fontWeight: 500 }}>Deal</th>
+                      <th className="text-left px-0 py-2" style={{ color: 'var(--color-text-tertiary)', fontWeight: 500 }}>Recipient</th>
+                      <th className="text-left px-3 py-2" style={{ color: 'var(--color-text-tertiary)', fontWeight: 500, width: 120 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedSendResults.map(([dealId, results]) => {
+                      const dealName = results[0]?.dealName || 'Untitled Deal'
+                      return results.map((r, ri) => (
+                        <tr
+                          key={`${dealId}-${ri}-${r.recipient}`}
+                          style={{
+                            borderBottom: '1px solid var(--color-surface-1)',
+                          }}
+                        >
+                          <td className="px-3 py-2">
+                            {r.success ? (
+                              <CheckCircle className="h-3.5 w-3.5" style={{ color: 'var(--color-success-solid)' }} />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5" style={{ color: 'var(--color-danger-solid)' }} />
+                            )}
+                          </td>
+                          <td className="px-0 py-2" style={{ color: 'var(--color-text-primary)', maxWidth: 140 }}>
+                            <div className="truncate" title={dealName}>
+                              {ri === 0 ? dealName : ''}
+                            </div>
+                          </td>
+                          <td className="px-0 py-2" style={{ color: 'var(--color-text-secondary)', maxWidth: 170, fontFamily: 'var(--font-jetbrains-mono)', fontSize: 11 }}>
+                            <div className="truncate" title={r.recipient}>{r.recipient}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            {r.success ? (
+                              <span style={{ color: 'var(--color-success-text)' }}>Sent</span>
+                            ) : (
+                              <span
+                                style={{ color: 'var(--color-danger-text)' }}
+                                title={r.error}
+                              >
+                                {r.error || 'Failed'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant={sendComplete ? 'default' : 'outline'}
+              onClick={() => { setShowSendDialog(false); setSendComplete(false); setSendResults(null) }}
+              disabled={!sendComplete}
+            >
+              {sendComplete ? 'Close' : 'Sending…'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

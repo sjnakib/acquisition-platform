@@ -14,6 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { ImportPreviewTable } from '@/components/import/ImportPreviewTable'
 import { FileDropZone } from '@/components/shared/FileDropZone'
 import { useQuery } from '@tanstack/react-query'
@@ -69,6 +77,12 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   const [mappingSaving, setMappingSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const router = useRouter()
+
+  // Email validation dialog state
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false)
+  const [emailValidationResult, setEmailValidationResult] = useState<{
+    totalEmails: number; invalidEmails: number; errors: string[]
+  } | null>(null)
 
   // Poll import status in step 3
   useEffect(() => {
@@ -193,22 +207,42 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
 
     for (const header of headers) {
       const action = mapping[header]
-      if (!action || action.action === 'drop') continue
+
+      // Check: column has no mapping selected
+      if (!action) {
+        errors.push(`Column "${header}" has no mapping — choose a field or drop it.`)
+        continue
+      }
+
+      if (action.action === 'drop') continue
 
       if (action.action === 'field') {
+        if (!action.key?.trim()) {
+          errors.push(`Column "${header}" is mapped to a field but the key is empty.`)
+          continue
+        }
         if (action.key === 'deal_name') hasDealName = true
         if (fieldKeys.has(action.key)) {
           errors.push(`"${action.key}" is mapped from multiple columns`)
         }
         fieldKeys.add(action.key)
       }
+
       if (action.action === 'new_field') {
+        if (!action.key?.trim()) {
+          errors.push(`Column "${header}" is set to create a new field but the key is empty.`)
+        }
+        if (!action.label?.trim()) {
+          errors.push(`Column "${header}" is set to create a new field but the label is empty.`)
+        }
         if (action.key === 'deal_name') hasDealName = true
         if (fieldKeys.has(action.key)) {
           errors.push(`"${action.key}" is mapped from multiple columns`)
         }
         fieldKeys.add(action.key)
       }
+
+      if (action.action === 'email_target') continue
     }
 
     const nonDropped = headers.filter(
@@ -227,11 +261,11 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   function validateEmailCells(
     previewData: Record<string, unknown>[],
     mapping: Record<string, ColumnActionInput>,
-  ): { totalEmails: number; invalidEmails: number; sampleErrors: string[] } {
+  ): { valid: boolean; totalEmails: number; invalidEmails: number; errors: string[] } {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     let totalEmails = 0
     let invalidEmails = 0
-    const sampleErrors: string[] = []
+    const errors: string[] = []
 
     for (const header of Object.keys(mapping)) {
       if (mapping[header]?.action !== 'email_target') continue
@@ -250,38 +284,23 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
           totalEmails++
           if (!emailRegex.test(part)) {
             invalidEmails++
-            if (sampleErrors.length < 5) {
-              sampleErrors.push(`"${part}" in column "${header}"`)
+            if (errors.length < 10) {
+              errors.push(`"${part}" in column "${header}"`)
             }
           }
         }
       }
     }
 
-    return { totalEmails, invalidEmails, sampleErrors }
+    return { valid: invalidEmails === 0, totalEmails, invalidEmails, errors }
   }
 
-  const onConfirmImport = async () => {
+  // Shared import execution — called directly when no email issues, or from dialog
+  const executeImport = useCallback(async () => {
     if (!batchId || !previewData) return
 
-    // --- Pre-confirm validation ---
-    const mappingErrors = validateMappings(columnMapping, previewHeaders)
-    if (mappingErrors.length > 0) {
-      mappingErrors.forEach((err) => toast.error(err))
-      return
-    }
-
-    const emailValidation = validateEmailCells(previewData, columnMapping)
-    if (emailValidation.invalidEmails > 0) {
-      toast.warning(
-        `${emailValidation.invalidEmails} of ${emailValidation.totalEmails} email address(es) appear invalid. ` +
-          emailValidation.sampleErrors.join(', ') +
-          (emailValidation.invalidEmails > 5 ? '…' : ''),
-        { duration: 8000 },
-      )
-    }
-
     setMappingSaving(true)
+    setEmailDialogOpen(false)
 
     // Step A: save mapping
     const mappingBody: Record<string, unknown> = { mapping: columnMapping }
@@ -320,6 +339,26 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
       toast.error(err.error || 'Import failed')
     }
     setMappingSaving(false)
+  }, [batchId, previewData, columnMapping, projectId, getValues])
+
+  const onConfirmImport = async () => {
+    if (!batchId || !previewData) return
+
+    // --- Pre-confirm validation ---
+    const mappingErrors = validateMappings(columnMapping, previewHeaders)
+    if (mappingErrors.length > 0) {
+      mappingErrors.forEach((err) => toast.error(err))
+      return
+    }
+
+    const emailValidation = validateEmailCells(previewData, columnMapping)
+    if (!emailValidation.valid) {
+      setEmailValidationResult(emailValidation)
+      setEmailDialogOpen(true)
+      return
+    }
+
+    await executeImport()
   }
 
   const descText = { color: 'var(--color-text-secondary)' } as const
@@ -546,6 +585,63 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
           </div>
         )}
       </CardContent>
+
+        {/* Email validation dialog */}
+        <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Invalid Email Addresses Found</DialogTitle>
+              <DialogDescription>
+                {emailValidationResult
+                  ? `${emailValidationResult.invalidEmails} of ${emailValidationResult.totalEmails} email address(es) in the uploaded data are not valid email formats.`
+                  : ''}
+              </DialogDescription>
+            </DialogHeader>
+
+            {emailValidationResult && emailValidationResult.errors.length > 0 && (
+              <div
+                className="max-h-32 overflow-auto rounded p-3 text-xs space-y-1"
+                style={{
+                  background: 'var(--color-surface-1)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                {emailValidationResult.errors.map((err, i) => (
+                  <div key={i}>{err}</div>
+                ))}
+                {emailValidationResult.invalidEmails > emailValidationResult.errors.length && (
+                  <div style={{ color: 'var(--color-text-tertiary)' }}>
+                    …and {emailValidationResult.invalidEmails - emailValidationResult.errors.length}{' '}
+                    more
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p
+              className="text-sm"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              Invalid email addresses will be skipped during import. Only valid emails will be
+              imported and tracked for outreach.
+            </p>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEmailDialogOpen(false)
+                  setEmailValidationResult(null)
+                }}
+              >
+                Cancel Import
+              </Button>
+              <Button onClick={executeImport}>
+                Continue Import
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </Card>
   )
 }

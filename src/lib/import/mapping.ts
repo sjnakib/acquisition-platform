@@ -44,9 +44,20 @@ export function validateMapping(headers: string[], mapping: ColumnMapping): stri
 
   for (const header of headers) {
     const action = mapping[header]
-    if (!action || action.action === 'drop') continue
+
+    // Check: column has no mapping selected at all
+    if (!action) {
+      errors.push(`Column "${header}" has no mapping — choose a field or drop it`)
+      continue
+    }
+
+    if (action.action === 'drop') continue
 
     if (action.action === 'field') {
+      if (!action.key?.trim()) {
+        errors.push(`Column "${header}" is mapped to a field but the key is empty`)
+        continue
+      }
       if (fieldKeys.has(action.key)) {
         errors.push(`Duplicate field mapping: "${action.key}" mapped from multiple columns`)
       }
@@ -55,16 +66,29 @@ export function validateMapping(headers: string[], mapping: ColumnMapping): stri
     }
 
     if (action.action === 'new_field') {
+      if (!action.key?.trim()) {
+        errors.push(`Column "${header}" is set to create a new field but the key is empty`)
+      }
+      if (!action.label?.trim()) {
+        errors.push(`Column "${header}" is set to create a new field but the label is empty`)
+      }
       if (fieldKeys.has(action.key)) {
         errors.push(`Duplicate field mapping: "${action.key}" mapped from multiple columns`)
       }
       fieldKeys.add(action.key)
-      // A new_field with key 'deal_name' or label 'Property Name' etc. counts
       if (action.key === 'deal_name') hasDealName = true
     }
+
+    if (action.action === 'email_target') continue
   }
 
-  if (!hasDealName && headers.length > 0) {
+  const nonDropped = headers.filter(
+    (h) => mapping[h] && mapping[h]?.action !== 'drop',
+  )
+
+  if (nonDropped.length === 0) {
+    errors.push('No columns mapped — at least one column must be mapped to "deal_name"')
+  } else if (!hasDealName) {
     errors.push('No column mapped to "deal_name" field — at least one column must identify the deal')
   }
 

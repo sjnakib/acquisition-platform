@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
+import { formatNameFromEmail } from '@/lib/utils'
+import { lookupNamesByEmail } from '@/lib/google/people'
 
 export async function POST(
   req: NextRequest,
@@ -35,6 +37,17 @@ export async function POST(
     .eq('id', campaign_id)
     .single()
   const projectId = campaign?.project_id ?? null
+
+  // Resolve Gmail connection for People API name enrichment
+  let connectionId: string | null = null
+  if (projectId) {
+    const { data: project } = await adminClient
+      .from('projects')
+      .select('google_connection_id')
+      .eq('id', projectId)
+      .single()
+    connectionId = project?.google_connection_id ?? null
+  }
 
   const { error: jobError } = await adminClient
     .from('import_jobs')
@@ -97,6 +110,7 @@ export async function POST(
 
         cleanedDeals.push({
           outreach_emails: [],
+          stage: 'lead' as const,
           ...cleaned,
           campaign_id,
           project_id: projectId,
@@ -173,11 +187,7 @@ export async function POST(
 
               let isFirst = true
               for (const email of uniqueEmails) {
-                const localPart = email.split('@')[0] ?? ''
-                const name = localPart
-                  .replace(/[._-]/g, ' ')
-                  .replace(/\b\w/g, (c) => c.toUpperCase())
-                  .trim() || null
+                const name = formatNameFromEmail(email)
 
                 contactsToInsert.push({
                   deal_id: dealId,
@@ -194,6 +204,24 @@ export async function POST(
                 .from('contacts')
                 .insert(contactsToInsert)
               if (contactError) console.error('[import] contacts insert error:', contactError)
+
+              // Enrich contact names from Gmail People API (non-blocking)
+              if (connectionId) {
+                try {
+                  const allEmails = contactsToInsert.flatMap((c) => c.email)
+                  const nameMap = await lookupNamesByEmail(connectionId, allEmails)
+                  if (nameMap.size > 0) {
+                    for (const [email, displayName] of nameMap) {
+                      await adminClient
+                        .from('contacts')
+                        .update({ name: displayName })
+                        .contains('email', [email])
+                    }
+                  }
+                } catch (enrichErr) {
+                  console.error('[import] contact name enrichment error:', enrichErr)
+                }
+              }
             }
           }
         }

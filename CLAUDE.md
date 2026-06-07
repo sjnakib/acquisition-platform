@@ -30,7 +30,7 @@ npm run db:reset     # reset + re-seed local DB
 - **Next.js 16.2.6 App Router** — `src/` directory, `@/*` alias
 - **Tailwind CSS v4** (`@tailwindcss/postcss`, no `tailwind.config.ts`)
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
-- **`src/proxy.ts`** handles auth routing. Reads role from JWT `app_metadata` (no DB round-trip). Legacy routes (`/dashboard`, `/deals`, `/overview`, etc.) redirect → `/projects`. NO `src/middleware.ts` — don't create one.
+- **`src/proxy.ts`** handles auth routing. Reads role from JWT `app_metadata` (no DB round-trip). Legacy routes (`/dashboard`, `/deals`, `/overview`, etc.) redirect → `/projects`. Matcher explicitly excludes `api` routes — each API route does its own auth. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
 - **16 API route domains** — admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import, batch), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting
 - **Supabase client layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — ONLY Gmail webhook + `/api/admin/*`), `types.ts` (manual placeholder)
@@ -42,20 +42,20 @@ npm run db:reset     # reset + re-seed local DB
 - **`src/lib/import/`** — `file-parser.ts` (ExcelJS CoStar .xlsx parsing), `mapping.ts` (field mapping logic).
 - **`/projects`** is primary route. `src/app/projects/page.tsx` is shared entry for both roles (outside route groups). Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. Profile at `(internal)/profile` (standalone, not under projects).
 - **Multi-project:** All core data project-scoped via `project_id` FK + RLS policies (migrations 0019-0030). `ProjectProvider` + `useProjectContext` (from `src/components/shared/ProjectContext.tsx`) wraps project pages. Every data query/API call must be scoped to current project. `projects` and `sponsors` tables added in 0019-0020; `google_connections` (per-Google-email, multi-project Gmail) in 0030. API routes at `/api/projects/*`.
-- **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications via `gmail.users.watch()`, Pub/Sub webhook at `/api/emails/webhook`), Drive API (folder provisioning for deals), OAuth (offline refresh tokens stored in `google_connections` keyed by Google email, not user). Multi-project: each project can connect to any Google account via `google_connection_id` FK; OAuth state encodes `projectId` for per-project connect flow. API routes: `auth/google/callback`, `auth/google/refresh-watch`, `projects/[id]/google/disconnect`.
+- **Google integration:** `src/lib/google/gmail.ts`, `drive.ts`, `oauth.ts` — Gmail API (push notifications via `gmail.users.watch()`, Pub/Sub webhook at `/api/emails/webhook`), Drive API (folder provisioning for deals), OAuth (offline refresh tokens stored in `google_connections` keyed by Google email, not user). Multi-project: each project can connect to any Google account via `google_connection_id` FK; OAuth state encodes `projectId` for per-project connect flow. API routes: `auth/google/callback`, `auth/google/refresh-watch`, `projects/[id]/google/disconnect`. Email templates: `email_templates` table (migration 0032) — project-scoped custom templates for outreach emails.
 - **CoStar import pipeline:** ExcelJS parses `.xlsx` in-memory → cross-references `property_id` against DB to prevent duplicates → background polling tracks progress (bypasses Vercel 60s timeout).
 - **Shared components:** `DataGrid` (virtualized Excel-like table), `ProjectContext` (project state provider — wraps children with current project), `Sidebar`, `Breadcrumb`, `PageHeader`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `LoadingSpinner`, `EmptyState`, `BrandLogo`.
 
 ## Key design rules
 
-- **Theme:** CSS var tokens only (`var(--color-*)`). No raw hex, no Tailwind palette colors, no `prefers-color-scheme`. Do NOT use `next-themes` despite package.json — inline `<script>` + `localStorage` key `acq_theme`. Full spec: `docs/architecture/ui.md`.
+- **Theme:** CSS var tokens only (`var(--color-*)`). No raw hex, no Tailwind palette colors, no `prefers-color-scheme`. Do NOT use `next-themes` despite package.json — inline `<script>` + `localStorage` key `acq_theme` reads theme before paint. `<html>` has `suppressHydrationWarning` because of this. Full spec: `docs/architecture/ui.md`.
 - **Deal stages:** `src/lib/stage-machine.ts` — `canTransition()` is source of truth. `failed` only valid after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
 - **Deals API:** response includes `deal_fields` with nested `field_definitions` join. New code touching deals must include this join for property data.
 - **DataGrid** renders ALL `field_definitions` columns (not just `show_in_grid`). Inline editing via F2 (text) or `InlineDropdownEditor` (enum/dropdown columns like stage/score).
 - **ReactQueryProvider** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **Follow-up calling:** `call_briefs` table has `contact_name`, `contact_role`, `phone_number` (migration 0027). Calls API at `/api/calls` — GET filters by `project_id`/`deal_id`, POST creates call brief. Client call queue at `(client)/projects/[id]/calls` (published + pending only). `useCallQueue` hook queries published pending briefs.
 - **System-assisted deal flow:** Dashboard guides new projects through import → campaign → pipeline. Empty states for each step surface next action.
-- **Brand:** `src/lib/brand.ts`. **Page headings:** `src/lib/page-headings.ts`.
+- **Brand:** `src/lib/brand.ts` (`BRAND.name = 'Acquire'`, `BRAND.tagline = 'Acquisition Platform'`). **Page headings:** `src/lib/page-headings.ts`.
 
 ## Critical gotchas
 
@@ -73,7 +73,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (30 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (32 exist, PLAN.md describes 17). |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |

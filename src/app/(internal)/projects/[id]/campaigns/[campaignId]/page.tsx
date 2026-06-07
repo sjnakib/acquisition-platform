@@ -163,15 +163,21 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       })
-      if (!res.ok) throw new Error('Failed to update campaign')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || body.details || 'Failed to update campaign')
+      }
       queryClient.invalidateQueries({ queryKey: ['campaigns', campaignId] })
-    } catch {
-      toast.error('Failed to save template')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save template'
+      toast.error(message)
     }
   }
 
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
+  // Count only stage='lead' deals — the send-emails API only processes leads
+  const leadCount = (allDeals ?? []).filter((d) => d.stage === 'lead').length
 
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
@@ -224,7 +230,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 <EmailTemplateManager
                   campaign={campaign}
                   projectId={projectId}
-                  leadsCount={total}
+                  leadsCount={leadCount}
                   gmailConnected={gmailConnected}
                   onCampaignUpdate={handleCampaignUpdate}
                 />

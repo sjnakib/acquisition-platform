@@ -27,7 +27,7 @@ Domains: admin, attachments, auth, ca-credentials, calls, campaigns, contacts, d
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **8-stage `deal_stage`:** `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
 - **Flexible schema:** `deals` table stores only system fields (outreach_emails, unit_count, stage, score). Property data in `deal_fields` as key/value rows catalogued by `field_definitions`. Deals API response includes `deal_fields` with nested `field_definitions` join — new code touching deals must include this join.
-- **Key tables:** users, contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_connections, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors.
+- **Key tables:** users, contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_connections, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors, email_templates.
 
 ## Architecture
 
