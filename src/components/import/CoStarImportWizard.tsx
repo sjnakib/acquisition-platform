@@ -158,12 +158,12 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
       for (const h of headers) {
         map[h] = detectAction(h, existingKeys) as ColumnActionInput
       }
-      // Ensure at least one column is mapped to deal_name if none was auto-detected
-      const hasDealName = Object.values(map).some(
-        (a) => a.action === 'field' && (a as { key: string }).key === 'deal_name',
+      // Ensure at least one column is mapped to address if none was auto-detected
+      const hasAddress = Object.values(map).some(
+        (a) => a.action === 'field' && (a as { key: string }).key === 'address',
       )
-      if (!hasDealName && headers.length > 0) {
-        map[headers[0]!] = { action: 'field', key: 'deal_name' }
+      if (!hasAddress && headers.length > 0) {
+        map[headers[0]!] = { action: 'field', key: 'address' }
       }
       return map
     },
@@ -203,7 +203,9 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   ): string[] {
     const errors: string[] = []
     const fieldKeys = new Set<string>()
-    let hasDealName = false
+    let hasAddress = false
+    let hasUnits = false
+    let hasEmailTarget = false
 
     for (const header of headers) {
       const action = mapping[header]
@@ -221,7 +223,8 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
           errors.push(`Column "${header}" is mapped to a field but the key is empty.`)
           continue
         }
-        if (action.key === 'deal_name') hasDealName = true
+        if (action.key === 'address') hasAddress = true
+        if (action.key === 'unit_count') hasUnits = true
         if (fieldKeys.has(action.key)) {
           errors.push(`"${action.key}" is mapped from multiple columns`)
         }
@@ -235,14 +238,17 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
         if (!action.label?.trim()) {
           errors.push(`Column "${header}" is set to create a new field but the label is empty.`)
         }
-        if (action.key === 'deal_name') hasDealName = true
+        if (action.key === 'address') hasAddress = true
+        if (action.key === 'unit_count') hasUnits = true
         if (fieldKeys.has(action.key)) {
           errors.push(`"${action.key}" is mapped from multiple columns`)
         }
         fieldKeys.add(action.key)
       }
 
-      if (action.action === 'email_target') continue
+      if (action.action === 'email_target') {
+        hasEmailTarget = true
+      }
     }
 
     const nonDropped = headers.filter(
@@ -250,9 +256,17 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
     )
 
     if (nonDropped.length === 0) {
-      errors.push('No columns mapped — at least one column must be mapped to "deal_name".')
-    } else if (!hasDealName) {
-      errors.push('No column mapped to "deal_name" — at least one column must identify the deal.')
+      errors.push('No columns mapped — address, units, and email target are required.')
+    } else {
+      if (!hasAddress) {
+        errors.push('No column mapped to "address" — address is required.')
+      }
+      if (!hasUnits) {
+        errors.push('No column mapped to "unit_count" (Units) — units field is required.')
+      }
+      if (!hasEmailTarget) {
+        errors.push('No column mapped to "Email Target" — email target is required.')
+      }
     }
 
     return errors

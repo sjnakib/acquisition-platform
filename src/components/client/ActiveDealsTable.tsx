@@ -33,8 +33,8 @@ const scoreLabel: Record<string, string> = {
 }
 
 const columns: ColumnDef<Deal>[] = [
-  { key: 'deal_name', header: 'Property Name', minWidth: 160, sortable: true,
-    render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r, 'deal_name') || 'Untitled'}</span> },
+  { key: 'address', header: 'Property Address', minWidth: 160, sortable: true,
+    render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r, 'address') || 'Untitled'}</span> },
   { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true,
     render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{getDealField(r, 'unit_count') || '—'}</span> },
   { key: 'score', header: 'Score', width: 110, sortable: true,

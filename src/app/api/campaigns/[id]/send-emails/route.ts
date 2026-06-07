@@ -20,7 +20,7 @@ import { lookupNamesByEmail } from '@/lib/google/people'
 type DealFieldRow = { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }
 
 function getDealName(dealFields: DealFieldRow[]): string {
-  const nameField = dealFields.find((df) => df.field_definitions?.key === 'deal_name')
+  const nameField = dealFields.find((df) => df.field_definitions?.key === 'address')
   return nameField?.value || 'Untitled Deal'
 }
 
@@ -39,6 +39,12 @@ function resolveTemplate(
   for (const df of deal.deal_fields) {
     const key = df.field_definitions?.key
     if (key) result = result.replaceAll(`{${key}}`, df.value ?? '')
+  }
+
+  // Fallback for legacy {deal_name} -> mapped to address field value
+  const addressField = deal.deal_fields.find((f) => f.field_definitions?.key === 'address')
+  if (addressField) {
+    result = result.replaceAll('{deal_name}', addressField.value ?? '')
   }
 
   // Contact fields

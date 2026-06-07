@@ -13,11 +13,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const includePortfolio = req.nextUrl.searchParams.get('portfolio') === 'true'
 
-    // Get the deal with project and portfolio info.
-    // Note: deal_name does NOT exist as a column — it's a deal_fields key.
+    // Get the deal with project and portfolio info and its deal_fields.
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, portfolio_id, project_id')
+      .select('id, portfolio_id, project_id, deal_fields(value, field_definitions(key))')
       .eq('id', dealId)
       .maybeSingle()
 
@@ -30,18 +29,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 
+    const dealFields = (deal.deal_fields as any) ?? []
+    const dealAddressField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    const mainAddress = dealAddressField?.value ?? 'Property'
+
+    const addressMap = new Map<string, string>()
+    addressMap.set(dealId, mainAddress)
+
     // Build the set of deal IDs to include
     const dealIds = [dealId]
 
     if (includePortfolio && deal.portfolio_id) {
       const { data: siblings } = await supabase
         .from('deals')
-        .select('id, deal_name')
+        .select('id, deal_fields(value, field_definitions(key))')
         .eq('portfolio_id', deal.portfolio_id)
         .neq('id', dealId)
 
       for (const s of siblings ?? []) {
         dealIds.push(s.id)
+        const sFields = (s.deal_fields as any) ?? []
+        const addrField = sFields.find((f: any) => f?.field_definitions?.key === 'address')
+        addressMap.set(s.id, addrField?.value ?? 'Property')
       }
     }
 
@@ -98,7 +107,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         threads[threadId] = {
           threadId,
           subject: e.subject,
-          dealName: 'Deal', // deal_name is not a column — it's a deal_fields key
+          dealName: addressMap.get(e.deal_id) ?? 'Property',
           dealId: e.deal_id,
           contactName: contactData?.name ?? null,
           contactEmail: contactData?.email?.[0] ?? null,
@@ -166,7 +175,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           threads[tid] = {
             threadId: tid,
             subject: gt.snippet?.split('.')[0]?.slice(0, 120) ?? '(no subject)',
-            dealName: 'Deal',
+            dealName: mainAddress,
             dealId,
             contactName: matchedEmail,
             contactEmail: matchedEmail,

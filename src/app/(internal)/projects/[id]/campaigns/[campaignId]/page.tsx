@@ -300,7 +300,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       <DeleteDealDialog
         dealNames={pendingDeleteIds.map((id) => {
           const d = deals.find((d) => d.id === id)
-          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'deal_name')
+          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'address')
           return df?.value ?? 'Untitled Deal'
         })}
         open={deleteOpen} allSelected={allSelected} totalCount={total}

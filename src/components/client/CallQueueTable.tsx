@@ -82,9 +82,9 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
   }, [])
 
   const columns: ColumnDef<Call>[] = [
-    { key: 'deal_name', header: 'Property', minWidth: 160, sortable: true,
-      accessor: (r) => getDealField(r.deals, 'deal_name'),
-      render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r.deals, 'deal_name') || 'Untitled'}</span> },
+    { key: 'address', header: 'Property Address', minWidth: 160, sortable: true,
+      accessor: (r) => getDealField(r.deals, 'address'),
+      render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r.deals, 'address') || 'Untitled'}</span> },
     { key: 'score', header: 'Score', width: 110, sortable: true,
       accessor: (r) => r.deals?.score ?? '',
       render: (r) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
+import { useMemo, useState, useCallback, useRef } from 'react'
 import { X, Undo2 } from 'lucide-react'
 import {
   Select,
@@ -8,12 +8,17 @@ import {
   SelectItem,
   SelectTrigger,
 } from '@/components/ui/select'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Tooltip } from '@/components/ui/tooltip'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
-import { toast } from 'sonner'
 
 interface FieldDef {
   id: string
@@ -37,40 +42,47 @@ interface Props {
   onChange: (header: string, action: ColumnActionInput) => void
 }
 
-const DATA_TYPES = [
-  { value: 'text', label: 'Text' },
-  { value: 'number', label: 'Number' },
-  { value: 'integer', label: 'Integer' },
-  { value: 'date', label: 'Date' },
-  { value: 'boolean', label: 'Boolean' },
-  { value: 'url', label: 'URL' },
-  { value: 'currency', label: 'Currency' },
-] as const
-
-function resolveTargetLabel(
-  header: string,
-  mapping: Record<string, ColumnActionInput>,
-  previousMapping: PreviousMappingData | null | undefined,
-  fieldDefs: FieldDef[],
-): string {
-  const source = mapping
-  const action = source[header]
-  if (!action || action.action === 'drop') return ''
-  if (action.action === 'email_target') return '→ Email Target'
-  if (action.action === 'field') {
-    const fd = fieldDefs.find((f) => f.key === action.key)
-    return `→ ${fd?.label ?? action.key}`
-  }
-  if (action.action === 'new_field') return `→ New: ${action.label}`
-  return ''
+function slugify(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'field'
+  )
 }
 
 function selectValue(action: ColumnActionInput | undefined): string {
-  const a = action?.action ?? 'drop'
-  if (a === 'email_target') return 'email_target'
-  if (a === 'field') return `field:${(action as { key: string }).key}`
-  if (a === 'new_field') return 'new_field'
+  if (!action || action.action === 'drop') return 'drop'
+  if (action.action === 'email_target') return 'email_target'
+  if (action.action === 'field') return `field:${(action as { key: string }).key}`
+  if (action.action === 'new_field') return 'new_field'
   return 'drop'
+}
+
+function getActionLabel(
+  action: ColumnActionInput | undefined,
+  fieldDefs: FieldDef[],
+): string {
+  if (!action || action.action === 'drop') return 'Drop column'
+  if (action.action === 'email_target') return 'Email Target'
+  if (action.action === 'field') {
+    const key = (action as { key: string }).key
+    if (key === 'address') return 'Address'
+    if (key === 'unit_count') return 'Units'
+    const fd = fieldDefs.find((f) => f.key === key)
+    return fd?.label ?? key
+  }
+  if (action.action === 'new_field') {
+    return `New field: ${(action as { label?: string }).label?.trim() || '(unnamed)'}`
+  }
+  return 'Drop column'
+}
+
+interface RemapPending {
+  header: string
+  value: string
+  fromLabel: string
+  toLabel: string
 }
 
 export function ImportPreviewTable({
@@ -78,39 +90,21 @@ export function ImportPreviewTable({
   headers,
   mapping,
   fieldDefs,
-  previousMapping,
-  batchId,
   onChange,
 }: Props) {
-  const [expandedNewField, setExpandedNewField] = useState<string | null>(null)
   const previousActionsRef = useRef<Record<string, ColumnActionInput>>({})
-  const [lastChanged, setLastChanged] = useState<{ header: string } | null>(null)
+  const [remapPending, setRemapPending] = useState<RemapPending | null>(null)
 
-  // Auto-clear mapping feedback flash after 1.5s
-  useEffect(() => {
-    if (!lastChanged) return
-    const timer = setTimeout(() => setLastChanged(null), 1500)
-    return () => clearTimeout(timer)
-  }, [lastChanged])
-
-  // Apply a dropdown value change to the column mapping state
   const applyMappingChange = useCallback(
     (header: string, value: string) => {
       if (value === 'email_target') {
-        setExpandedNewField(null)
         onChange(header, { action: 'email_target' })
       } else if (value.startsWith('field:')) {
-        setExpandedNewField(null)
         onChange(header, { action: 'field', key: value.slice(6) })
       } else if (value === 'new_field') {
-        const key = header
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '_')
-          .replace(/^_|_$/g, '')
+        const key = slugify(header)
         onChange(header, { action: 'new_field', key, label: header, dataType: 'text' })
-        setExpandedNewField(header)
       } else {
-        setExpandedNewField(null)
         onChange(header, { action: 'drop' })
       }
     },
@@ -121,303 +115,291 @@ export function ImportPreviewTable({
     (header: string, value: string) => {
       const currentAction = mapping[header]
       const currentVal = selectValue(currentAction)
-
-      // No-op if value hasn't changed
       if (value === currentVal) return
 
-      // Warn whenever user changes an already-mapped column
+      // Guard: confirm before remapping an already-assigned column
       if (currentAction && currentAction.action !== 'drop') {
-        const currentLabel =
-          resolveTargetLabel(header, mapping, previousMapping, fieldDefs) ||
-          'a field'
-        const newLabel =
-          value === 'email_target'
-            ? 'Email Target'
-            : value.startsWith('field:')
-              ? `"${fieldDefs.find((fd) => fd.key === value.slice(6))?.label ?? value.slice(6)}"`
-              : value === 'new_field'
-                ? '"New Field"'
-                : '"Drop"'
-
-        toast.warning(
-          `Column "${header}" is already mapped to ${currentLabel}. Change to ${newLabel}?`,
-          {
-            action: {
-              label: 'Change',
-              onClick: () => {
-                applyMappingChange(header, value)
-                setLastChanged({ header })
-              },
-            },
-            cancel: {
-              label: 'Cancel',
-              onClick: () => {},
-            },
-            duration: 5000,
-          },
-        )
+        const fromLabel = getActionLabel(currentAction, fieldDefs)
+        let toLabel = 'Drop'
+        if (value === 'email_target') {
+          toLabel = 'Email Target'
+        } else if (value === 'new_field') {
+          toLabel = 'New Field'
+        } else if (value.startsWith('field:')) {
+          const key = value.slice(6)
+          if (key === 'address') {
+            toLabel = 'Address'
+          } else if (key === 'unit_count') {
+            toLabel = 'Units'
+          } else {
+            toLabel = fieldDefs.find((fd) => fd.key === key)?.label ?? key
+          }
+        }
+        setRemapPending({ header, value, fromLabel, toLabel })
         return
       }
 
       applyMappingChange(header, value)
-      setLastChanged({ header })
     },
-    [mapping, fieldDefs, previousMapping, applyMappingChange],
+    [mapping, fieldDefs, applyMappingChange],
   )
 
-  const availableFields = useMemo(
-    () => fieldDefs.filter((fd) => fd.key),
+  const confirmRemap = useCallback(() => {
+    if (!remapPending) return
+    applyMappingChange(remapPending.header, remapPending.value)
+    setRemapPending(null)
+  }, [remapPending, applyMappingChange])
+
+  const existingFields = useMemo(
+    () => fieldDefs.filter((fd) => fd.key && fd.key !== 'address' && fd.key !== 'unit_count'),
     [fieldDefs],
   )
 
-  const columns: ColumnDef<Record<string, unknown>>[] = useMemo(() => {
-    if (!data.length) return []
-    return headers.map((header) => {
-      const action = mapping[header]
-      const isDropped = !action || action.action === 'drop'
-      const currentAction = action?.action ?? 'drop'
-      const isNewFieldExpanded = expandedNewField === header
-
-      return {
-        key: header,
-        header,
-        sortable: false,
-        minWidth: 130,
-        maxWidth: 350,
-        align: 'left' as const,
-        headerRender: () => {
-          const targetLabel = resolveTargetLabel(header, mapping, previousMapping, fieldDefs)
-
-          return (
-            <div
-              className={`flex flex-col gap-0.5 w-full min-w-0${isDropped ? ' column-dropped rounded-sm px-1' : ''}`}
-            >
-              {/* Target label — or new-field inline form */}
-              {currentAction === 'new_field' && isNewFieldExpanded ? (
-                <div className="flex items-center gap-1" style={{ minHeight: 20 }}>
-                  <Input
-                    placeholder="key"
-                    value={(action as { key?: string }).key ?? ''}
-                    onChange={(e) =>
-                      onChange(header, {
-                        ...action,
-                        key: e.target.value,
-                      } as ColumnActionInput)
-                    }
-                    className="h-5 text-[10px]"
-                    style={{
-                      fontFamily: 'var(--font-jetbrains-mono)',
-                      width: 60,
-                      minWidth: 0,
-                    }}
-                  />
-                  <Input
-                    placeholder="label"
-                    value={
-                      (action as { label?: string }).label ?? ''
-                    }
-                    onChange={(e) =>
-                      onChange(header, {
-                        ...action,
-                        label: e.target.value,
-                      } as ColumnActionInput)
-                    }
-                    className="h-5 text-[10px] flex-1 min-w-0"
-                  />
-                  <Select
-                    value={
-                      (action as { dataType?: string }).dataType ?? 'text'
-                    }
-                    onValueChange={(v) =>
-                      onChange(header, {
-                        ...action,
-                        dataType: v,
-                      } as ColumnActionInput)
-                    }
-                  >
-                    <SelectTrigger
-                      className="h-5 text-[10px]"
-                      style={{ width: 55, flexShrink: 0 }}
-                    />
-                    <SelectContent>
-                      {DATA_TYPES.map((dt) => (
-                        <SelectItem key={dt.value} value={dt.value}>
-                          {dt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setExpandedNewField(null)
-                      onChange(header, { action: 'drop' })
-                    }}
-                    className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)]"
-                    style={{ color: 'var(--color-text-tertiary)' }}
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
-              ) : (
-                <div className="min-h-[16px] flex items-center">
-                  {currentAction !== 'drop' && targetLabel ? (
-                    <Badge
-                      variant={lastChanged?.header === header ? 'success' : 'accent'}
-                      size="sm"
-                      className={
-                        lastChanged?.header === header ? 'animate-cell-success' : ''
-                      }
-                    >
-                      {targetLabel}
-                    </Badge>
-                  ) : currentAction === 'drop' ? (
-                    <Badge variant="neutral" size="sm">
-                      Dropped
-                    </Badge>
-                  ) : (
-                    <span
-                      className="text-[10px] leading-tight"
-                      style={{ color: 'var(--color-text-tertiary)' }}
-                    >
-                      Select mapping
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Source column name + controls */}
-              <div className="flex items-center gap-1 min-w-0">
-                <span
-                  className="text-[11px] font-medium truncate flex-1 min-w-0"
-                  style={{
-                    color: isDropped
-                      ? 'var(--color-text-tertiary)'
-                      : 'var(--color-text-primary)',
-                  }}
-                >
-                  {header}
-                </span>
-
-                {/* Mapping dropdown */}
-                <Select
-                  value={selectValue(action)}
-                  onValueChange={(v) => handleSelectChange(header, v)}
-                >
-                  <SelectTrigger
-                    className="h-5 text-[10px] border-0 p-0 flex-shrink-0"
-                    style={{
-                      color: 'var(--color-text-tertiary)',
-                      background: 'transparent',
-                      minWidth: 20,
-                      width: 'auto',
-                    }}
-                  />
-                  <SelectContent align="end" className="text-[12px]">
-                    <SelectItem value="email_target">Email Target</SelectItem>
-                    {availableFields.length > 0 && (
-                      <>
-                        <div
-                          className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide"
-                          style={{ color: 'var(--color-text-tertiary)' }}
-                        >
-                          Existing fields
-                        </div>
-                        {availableFields.map((fd) => (
-                          <SelectItem key={fd.key} value={`field:${fd.key}`}>
-                            {fd.label}{' '}
-                            <span
-                              style={{
-                                color: 'var(--color-text-tertiary)',
-                                fontSize: 10,
-                              }}
-                            >
-                              ({fd.key})
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    <div
-                      className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide"
-                      style={{ color: 'var(--color-text-tertiary)' }}
-                    >
-                      Other
-                    </div>
-                    <SelectItem value="new_field">+ New field</SelectItem>
-                    <SelectItem value="drop">Drop</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {/* Drop / restore toggle */}
-                <Tooltip content={isDropped ? 'Restore column' : 'Drop column'}>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (isDropped) {
-                        const previous = previousActionsRef.current[header]
-                        onChange(
-                          header,
-                          previous ?? { action: 'field', key: 'deal_name' },
-                        )
-                      } else {
-                        // Save current mapping so restore goes back to it
-                        if (mapping[header]) {
-                          previousActionsRef.current[header] = mapping[header]!
-                        }
-                        setExpandedNewField(null)
-                        onChange(header, { action: 'drop' })
-                      }
-                    }}
-                    className="flex-shrink-0 p-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
-                    style={{
-                      color: isDropped
-                        ? 'var(--color-text-tertiary)'
-                        : 'var(--color-danger-text)',
-                    }}
-                  >
-                    {isDropped ? <Undo2 size={11} /> : <X size={11} />}
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
-          )
-        },
-        ...(isDropped
-          ? {
-              render: (row: Record<string, unknown>) => (
-                <span
-                  className="truncate px-1 rounded-sm column-dropped"
-                  style={{ color: 'var(--color-text-tertiary)' }}
-                >
-                  {(row[header] ?? '—') as string}
-                </span>
-              ),
-            }
-          : {}),
-      }
-    })
-  }, [
-    headers,
-    mapping,
-    fieldDefs,
-    previousMapping,
-    expandedNewField,
-    availableFields,
-    handleSelectChange,
-    onChange,
-    lastChanged,
-    data,
-  ])
+  // Pre-compute 3 representative sample values for each header
+  const sampleValues = useMemo(() => {
+    const result: Record<string, string> = {}
+    for (const header of headers) {
+      const samples = data
+        .map((row) => row[header])
+        .filter((v) => v !== null && v !== undefined && v !== '')
+        .slice(0, 3)
+        .map((v) => String(v))
+      result[header] = samples.length ? samples.join(' · ') : '—'
+    }
+    return result
+  }, [headers, data])
 
   return (
-    <DataGrid
-      columns={columns}
-      data={data}
-      rowKey={(_, i) => String(i)}
-      emptyMessage="No data to preview"
-      maxHeight={480}
-      columnOrderStorageKey={`import-preview-${batchId}`}
-    />
+    <>
+      {/* ── Column mapping table ─────────────────────────────────── */}
+      <div
+        className="rounded-lg border overflow-hidden"
+        style={{
+          borderColor: 'var(--color-surface-3)',
+          background: 'var(--color-surface-0)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        {/* Header row */}
+        <div
+          className="grid items-center px-4 py-2 border-b text-[10px] font-semibold uppercase tracking-widest"
+          style={{
+            gridTemplateColumns: '200px 1fr 260px 36px',
+            background: 'var(--color-surface-1)',
+            borderColor: 'var(--color-surface-3)',
+            color: 'var(--color-text-tertiary)',
+          }}
+        >
+          <div>Source column</div>
+          <div>Sample values</div>
+          <div>Map to</div>
+          <div />
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto" style={{ maxHeight: 460 }}>
+          {headers.map((header) => {
+            const action = mapping[header]
+            const isDropped = !action || action.action === 'drop'
+
+            return (
+              <div
+                key={header}
+                className="grid items-center px-4 border-b last:border-b-0 transition-opacity"
+                style={{
+                  gridTemplateColumns: '200px 1fr 260px 36px',
+                  borderColor: 'var(--color-surface-2)',
+                  minHeight: 44,
+                  opacity: isDropped ? 0.5 : 1,
+                }}
+              >
+                {/* Col A — Source column name */}
+                <div className="py-2.5 pr-4 min-w-0 flex items-center">
+                  <Tooltip
+                    content={header.length > 20 ? header : ''}
+                    position="right"
+                  >
+                    <span
+                      className="text-[12px] font-semibold truncate block"
+                      style={{
+                        fontFamily: 'var(--font-jetbrains-mono)',
+                        color: 'var(--color-text-primary)',
+                        letterSpacing: '0.01em',
+                      }}
+                    >
+                      {header}
+                    </span>
+                  </Tooltip>
+                </div>
+
+                {/* Col B — Sample values */}
+                <div className="py-2.5 pr-4 min-w-0 flex items-center">
+                  <span
+                    className="text-[11px] truncate block"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    title={sampleValues[header]}
+                  >
+                    {sampleValues[header]}
+                  </span>
+                </div>
+
+                {/* Col C — Mapping control */}
+                <div className="py-2 pr-3 min-w-0 flex items-center">
+                  <Select
+                    value={selectValue(action)}
+                    onValueChange={(v) => handleSelectChange(header, v)}
+                  >
+                    <SelectTrigger className="h-8 w-full text-sm">
+                      <span className="truncate">
+                        {getActionLabel(action, fieldDefs)}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div
+                        className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest"
+                        style={{ color: 'var(--color-text-tertiary)' }}
+                      >
+                        Required
+                      </div>
+                      <SelectItem value="field:address">Address</SelectItem>
+                      <SelectItem value="email_target">Email Target</SelectItem>
+                      <SelectItem value="field:unit_count">Units</SelectItem>
+
+                      {existingFields.length > 0 && (
+                        <>
+                          <div
+                            className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest"
+                            style={{ color: 'var(--color-text-tertiary)' }}
+                          >
+                            Existing fields
+                          </div>
+                          {existingFields.map((fd) => (
+                            <SelectItem
+                              key={fd.key}
+                              value={`field:${fd.key}`}
+                            >
+                              {fd.label}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+
+                      <div
+                        className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest"
+                        style={{ color: 'var(--color-text-tertiary)' }}
+                      >
+                        Others
+                      </div>
+                      <SelectItem value="new_field">New Field</SelectItem>
+                      <SelectItem value="drop">Drop column</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Col D — Drop / restore toggle */}
+                <div className="flex items-center justify-center">
+                  <Tooltip
+                    content={isDropped ? 'Restore column' : 'Drop column'}
+                    position="left"
+                  >
+                    <button
+                      onClick={() => {
+                        if (isDropped) {
+                          const previous = previousActionsRef.current[header]
+                          onChange(
+                            header,
+                            previous ?? { action: 'new_field', key: slugify(header), label: header, dataType: 'text' },
+                          )
+                        } else {
+                          if (mapping[header]) {
+                            previousActionsRef.current[header] = mapping[header]!
+                          }
+                          onChange(header, { action: 'drop' })
+                        }
+                      }}
+                      className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-[var(--color-surface-3)]"
+                      style={{
+                        color: isDropped
+                          ? 'var(--color-text-tertiary)'
+                          : 'var(--color-danger-text)',
+                      }}
+                    >
+                      {isDropped ? <Undo2 size={13} /> : <X size={13} />}
+                    </button>
+                  </Tooltip>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Remap confirmation dialog ────────────────────────────── */}
+      <Dialog
+        open={!!remapPending}
+        onOpenChange={(open) => {
+          if (!open) setRemapPending(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change Column Mapping?</DialogTitle>
+            <DialogDescription>
+              <span
+                className="font-medium"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                &ldquo;{remapPending?.header}&rdquo;
+              </span>{' '}
+              is already mapped to{' '}
+              <span
+                className="font-medium"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                {remapPending?.fromLabel}
+              </span>
+              .
+            </DialogDescription>
+          </DialogHeader>
+
+          <div
+            className="flex items-center gap-2 rounded-md px-3 py-2.5 text-[12px]"
+            style={{
+              background: 'var(--color-surface-1)',
+              border: '1px solid var(--color-surface-3)',
+            }}
+          >
+            <span
+              className="truncate"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              {remapPending?.fromLabel}
+            </span>
+            <span
+              className="flex-shrink-0 font-semibold"
+              style={{ color: 'var(--color-text-tertiary)' }}
+            >
+              →
+            </span>
+            <span
+              className="font-semibold truncate"
+              style={{ color: 'var(--accent)' }}
+            >
+              {remapPending?.toLabel}
+            </span>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRemapPending(null)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={confirmRemap}>Confirm Change</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

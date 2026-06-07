@@ -88,6 +88,11 @@ function resolveMergeFields(template: string, deal: PreviewDeal | null, campaign
     const key = df.field_definitions?.key
     if (key) result = result.replaceAll(`{${key}}`, df.value ?? '')
   }
+  // Fallback for legacy {deal_name} -> mapped to address field value
+  const addressField = deal.deal_fields.find((f) => f.field_definitions?.key === 'address')
+  if (addressField) {
+    result = result.replaceAll('{deal_name}', addressField.value ?? '')
+  }
   const primaryContact = deal.contacts.find((c) => c.is_primary) ?? deal.contacts[0]
   for (const cf of CONTACT_MERGE_FIELDS) {
     let value = ''
@@ -296,10 +301,14 @@ export function EmailTemplateManager({
       const res = await fetch(`/api/deals?${p.toString()}`)
       if (!res.ok) return []
       const json = await res.json()
-      return (json.data ?? []).map((d: Record<string, unknown>) => ({
-        id: d.id as string,
-        deal_name: (d as Record<string, unknown>).deal_name as string | null,
-      }))
+      return (json.data ?? []).map((d: Record<string, unknown>) => {
+        const dealFields = (d.deal_fields ?? []) as { value: string | null; field_definitions: { key: string } | null }[]
+        const addressField = dealFields.find((f) => f.field_definitions?.key === 'address')
+        return {
+          id: d.id as string,
+          deal_name: addressField?.value ?? 'Untitled Deal',
+        }
+      })
     },
   })
 

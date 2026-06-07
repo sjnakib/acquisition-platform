@@ -55,10 +55,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Contact has no email' }, { status: 400 })
     }
 
-    const { data: deal } = await supabase.from('deals').select('*, campaigns(*)').eq('id', deal_id).single()
+    const { data: deal } = await supabase
+      .from('deals')
+      .select('*, campaigns(*), deal_fields(value, field_definitions(key))')
+      .eq('id', deal_id)
+      .single()
     if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
-    const propertyLabel = deal.deal_name ?? 'property'
+    const dealFields = (deal.deal_fields as any) ?? []
+    const addrField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    const propertyLabel = addrField?.value ?? 'property'
 
     const html = await render(
       OutreachEmail({

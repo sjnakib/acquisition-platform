@@ -7,8 +7,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 
 interface Deal {
-  deal_name: string | null;
-  unit_count: number | null;
+  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
 }
 
 export default function DealDetailPage() {
@@ -47,6 +46,13 @@ export default function DealDetailPage() {
     )
   }
 
+  const dealFields = deal.deal_fields ?? []
+  const addrField = dealFields.find((f) => f.field_definitions?.key === 'address')
+  const dealName = addrField?.value ?? 'Untitled Deal'
+
+  const unitsField = dealFields.find((f) => f.field_definitions?.key === 'unit_count')
+  const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
+
   return (
     <div>
       <button onClick={() => router.push('/deals')} className="flex items-center gap-1 text-sm mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -55,8 +61,8 @@ export default function DealDetailPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>{deal.deal_name ?? 'Untitled Deal'}</h1>
-          {deal.unit_count ? <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{deal.unit_count} units</p> : null}
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>{dealName}</h1>
+          {unitCount ? <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{unitCount} units</p> : null}
         </div>
       </div>
 

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: deal } = await supabase
       .from('deals')
-      .select('deal_name, project_id')
+      .select('project_id, deal_fields(value, field_definitions(key))')
       .eq('id', id)
       .single()
 
@@ -32,7 +32,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
     }
 
-    const { folderUrl } = await createDealFolder(project.google_connection_id, deal.deal_name ?? 'Untitled Deal')
+    const dealFields = (deal.deal_fields as any) ?? []
+    const addrField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    const address = addrField?.value ?? 'Untitled Deal'
+
+    const { folderUrl } = await createDealFolder(project.google_connection_id, address)
 
     const { data: updated } = await supabase
       .from('deals')

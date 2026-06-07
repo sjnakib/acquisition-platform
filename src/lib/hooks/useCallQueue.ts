@@ -10,9 +10,13 @@ export const useCallQueue = () => {
             const { data, error } = await supabase.from('call_briefs').select(`
                 *,
                 deals (
-                    deal_name,
-                    property_type,
-                    unit_count
+                    score,
+                    deal_fields (
+                        value,
+                        field_definitions (
+                            key
+                        )
+                    )
                 )
             `).eq('published', true).eq('call_status', 'pending');
             if (error) throw error;

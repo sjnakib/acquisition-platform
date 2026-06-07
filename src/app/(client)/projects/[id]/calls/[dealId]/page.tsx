@@ -32,8 +32,6 @@ interface CallBrief {
 
 interface DealDetail {
   id: string
-  deal_name: string | null
-  unit_count: number | null
   stage: string
   score: string | null
   project_id: string
@@ -101,8 +99,13 @@ export default function ClientDealDetailPage({ params }: { params: Promise<{ id:
     )
   }
 
-  const propertyName = deal.deal_name ?? 'Untitled Deal'
-  const unitText = deal.unit_count ? `${deal.unit_count} unit${deal.unit_count === 1 ? '' : 's'}` : null
+  const dealFields = deal.deal_fields ?? []
+  const addrField = dealFields.find((f) => f.field_definitions?.key === 'address')
+  const propertyName = addrField?.value ?? 'Untitled Deal'
+
+  const unitsField = dealFields.find((f) => f.field_definitions?.key === 'unit_count')
+  const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
+  const unitText = unitCount ? `${unitCount} unit${unitCount === 1 ? '' : 's'}` : null
 
   return (
     <div>

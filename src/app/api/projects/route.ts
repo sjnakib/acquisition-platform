@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   // Auto-create essential field definitions for the new project
   const defaultFields = [
-    { key: 'deal_name', label: 'Deal Name', data_type: 'text', sort_order: 0, show_in_grid: false },
+    { key: 'address', label: 'Address', data_type: 'text', sort_order: 0, show_in_grid: true },
     { key: 'unit_count', label: 'Units', data_type: 'integer', sort_order: 5, show_in_grid: false },
   ]
 

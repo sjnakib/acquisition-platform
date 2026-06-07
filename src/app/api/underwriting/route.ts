@@ -16,8 +16,13 @@ export async function POST(req: NextRequest) {
 
     // Compute per-unit auto fields from unit_count
     if (uwData.asking_price && deal_id) {
-      const { data: deal } = await supabase.from('deals').select('unit_count').eq('id', deal_id).single()
-      const units = deal?.unit_count as number | null
+      const { data: dealFields } = await supabase
+        .from('deal_fields')
+        .select('value, field_definitions(key)')
+        .eq('deal_id', deal_id)
+      const fields = (dealFields ?? []) as unknown as { value: string | null; field_definitions: { key: string } | null }[]
+      const unitsField = fields.find((f) => f.field_definitions?.key === 'unit_count')
+      const units = unitsField?.value ? parseInt(unitsField.value, 10) || null : null
       if (units && units > 0) {
         const asking = Number(uwData.asking_price)
         if (!uwData.price_per_unit) uwData.price_per_unit = asking / units

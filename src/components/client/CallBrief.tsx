@@ -25,7 +25,7 @@ const statusVariant: Record<string, 'success' | 'danger' | 'warning'> = {
 }
 
 function getDealName(deal: CallBriefProps['brief']['deals']): string {
-  const f = deal?.deal_fields?.find((df) => df?.field_definitions?.key === 'deal_name')
+  const f = deal?.deal_fields?.find((df) => df?.field_definitions?.key === 'address')
   return f?.value ?? 'Deal'
 }
 

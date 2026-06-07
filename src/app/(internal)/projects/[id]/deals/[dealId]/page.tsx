@@ -23,12 +23,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 interface DealHeader {
   id: string
-  deal_name: string | null
-  unit_count: number | null
   stage: string
   score: string | null
   created_at: string
   portfolio_id: string | null
+  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
 }
 
 const TABS = [
@@ -119,6 +118,13 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
     )
   }
 
+  const dealFields = deal.deal_fields ?? []
+  const addrField = dealFields.find((f) => f.field_definitions?.key === 'address')
+  const dealName = addrField?.value ?? 'Untitled Deal'
+
+  const unitsField = dealFields.find((f) => f.field_definitions?.key === 'unit_count')
+  const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
+
   return (
     <div>
       {/* Breadcrumb */}
@@ -127,7 +133,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           { label: 'Projects', href: '/projects' },
           { label: projectName, href: `/projects/${projectId}/deals` },
           { label: 'Deals', href: `/projects/${projectId}/deals` },
-          { label: deal.deal_name ?? 'Untitled Deal' },
+          { label: dealName },
         ]}
       />
 
@@ -136,15 +142,15 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         <div>
           <div className="flex items-center gap-3 mb-1">
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              {deal.deal_name ?? 'Untitled Deal'}
+              {dealName}
             </h1>
             <Badge variant={STAGE_BADGE_VARIANT[deal.stage] ?? 'neutral'} size="sm">
               {deal.stage.replace(/_/g, ' ')}
             </Badge>
           </div>
-          {deal.unit_count ? (
+          {unitCount ? (
             <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {deal.unit_count} units
+              {unitCount} units
               {deal.score ? ` · Score: ${deal.score.replace(/_/g, ' ')}` : ''}
             </p>
           ) : null}
@@ -199,7 +205,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
                     Units
                   </span>
                   <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
-                    {deal.unit_count ?? '—'}
+                    {unitCount ?? '—'}
                   </p>
                 </div>
               </div>
@@ -224,18 +230,18 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </TabsContent>
 
           <TabsContent value="emails">
-            <EmailInterface dealId={dealId} dealName={deal.deal_name} />
+            <EmailInterface dealId={dealId} dealName={dealName} />
           </TabsContent>
 
           <TabsContent value="documents">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <DocumentChecklist dealId={dealId} />
-              <EvaluateUnderwritability dealId={dealId} unitCount={deal.unit_count} />
+              <EvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
             </div>
           </TabsContent>
 
           <TabsContent value="underwriting">
-            <UnderwritingSummary dealId={dealId} unitCount={deal.unit_count} />
+            <UnderwritingSummary dealId={dealId} unitCount={unitCount} />
           </TabsContent>
 
           <TabsContent value="loi">

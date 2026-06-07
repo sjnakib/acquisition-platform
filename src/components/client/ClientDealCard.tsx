@@ -19,7 +19,7 @@ export function ClientDealCard({ deal }: ClientDealCardProps) {
   return (
     <div className="rounded-xl border p-5" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
       <div className="flex items-start justify-between mb-2">
-        <h3 className="font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>{getField(deal, 'deal_name') || 'Untitled'}</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>{getField(deal, 'address') || 'Untitled'}</h3>
         <DealScoreBadge score={deal.score} />
       </div>
       <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
