@@ -43,34 +43,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bat
   const errors = validateMapping(headers, mapping)
   if (errors.length > 0) return NextResponse.json({ error: errors.join(' ') }, { status: 422 })
 
-  // Create / surface field definitions for mapped columns
+  // Batch-collect field definition operations to avoid N+1 queries
   const warnings: string[] = []
+  const newFields: Array<{
+    key: string; label: string; data_type: string
+    project_id: string; show_in_grid: boolean; source: string
+  }> = []
+  const fieldKeysToSurface: string[] = []
+
   for (const [, action] of Object.entries(mapping)) {
     if (action.action === 'new_field') {
-      const { error: fdError } = await supabase.from('field_definitions').upsert({
+      newFields.push({
         key: action.key,
         label: action.label,
         data_type: action.dataType,
         project_id: projectId,
         show_in_grid: true,
         source: 'import',
-      }, { onConflict: 'key, project_id' })
-      if (fdError) {
-        console.error('Failed to create field definition:', fdError)
-        warnings.push(`Failed to create field "${action.label}" (${action.key}): ${fdError.message}`)
-      }
+      })
     }
     if (action.action === 'field') {
-      // Ensure existing field is surfaced in the grid
-      const { error: upError } = await supabase.from('field_definitions')
-        .update({ show_in_grid: true })
-        .eq('key', action.key)
-        .eq('project_id', projectId)
-        .eq('show_in_grid', false)
-      if (upError) {
-        console.error('Failed to surface field definition:', upError)
-        warnings.push(`Failed to surface field "${action.key}": ${upError.message}`)
-      }
+      fieldKeysToSurface.push(action.key)
+    }
+  }
+
+  // Single batch upsert for all new fields
+  if (newFields.length > 0) {
+    const { error: fdError } = await supabase
+      .from('field_definitions')
+      .upsert(newFields, { onConflict: 'key, project_id' })
+    if (fdError) {
+      console.error('Failed to create field definitions:', fdError)
+      warnings.push(`Failed to create ${newFields.length} field definition(s): ${fdError.message}`)
+    }
+  }
+
+  // Single batch update to surface existing fields in grid
+  if (fieldKeysToSurface.length > 0) {
+    const { error: upError } = await supabase
+      .from('field_definitions')
+      .update({ show_in_grid: true })
+      .in('key', fieldKeysToSurface)
+      .eq('project_id', projectId)
+      .eq('show_in_grid', false)
+    if (upError) {
+      console.error('Failed to surface field definitions:', upError)
+      warnings.push(`Failed to surface ${fieldKeysToSurface.length} field(s): ${upError.message}`)
     }
   }
 

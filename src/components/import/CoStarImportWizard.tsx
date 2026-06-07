@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
+import { detectAction } from '@/lib/import/mapping'
 
 interface PreviousMappingData {
   source_headers: string[]
@@ -55,21 +56,6 @@ interface FieldDef {
 interface Props {
   projectId?: string
   defaultCampaignId?: string
-}
-
-/** Auto-detect action for a header based on naming patterns. */
-function detectAction(header: string, fieldDefs: FieldDef[]): ColumnActionInput {
-  const h = header.toLowerCase().trim().replace(/\s+/g, ' ')
-
-  if (/^e-?mail(\s|$)/i.test(h)) return { action: 'email_target' }
-
-  // Check if an existing field_definitions key matches
-  const key = header.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-  const existing = fieldDefs.find((fd) => fd.key === key)
-  if (existing) return { action: 'field', key: existing.key }
-
-  // Default: auto-create a new field definition so imported columns appear in the grid
-  return { action: 'new_field', key, label: header, dataType: 'text' }
 }
 
 export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
@@ -153,9 +139,10 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   // Auto-detect mapping when preview data + fieldDefs are ready
   const buildDefaultMapping = useCallback(
     (headers: string[], defs: FieldDef[]) => {
+      const existingKeys = defs.map((fd) => fd.key)
       const map: Record<string, ColumnActionInput> = {}
       for (const h of headers) {
-        map[h] = detectAction(h, defs)
+        map[h] = detectAction(h, existingKeys) as ColumnActionInput
       }
       // Ensure at least one column is mapped to deal_name if none was auto-detected
       const hasDealName = Object.values(map).some(
@@ -194,8 +181,106 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
     }
   }
 
+  // --- Validation helpers (called before confirm) ---
+
+  function validateMappings(
+    mapping: Record<string, ColumnActionInput>,
+    headers: string[],
+  ): string[] {
+    const errors: string[] = []
+    const fieldKeys = new Set<string>()
+    let hasDealName = false
+
+    for (const header of headers) {
+      const action = mapping[header]
+      if (!action || action.action === 'drop') continue
+
+      if (action.action === 'field') {
+        if (action.key === 'deal_name') hasDealName = true
+        if (fieldKeys.has(action.key)) {
+          errors.push(`"${action.key}" is mapped from multiple columns`)
+        }
+        fieldKeys.add(action.key)
+      }
+      if (action.action === 'new_field') {
+        if (action.key === 'deal_name') hasDealName = true
+        if (fieldKeys.has(action.key)) {
+          errors.push(`"${action.key}" is mapped from multiple columns`)
+        }
+        fieldKeys.add(action.key)
+      }
+    }
+
+    const nonDropped = headers.filter(
+      (h) => mapping[h] && mapping[h]?.action !== 'drop',
+    )
+
+    if (nonDropped.length === 0) {
+      errors.push('No columns mapped — at least one column must be mapped to "deal_name".')
+    } else if (!hasDealName) {
+      errors.push('No column mapped to "deal_name" — at least one column must identify the deal.')
+    }
+
+    return errors
+  }
+
+  function validateEmailCells(
+    previewData: Record<string, unknown>[],
+    mapping: Record<string, ColumnActionInput>,
+  ): { totalEmails: number; invalidEmails: number; sampleErrors: string[] } {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    let totalEmails = 0
+    let invalidEmails = 0
+    const sampleErrors: string[] = []
+
+    for (const header of Object.keys(mapping)) {
+      if (mapping[header]?.action !== 'email_target') continue
+
+      for (const row of previewData) {
+        const raw = row[header]
+        if (raw === undefined || raw === null || raw === '') continue
+
+        const parts = String(raw)
+          .trim()
+          .split(/[,;]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+
+        for (const part of parts) {
+          totalEmails++
+          if (!emailRegex.test(part)) {
+            invalidEmails++
+            if (sampleErrors.length < 5) {
+              sampleErrors.push(`"${part}" in column "${header}"`)
+            }
+          }
+        }
+      }
+    }
+
+    return { totalEmails, invalidEmails, sampleErrors }
+  }
+
   const onConfirmImport = async () => {
     if (!batchId || !previewData) return
+
+    // --- Pre-confirm validation ---
+    const mappingErrors = validateMappings(columnMapping, previewHeaders)
+    if (mappingErrors.length > 0) {
+      mappingErrors.forEach((err) => toast.error(err))
+      return
+    }
+
+    const emailValidation = validateEmailCells(previewData, columnMapping)
+    if (emailValidation.invalidEmails > 0) {
+      toast.warning(
+        `${emailValidation.invalidEmails} of ${emailValidation.totalEmails} email address(es) appear invalid. ` +
+          emailValidation.sampleErrors.join(', ') +
+          (emailValidation.invalidEmails > 5 ? '…' : ''),
+        { duration: 8000 },
+      )
+    }
+
     setMappingSaving(true)
 
     // Step A: save mapping

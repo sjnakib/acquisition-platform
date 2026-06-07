@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useCallback } from 'react'
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { X, Undo2 } from 'lucide-react'
 import {
   Select,
@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Tooltip } from '@/components/ui/tooltip'
 import type { ColumnActionInput } from '@/lib/validations/import.schema'
+import { detectAction } from '@/lib/import/mapping'
+import { toast } from 'sonner'
 
 interface FieldDef {
   id: string
@@ -52,7 +54,7 @@ function resolveTargetLabel(
   previousMapping: PreviousMappingData | null | undefined,
   fieldDefs: FieldDef[],
 ): string {
-  const source = previousMapping?.column_mapping ?? mapping
+  const source = mapping
   const action = source[header]
   if (!action || action.action === 'drop') return ''
   if (action.action === 'email_target') return '→ Email Target'
@@ -82,8 +84,18 @@ export function ImportPreviewTable({
   onChange,
 }: Props) {
   const [expandedNewField, setExpandedNewField] = useState<string | null>(null)
+  const previousActionsRef = useRef<Record<string, ColumnActionInput>>({})
+  const [lastChanged, setLastChanged] = useState<{ header: string } | null>(null)
 
-  const handleSelectChange = useCallback(
+  // Auto-clear mapping feedback flash after 1.5s
+  useEffect(() => {
+    if (!lastChanged) return
+    const timer = setTimeout(() => setLastChanged(null), 1500)
+    return () => clearTimeout(timer)
+  }, [lastChanged])
+
+  // Apply a dropdown value change to the column mapping state
+  const applyMappingChange = useCallback(
     (header: string, value: string) => {
       if (value === 'email_target') {
         setExpandedNewField(null)
@@ -104,6 +116,45 @@ export function ImportPreviewTable({
       }
     },
     [onChange],
+  )
+
+  const handleSelectChange = useCallback(
+    (header: string, value: string) => {
+      const currentAction = mapping[header]
+      const currentVal = selectValue(currentAction)
+
+      // No-op if value hasn't changed
+      if (value === currentVal) return
+
+      // Check if user is overriding a non-default custom mapping
+      const existingKeys = fieldDefs.map((fd) => fd.key)
+      const defaultAction = detectAction(header, existingKeys)
+      const isDefault =
+        currentAction &&
+        JSON.stringify(currentAction) === JSON.stringify(defaultAction)
+
+      if (currentAction && currentAction.action !== 'drop' && !isDefault) {
+        toast.warning(`Column "${header}" is already custom-mapped. Change it?`, {
+          action: {
+            label: 'Change',
+            onClick: () => {
+              applyMappingChange(header, value)
+              setLastChanged({ header })
+            },
+          },
+          cancel: {
+            label: 'Cancel',
+            onClick: () => {},
+          },
+          duration: 5000,
+        })
+        return
+      }
+
+      applyMappingChange(header, value)
+      setLastChanged({ header })
+    },
+    [mapping, fieldDefs, applyMappingChange],
   )
 
   const availableFields = useMemo(
@@ -201,6 +252,16 @@ export function ImportPreviewTable({
                     <X size={11} />
                   </button>
                 </div>
+              ) : lastChanged?.header === header ? (
+                <span
+                  className="text-[10px] leading-tight truncate w-full"
+                  style={{
+                    color: 'var(--color-success-solid)',
+                    minHeight: 14,
+                  }}
+                >
+                  ✓ mapped
+                </span>
               ) : (
                 <span
                   className="text-[10px] leading-tight truncate w-full"
@@ -282,11 +343,16 @@ export function ImportPreviewTable({
                     onClick={(e) => {
                       e.stopPropagation()
                       if (isDropped) {
-                        onChange(header, {
-                          action: 'field',
-                          key: 'deal_name',
-                        })
+                        const previous = previousActionsRef.current[header]
+                        onChange(
+                          header,
+                          previous ?? { action: 'field', key: 'deal_name' },
+                        )
                       } else {
+                        // Save current mapping so restore goes back to it
+                        if (mapping[header]) {
+                          previousActionsRef.current[header] = mapping[header]!
+                        }
                         setExpandedNewField(null)
                         onChange(header, { action: 'drop' })
                       }
@@ -305,6 +371,21 @@ export function ImportPreviewTable({
             </div>
           )
         },
+        ...(isDropped
+          ? {
+              render: (row: Record<string, unknown>) => (
+                <span
+                  className="truncate"
+                  style={{
+                    opacity: 0.4,
+                    color: 'var(--color-text-tertiary)',
+                  }}
+                >
+                  {(row[header] ?? '—') as string}
+                </span>
+              ),
+            }
+          : {}),
       }
     })
   }, [
@@ -316,6 +397,7 @@ export function ImportPreviewTable({
     availableFields,
     handleSelectChange,
     onChange,
+    lastChanged,
     data,
   ])
 

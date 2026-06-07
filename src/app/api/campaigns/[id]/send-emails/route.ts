@@ -153,7 +153,7 @@ export async function POST(
     const { data: deals } = await supabase
       .from('deals')
       .select(`
-        id, deal_name, stage,
+        id, deal_name, stage, outreach_emails,
         contacts(id, name, company, email, phone_office, phone_cell, is_primary),
         deal_fields(value, field_definitions(key, label, data_type)),
         email_outreach(id, status)
@@ -165,17 +165,22 @@ export async function POST(
       return NextResponse.json({ error: 'No leads to send to in this campaign', total: 0, sent: 0 }, { status: 200 })
     }
 
-    // Filter: must have at least one contact with email, must not have already been sent
+    // Filter: must have at least one contact with email (or outreach_emails fallback),
+    // must not have already been sent
     const eligible = deals.filter((d) => {
       const contacts = (d.contacts as unknown[]) ?? []
-      const hasEmail = contacts.some((c: unknown) => {
+      const hasContactEmail = contacts.some((c: unknown) => {
         const emails = (c as { email?: string[] | null }).email
         return emails && emails.length > 0
       })
+      const hasOutreachEmails =
+        (d as Record<string, unknown>).outreach_emails != null &&
+        Array.isArray((d as Record<string, unknown>).outreach_emails) &&
+        ((d as Record<string, unknown>).outreach_emails as unknown[]).length > 0
       const alreadySent = ((d.email_outreach as unknown[]) ?? []).some(
         (e: unknown) => (e as { status: string }).status === 'sent',
       )
-      return hasEmail && !alreadySent
+      return (hasContactEmail || hasOutreachEmails) && !alreadySent
     })
 
     if (eligible.length === 0) {
@@ -225,7 +230,20 @@ export async function POST(
 
       // Pick primary contact, or first with email
       const primaryContact = contacts.find((c) => c.is_primary) ?? contacts.find((c) => c.email?.length)
-      if (!primaryContact?.email?.[0]) {
+
+      // Fallback: use outreach_emails if no contact has an email
+      let recipientEmail: string | undefined = primaryContact?.email?.[0]
+      let contactId: string | null = primaryContact?.id ?? null
+
+      if (!recipientEmail) {
+        const outreachEmails = (deal as Record<string, unknown>).outreach_emails as string[] | undefined
+        if (outreachEmails?.length) {
+          recipientEmail = outreachEmails[0]
+          contactId = null // no contact row to reference
+        }
+      }
+
+      if (!recipientEmail) {
         jobResults.push({ dealId: deal.id, dealName: deal.deal_name ?? 'Untitled Deal', success: false, error: 'No contact email' })
         continue
       }
@@ -234,10 +252,19 @@ export async function POST(
         type DealFieldRow = { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }
         const dealFields = (deal.deal_fields as unknown as DealFieldRow[]) ?? []
 
+        // Build a synthetic contact object for template resolution when using outreach_emails fallback
+        const contactForTemplate = primaryContact ?? {
+          name: recipientEmail.split('@')[0] ?? null,
+          email: [recipientEmail],
+          phone_cell: null,
+          phone_office: null,
+          company: null,
+        }
+
         const subject = resolveTemplate(
           campaign.email_subject_template ?? '{property_address} — Investment Opportunity',
           { deal_fields: dealFields },
-          primaryContact,
+          contactForTemplate,
           campaign.name,
           senderEmail,
         )
@@ -245,7 +272,7 @@ export async function POST(
         const bodyText = resolveTemplate(
           campaign.email_body_template ?? '',
           { deal_fields: dealFields },
-          primaryContact,
+          contactForTemplate,
           campaign.name,
           senderEmail,
         )
@@ -256,12 +283,12 @@ export async function POST(
             <div style="white-space:pre-wrap">${bodyText.replaceAll('\n', '<br>')}</div>
           </body></html>`
 
-        const result = await sendEmail(connectionId, primaryContact.email[0], subject, htmlBody)
+        const result = await sendEmail(connectionId, recipientEmail, subject, htmlBody)
 
         // Insert email_outreach record
         await supabase.from('email_outreach').insert({
           deal_id: deal.id,
-          contact_id: primaryContact.id,
+          contact_id: contactId,
           status: 'sent',
           sent_at: new Date().toISOString(),
           subject,
@@ -288,7 +315,7 @@ export async function POST(
         if (message.includes('not found') || message.includes('invalid')) {
           await supabase.from('email_outreach').insert({
             deal_id: deal.id,
-            contact_id: primaryContact.id,
+            contact_id: contactId,
             status: message.includes('not found') ? 'invalid_address' : 'gmail_error',
             error_message: message,
             template_used: campaign.email_template as 'outreach' | 'thank_you' | 'declination',

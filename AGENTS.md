@@ -12,18 +12,18 @@ Commands + gotchas: see CLAUDE.md quick-start section.
 - **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect. Layout guards reinforce this.
 - **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
-## API Routes (49 route files in `src/app/api/`)
+## API Routes (52 route files in `src/app/api/`)
 
 Pattern: auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
 
-Domains: admin, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), turnstile, underwriting.
+Domains: admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting.
 
 - `createAdminClient()` (service role) ONLY in Gmail webhook + `/api/admin/*` routes.
 - `get_my_role()` SQL function (migration 0015) used for role checks.
 
 ## Database
 
-- **30 migrations** (`supabase/migrations/0001–0030`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access. 0030 = multi-project Gmail (`google_connections` table, projects FK).
+- **32 migrations** (`supabase/migrations/0001–0032`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access. 0030 = multi-project Gmail (`google_connections` table, projects FK). 0031 = email body template fields. 0032 = custom templates (`email_templates` table, project-scoped).
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **8-stage `deal_stage`:** `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
 - **Flexible schema:** `deals` table stores only system fields (outreach_emails, unit_count, stage, score). Property data in `deal_fields` as key/value rows catalogued by `field_definitions`. Deals API response includes `deal_fields` with nested `field_definitions` join — new code touching deals must include this join.

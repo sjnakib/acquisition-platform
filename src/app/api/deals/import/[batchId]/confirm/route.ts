@@ -46,20 +46,25 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to update import job' }, { status: 500 })
   }
 
-  // Pre-resolve field_definition IDs for field/new_field actions so we don't
-  // query inside the batch loop.
-  const fieldIdMap = new Map<string, string>()
+  // Pre-resolve field_definition IDs for field/new_field actions in a single query
+  const uniqueKeys = new Set<string>()
   for (const action of Object.values(columnMapping)) {
-    if (action.action === 'field' || action.action === 'new_field') {
-      const key = action.key
-      if (!key || fieldIdMap.has(key)) continue
-      const { data: fd } = await adminClient
-        .from('field_definitions')
-        .select('id')
-        .eq('key', key)
-        .eq('project_id', projectId)
-        .single()
-      if (fd) fieldIdMap.set(key, fd.id)
+    if ((action.action === 'field' || action.action === 'new_field') && action.key) {
+      uniqueKeys.add(action.key)
+    }
+  }
+
+  const fieldIdMap = new Map<string, string>()
+  if (uniqueKeys.size > 0) {
+    const { data: fieldDefs } = await adminClient
+      .from('field_definitions')
+      .select('id, key')
+      .in('key', [...uniqueKeys])
+      .eq('project_id', projectId)
+    if (fieldDefs) {
+      for (const fd of fieldDefs) {
+        fieldIdMap.set(fd.key, fd.id)
+      }
     }
   }
 
@@ -79,9 +84,12 @@ export async function POST(
 
           if (action.action === 'email_target') {
             const existing = (cleaned['outreach_emails'] as string[]) ?? []
-            const email = String(raw).trim()
-            if (email && email.includes('@')) {
-              cleaned['outreach_emails'] = [...existing, email]
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+            const parts = String(raw).trim().split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+            for (const part of parts) {
+              if (emailRegex.test(part)) {
+                cleaned['outreach_emails'] = [...existing, part.toLowerCase()]
+              }
             }
           }
           // field / new_field handled separately via deal_fields
@@ -140,6 +148,52 @@ export async function POST(
                 .from('deal_fields')
                 .insert(dealFields)
               if (dfError) console.error('[import] deal_fields insert error:', dfError)
+            }
+
+            // Create contacts from outreach_emails so mass-send can find recipients
+            const contactsToInsert: {
+              deal_id: string; email: string[]; name: string | null; is_primary: boolean
+            }[] = []
+
+            for (let j = 0; j < insertedRows.length; j++) {
+              const dealId = insertedRows[j]!.id as string
+              const originalRow = rowData[i + j]
+              const uniqueEmails = new Set<string>()
+
+              for (const [header, action] of Object.entries(columnMapping)) {
+                if (action.action !== 'email_target') continue
+                const raw = originalRow?.[header]
+                if (raw === undefined || raw === null || raw === '') continue
+
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+                String(raw).trim().split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+                  .filter((e) => emailRegex.test(e))
+                  .forEach((e) => uniqueEmails.add(e.toLowerCase()))
+              }
+
+              let isFirst = true
+              for (const email of uniqueEmails) {
+                const localPart = email.split('@')[0] ?? ''
+                const name = localPart
+                  .replace(/[._-]/g, ' ')
+                  .replace(/\b\w/g, (c) => c.toUpperCase())
+                  .trim() || null
+
+                contactsToInsert.push({
+                  deal_id: dealId,
+                  email: [email],
+                  name,
+                  is_primary: isFirst,
+                })
+                isFirst = false
+              }
+            }
+
+            if (contactsToInsert.length > 0) {
+              const { error: contactError } = await adminClient
+                .from('contacts')
+                .insert(contactsToInsert)
+              if (contactError) console.error('[import] contacts insert error:', contactError)
             }
           }
         }
