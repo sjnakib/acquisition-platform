@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
 import { Button } from '@/components/ui/button'
+import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 interface Campaign {
@@ -140,6 +141,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     return counts
   }, [allDeals])
 
+  const activeTab = total === 0 ? 'leads' : tab
+
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
       const maxPage = Math.ceil(total / pageSize)
@@ -177,9 +180,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
-      <Tabs defaultValue="leads" value={tab} onValueChange={(v) => setTab(v as 'details' | 'leads')} className="flex-1 flex flex-col min-h-0">
+      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => setTab(v as 'details' | 'leads')} className="flex-1 flex flex-col min-h-0">
         <TabsList className="mb-4 flex-shrink-0">
-          <TabsTrigger value="details">Mass Emailing</TabsTrigger>
+          {total === 0 ? (
+            <Tooltip content="Import leads first to enable mass emailing" position="bottom">
+              <TabsTrigger value="details" disabled={total === 0}>Mass Emailing</TabsTrigger>
+            </Tooltip>
+          ) : (
+            <TabsTrigger value="details" disabled={total === 0}>Mass Emailing</TabsTrigger>
+          )}
           <TabsTrigger value="leads">Leads{total > 0 ? ` (${total})` : ''}</TabsTrigger>
         </TabsList>
 

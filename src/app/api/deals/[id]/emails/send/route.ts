@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const body = await req.json()
-    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc, attachment_ids } = body
+    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc, bcc, scheduledAt, attachment_ids } = body
 
     if (!to || !subject || !htmlBody) {
       return NextResponse.json({ error: 'to, subject, and htmlBody required' }, { status: 400 })
@@ -77,21 +77,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    let result: { messageId: string; threadId: string }
+    let result: { messageId: string; threadId: string } | null = null
 
-    if (threadId && inReplyTo) {
-      result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc, gmailAttachments)
-    } else {
-      result = await sendEmail(connectionId, to, subject, htmlBody, cc, gmailAttachments)
+    if (!scheduledAt) {
+      if (threadId && inReplyTo) {
+        result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc, gmailAttachments, bcc)
+      } else {
+        result = await sendEmail(connectionId, to, subject, htmlBody, cc, gmailAttachments, bcc)
+      }
     }
 
     const { data: outreach, error } = await supabase.from('email_outreach').insert({
       deal_id: dealId,
-      status: 'sent',
-      sent_at: new Date().toISOString(),
+      status: scheduledAt ? 'not_sent' : 'sent',
+      sent_at: scheduledAt ? scheduledAt : new Date().toISOString(),
       subject,
-      gmail_message_id: result.messageId,
-      gmail_thread_id: result.threadId,
+      gmail_message_id: result?.messageId ?? null,
+      gmail_thread_id: result?.threadId ?? null,
       contact_id: contact_id ?? null,
     }).select().single()
 

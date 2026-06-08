@@ -16,7 +16,7 @@ interface ContactsPanelProps {
 }
 
 export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
 

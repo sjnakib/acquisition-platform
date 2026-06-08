@@ -16,6 +16,7 @@ interface RichTextEditorProps {
   minHeight?: number
   showAttach?: boolean
   onAttach?: (files: FileList) => void
+  borderless?: boolean
 }
 
 type FormatCommand = 'bold' | 'italic' | 'underline' | 'insertUnorderedList' | 'insertOrderedList'
@@ -42,7 +43,7 @@ const TEXT_COLORS = [
 ]
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
-  function RichTextEditor({ value, onChange, placeholder, disabled, minHeight = 200, showAttach, onAttach }, ref) {
+  function RichTextEditor({ value, onChange, placeholder, disabled, minHeight = 200, showAttach, onAttach, borderless = false }, ref) {
     const editorRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const isUpdatingRef = useRef(false)
@@ -54,19 +55,46 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const el = editorRef.current
         if (!el) return
         el.focus()
-        if (el.textContent?.trim() === '' || el.innerHTML === '' || el.innerHTML === '<br>') {
-          el.innerHTML = html
+        
+        const sel = window.getSelection()
+        const isSelectionInEditor = sel && sel.anchorNode && el.contains(sel.anchorNode)
+        
+        if (isSelectionInEditor && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0)
+          range.deleteContents()
+          
+          const tempEl = document.createElement('div')
+          tempEl.innerHTML = html
+          const frag = document.createDocumentFragment()
+          let node
+          let lastNode
+          while ((node = tempEl.firstChild)) {
+            lastNode = frag.appendChild(node)
+          }
+          range.insertNode(frag)
+          
+          if (lastNode) {
+            const nextRange = range.cloneRange()
+            nextRange.setStartAfter(lastNode)
+            nextRange.collapse(true)
+            sel.removeAllRanges()
+            sel.addRange(nextRange)
+          }
         } else {
-          el.innerHTML += html
+          if (el.textContent?.trim() === '' || el.innerHTML === '' || el.innerHTML === '<br>') {
+            el.innerHTML = html
+          } else {
+            el.innerHTML += html
+          }
+          const range = document.createRange()
+          range.selectNodeContents(el)
+          range.collapse(false)
+          sel?.removeAllRanges()
+          sel?.addRange(range)
         }
+        
         isUpdatingRef.current = true
         onChange(el.innerHTML)
-        const range = document.createRange()
-        range.selectNodeContents(el)
-        range.collapse(false)
-        const sel = window.getSelection()
-        sel?.removeAllRanges()
-        sel?.addRange(range)
         isUpdatingRef.current = false
       },
       clear: () => {
@@ -135,11 +163,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
     return (
       <div
-        className={`rounded-lg border overflow-hidden transition-colors flex flex-col flex-1 min-h-0 ${
+        className={`${borderless ? '' : 'rounded-lg border'} overflow-hidden transition-colors flex flex-col flex-1 min-h-0 ${
           disabled ? 'opacity-50 pointer-events-none' : ''
         }`}
         style={{
-          borderColor: 'var(--color-surface-2)',
+          borderColor: borderless ? 'transparent' : 'var(--color-surface-2)',
           background: 'var(--color-surface-0)',
         }}
       >

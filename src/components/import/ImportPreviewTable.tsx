@@ -173,7 +173,7 @@ export function ImportPreviewTable({
     <>
       {/* ── Column mapping table ─────────────────────────────────── */}
       <div
-        className="rounded-lg border overflow-hidden"
+        className="flex-1 flex flex-col min-h-0 rounded-lg border overflow-hidden"
         style={{
           borderColor: 'var(--color-surface-3)',
           background: 'var(--color-surface-0)',
@@ -197,7 +197,7 @@ export function ImportPreviewTable({
         </div>
 
         {/* Scrollable body */}
-        <div className="overflow-y-auto" style={{ maxHeight: 460 }}>
+        <div className="flex-1 overflow-y-auto pb-2">
           {headers.map((header) => {
             const action = mapping[header]
             const isDropped = !action || action.action === 'drop'

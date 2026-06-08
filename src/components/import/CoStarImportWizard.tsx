@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -77,6 +77,14 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   const [mappingSaving, setMappingSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const router = useRouter()
+
+  const dynamicCardStyle = useMemo(() => {
+    return {
+      marginBottom: 'calc(var(--header-height, 0px) + 32px)',
+      height: step === 2 ? 'calc(100vh - (var(--header-height, 0px) * 2) - 128px)' : undefined,
+      minHeight: step === 2 ? 450 : undefined,
+    }
+  }, [step])
 
   // Email validation dialog state
   const [emailDialogOpen, setEmailDialogOpen] = useState(false)
@@ -381,11 +389,11 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   const errColor = { color: 'var(--color-danger-solid)' } as const
 
   return (
-    <Card>
+    <Card style={dynamicCardStyle} className={step === 2 ? 'flex flex-col' : undefined}>
       <CardHeader>
         <CardTitle>Step {step} of 3</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className={step === 2 ? 'flex-1 flex flex-col min-h-0' : undefined}>
         {step === 1 && (
           <form onSubmit={handleSubmit(onUploadSubmit)} className="space-y-4">
             <div>
@@ -464,7 +472,7 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
         )}
 
         {step === 2 && previewData && (
-          <div className="space-y-4">
+          <div className="flex-1 flex flex-col min-h-0 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3

@@ -13,6 +13,7 @@ function buildMimeMessage(
   htmlBody: string,
   cc?: string,
   attachments?: EmailAttachment[],
+  bcc?: string,
 ): string {
   const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`
@@ -20,6 +21,7 @@ function buildMimeMessage(
 
   lines.push(`To: ${to}`)
   if (cc) lines.push(`Cc: ${cc}`)
+  if (bcc) lines.push(`Bcc: ${bcc}`)
   lines.push(`Subject: ${utf8Subject}`)
   lines.push('MIME-Version: 1.0')
 
@@ -65,11 +67,12 @@ export async function sendEmail(
   htmlBody: string,
   cc?: string,
   attachments?: EmailAttachment[],
+  bcc?: string,
 ): Promise<{ messageId: string; threadId: string }> {
   const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
-  const mime = buildMimeMessage(to, subject, htmlBody, cc, attachments)
+  const mime = buildMimeMessage(to, subject, htmlBody, cc, attachments, bcc)
   const raw = encodeMessage(mime)
 
   const res = await gmail.users.messages.send({
@@ -106,6 +109,7 @@ export async function sendReply(
   inReplyTo: string,
   cc?: string,
   attachments?: EmailAttachment[],
+  bcc?: string,
 ): Promise<{ messageId: string; threadId: string }> {
   const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
@@ -117,6 +121,7 @@ export async function sendReply(
 
   lines.push(`To: ${to}`)
   if (cc) lines.push(`Cc: ${cc}`)
+  if (bcc) lines.push(`Bcc: ${bcc}`)
   lines.push(`Subject: ${encodedSubject}`)
   lines.push('MIME-Version: 1.0')
   lines.push(`In-Reply-To: ${inReplyTo}`)
@@ -171,3 +176,51 @@ export async function watchGmail(connectionId: string) {
 
   return { historyId: res.data.historyId }
 }
+
+export async function modifyThreadLabels(
+  connectionId: string,
+  threadId: string,
+  addLabelIds: string[],
+  removeLabelIds: string[]
+): Promise<unknown> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.threads.modify({
+    userId: 'me',
+    id: threadId,
+    requestBody: {
+      addLabelIds,
+      removeLabelIds,
+    },
+  })
+  return res.data
+}
+
+export async function trashThread(
+  connectionId: string,
+  threadId: string
+): Promise<unknown> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.threads.trash({
+    userId: 'me',
+    id: threadId,
+  })
+  return res.data
+}
+
+export async function untrashThread(
+  connectionId: string,
+  threadId: string
+): Promise<unknown> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.threads.untrash({
+    userId: 'me',
+    id: threadId,
+  })
+  return res.data
+}
+
+
+

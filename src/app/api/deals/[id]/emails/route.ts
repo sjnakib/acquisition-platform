@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthedClientByConnection } from '@/lib/google/oauth'
 import { google } from 'googleapis'
 
@@ -11,7 +10,52 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    // Check user role
+    const role = user.app_metadata?.role
+    if (role !== 'internal') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    }
+
     const includePortfolio = req.nextUrl.searchParams.get('portfolio') === 'true'
+    const folder = req.nextUrl.searchParams.get('folder') ?? 'inbox'
+
+    // ── 1. Self-healing unsnooze check ──
+    try {
+      const { data: expiredSnoozes } = await supabase
+        .from('snoozed_threads')
+        .select('id, thread_id, project_id')
+        .lt('snoozed_until', new Date().toISOString())
+
+      if (expiredSnoozes && expiredSnoozes.length > 0) {
+        const projectIds = Array.from(new Set(expiredSnoozes.map((s) => s.project_id)))
+        const { data: projects } = await supabase
+          .from('projects')
+          .select('id, google_connection_id')
+          .in('id', projectIds)
+
+        const connMap = new Map(projects?.map((p) => [p.id, p.google_connection_id]) ?? [])
+
+        for (const snooze of expiredSnoozes) {
+          const connId = connMap.get(snooze.project_id)
+          if (connId) {
+            try {
+              const auth = await getAuthedClientByConnection(connId, { useAdminClient: true })
+              const gmailClient = google.gmail({ version: 'v1', auth })
+              await gmailClient.users.threads.modify({
+                userId: 'me',
+                id: snooze.thread_id,
+                requestBody: { addLabelIds: ['INBOX'] },
+              })
+            } catch (err) {
+              console.error(`[emails] Failed to restore thread ${snooze.thread_id} to INBOX:`, err)
+            }
+          }
+          await supabase.from('snoozed_threads').delete().eq('id', snooze.id)
+        }
+      }
+    } catch (snoozeErr) {
+      console.error('[emails] Snooze expiration processing failed:', snoozeErr)
+    }
 
     // Get the deal with project and portfolio info and its deal_fields.
     const { data: deal, error: dealError } = await supabase
@@ -78,51 +122,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Group email_outreach rows by thread_id
-    const threads: Record<string, {
-      threadId: string
-      subject: string | null
-      dealName: string | null
-      dealId: string
-      contactName: string | null
-      contactEmail: string | null
-      status: string
-      lastDate: string | null
-      responseClassification: string | null
-      messageCount: number
-      isPortfolioSibling: boolean
-    }> = {}
-
-    const knownThreadIds = new Set<string>()
-
+    const outreachMap = new Map<string, any>()
     for (const e of emails ?? []) {
-      const threadId = e.gmail_thread_id ?? e.id
-      const dealData = e.deals as unknown as { portfolio_id: string | null } | null
-      const contactData = e.contacts as unknown as { name: string | null; email: string[] | null } | null
-      const isSibling = e.deal_id !== dealId
-
-      knownThreadIds.add(threadId)
-
-      if (!threads[threadId] || new Date(e.sent_at ?? e.created_at).getTime() > new Date(threads[threadId]!.lastDate ?? 0).getTime()) {
-        threads[threadId] = {
-          threadId,
-          subject: e.subject,
-          dealName: addressMap.get(e.deal_id) ?? 'Property',
-          dealId: e.deal_id,
-          contactName: contactData?.name ?? null,
-          contactEmail: contactData?.email?.[0] ?? null,
-          status: e.status,
-          lastDate: e.sent_at ?? e.created_at,
-          responseClassification: e.response_classification,
-          messageCount: 1,
-          isPortfolioSibling: isSibling,
-        }
-      } else {
-        threads[threadId]!.messageCount++
-      }
+      const tid = e.gmail_thread_id ?? e.id
+      outreachMap.set(tid, e)
     }
 
-    // ── Gmail search: find threads involving tracked emails ──────────────────
+    // Get active snoozed threads
+    const { data: activeSnoozedRows } = await supabase
+      .from('snoozed_threads')
+      .select('thread_id, snoozed_until')
+      .eq('deal_id', dealId)
+    const snoozedMap = new Map<string, string>(
+      activeSnoozedRows?.map((r) => [r.thread_id, r.snoozed_until]) ?? []
+    )
 
     // Get tracked emails for this deal
     const { data: contacts } = await supabase
@@ -144,63 +157,153 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       connectionId = project?.google_connection_id ?? null
     }
 
+    const threads: Record<string, {
+      threadId: string
+      subject: string | null
+      dealName: string | null
+      dealId: string
+      contactName: string | null
+      contactEmail: string | null
+      status: string
+      lastDate: string | null
+      responseClassification: string | null
+      messageCount: number
+      isPortfolioSibling: boolean
+      isUnread: boolean
+      isInbox: boolean
+      snoozedUntil: string | null
+    }> = {}
+
     if (connectionId && trackedEmails.length > 0) {
       try {
-        console.log(`[emails] Searching Gmail for ${trackedEmails.length} tracked: ${trackedEmails.join(', ')}`)
-
-        // Use admin client to read tokens — bypasses any RLS ambiguity
         const auth = await getAuthedClientByConnection(connectionId, { useAdminClient: true })
         const gmail = google.gmail({ version: 'v1', auth })
 
-        // Gmail search query: find threads involving any tracked email.
-        // Use plain OR without grouping — most compatible with Gmail search parser.
+        // Build search query based on folder
         const terms = trackedEmails.flatMap((email) => [`from:${email}`, `to:${email}`])
-        const query = terms.join(' OR ')
+        const baseQuery = terms.join(' OR ')
+        let query = ''
 
-        console.log(`[emails] Gmail query: ${query}`)
+        if (folder === 'inbox') {
+          query = `(${baseQuery}) label:INBOX`
+        } else if (folder === 'archived') {
+          query = `(${baseQuery}) -label:INBOX -label:TRASH -label:SPAM`
+        } else if (folder === 'snoozed') {
+          const snoozedIds = Array.from(snoozedMap.keys())
+          if (snoozedIds.length === 0) {
+            return NextResponse.json({ threads: [], gmailConnected: true })
+          }
+          query = snoozedIds.map((tid) => `id:${tid}`).join(' OR ')
+        }
+
+        console.log(`[emails] Gmail query for folder ${folder}: ${query}`)
         const listRes = await gmail.users.threads.list({ userId: 'me', q: query, maxResults: 30 })
         const gmailThreads = listRes.data.threads ?? []
-        console.log(`[emails] Gmail returned ${gmailThreads.length} threads (${knownThreadIds.size} already in outreach)`)
 
-        let syntheticDate = Date.now()
-        let addedCount = 0
-        for (const gt of gmailThreads) {
-          const tid = gt.id
-          if (!tid || knownThreadIds.has(tid)) continue
+        if (gmailThreads.length > 0) {
+          const details = await Promise.allSettled(
+            gmailThreads.map((gt) =>
+              gmail.users.threads.get({
+                userId: 'me',
+                id: gt.id!,
+                format: 'metadata',
+                metadataHeaders: ['Date', 'Subject', 'From', 'To'],
+              })
+            )
+          )
 
-          const matchedEmail = trackedEmails.find((e) =>
-            gt.snippet?.toLowerCase().includes(e.toLowerCase())
-          ) ?? trackedEmails[0]!
+          details.forEach((result, i) => {
+            const gt = gmailThreads[i]!
+            const tid = gt.id!
+            if (result.status !== 'fulfilled') return
+            const t = result.value.data
+            const messagesList = t.messages ?? []
+            const firstMsg = messagesList[0]
+            const lastMsg = messagesList[messagesList.length - 1] ?? firstMsg
 
-          threads[tid] = {
-            threadId: tid,
-            subject: gt.snippet?.split('.')[0]?.slice(0, 120) ?? '(no subject)',
-            dealName: mainAddress,
-            dealId,
-            contactName: matchedEmail,
-            contactEmail: matchedEmail,
-            status: 'gmail',
-            lastDate: new Date(syntheticDate).toISOString(),
-            responseClassification: null,
-            messageCount: 1,
-            isPortfolioSibling: false,
-          }
-          syntheticDate -= 1000
-          addedCount++
+            // Parse headers
+            const firstHeaders: Record<string, string> = {}
+            for (const h of firstMsg?.payload?.headers ?? []) {
+              if (h.name) firstHeaders[h.name.toLowerCase()] = h.value ?? ''
+            }
+            const lastHeaders: Record<string, string> = {}
+            for (const h of lastMsg?.payload?.headers ?? []) {
+              if (h.name) lastHeaders[h.name.toLowerCase()] = h.value ?? ''
+            }
+
+            // Determine if read/unread (does any message have UNREAD label?)
+            const labelIds = new Set(messagesList.flatMap((m) => m.labelIds ?? []))
+            const isUnread = labelIds.has('UNREAD')
+            const isInbox = labelIds.has('INBOX')
+
+            // Resolve subject and date
+            const subject = lastHeaders['subject'] ?? firstHeaders['subject'] ?? gt.snippet?.split('.')[0]?.slice(0, 120) ?? '(no subject)'
+            const date = lastHeaders['date'] ?? firstHeaders['date'] ?? new Date().toISOString()
+
+            // Resolve contact info
+            let contactEmail = trackedEmails[0]!
+            let contactName = contactEmail
+
+            for (const msg of messagesList) {
+              const headers: Record<string, string> = {}
+              for (const h of msg.payload?.headers ?? []) {
+                if (h.name) headers[h.name.toLowerCase()] = h.value ?? ''
+              }
+              const fromVal = headers['from'] ?? ''
+              const toVal = headers['to'] ?? ''
+              const foundEmail = trackedEmails.find(
+                (e) => fromVal.toLowerCase().includes(e.toLowerCase()) || toVal.toLowerCase().includes(e.toLowerCase())
+              )
+              if (foundEmail) {
+                contactEmail = foundEmail
+                if (fromVal.toLowerCase().includes(foundEmail.toLowerCase())) {
+                  const nameMatch = fromVal.match(/^"([^"]+)"|^(^[^<]+)\s*</)
+                  if (nameMatch) {
+                    contactName = (nameMatch[1] || nameMatch[2] || '').trim()
+                  }
+                }
+                break
+              }
+            }
+
+            // Match with local email_outreach database record
+            const outreach = outreachMap.get(tid)
+
+            // Skip if in inbox view but it's snoozed in DB
+            if (folder === 'inbox' && snoozedMap.has(tid)) {
+              return
+            }
+
+            threads[tid] = {
+              threadId: tid,
+              subject,
+              dealName: outreach ? (addressMap.get(outreach.deal_id) ?? 'Property') : mainAddress,
+              dealId: outreach ? outreach.deal_id : dealId,
+              contactName: outreach?.contacts?.name ?? contactName,
+              contactEmail: outreach?.contacts?.email?.[0] ?? contactEmail,
+              status: outreach ? outreach.status : 'gmail',
+              lastDate: date,
+              responseClassification: outreach ? outreach.response_classification : null,
+              messageCount: messagesList.length,
+              isPortfolioSibling: outreach ? outreach.deal_id !== dealId : false,
+              isUnread,
+              isInbox,
+              snoozedUntil: snoozedMap.get(tid) ?? null,
+            }
+          })
         }
-        console.log(`[emails] Added ${addedCount} new Gmail threads, total threads: ${Object.keys(threads).length}`)
       } catch (gmailErr) {
-        console.error('[emails] Gmail search FAILED:', gmailErr)
+        console.error('[emails] Gmail fetch FAILED:', gmailErr)
       }
-    } else {
-      console.log(`[emails] Skipping Gmail search — conn=${!!connectionId} tracked=${trackedEmails.length}`)
     }
 
-    const sorted = Object.values(threads).sort(
-      (a, b) => new Date(b.lastDate ?? 0).getTime() - new Date(a.lastDate ?? 0).getTime()
-    )
+    // Sort: unread first, then by date descending
+    const sorted = Object.values(threads).sort((a, b) => {
+      if (a.isUnread !== b.isUnread) return a.isUnread ? -1 : 1
+      return new Date(b.lastDate ?? 0).getTime() - new Date(a.lastDate ?? 0).getTime()
+    })
 
-    return NextResponse.json(sorted)
+    return NextResponse.json({ threads: sorted, gmailConnected: !!connectionId })
   } catch (err) {
     console.error('Emails list error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -11,6 +11,7 @@ import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 interface Campaign {
@@ -34,16 +35,17 @@ const STAGE_LABELS: Record<string, string> = {
   failed: 'Failed', archived: 'Archived',
 }
 
-const tabTriggerStyle = (active: boolean) =>
+const tabTriggerStyle = (active: boolean, disabled?: boolean) =>
   ({
     padding: '6px 14px',
     fontSize: 13,
     fontWeight: 500,
     fontFamily: 'var(--font-dm-sans)',
-    color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+    color: disabled ? 'var(--color-text-tertiary)' : active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+    borderBottom: active && !disabled ? '2px solid var(--accent)' : '2px solid transparent',
     background: 'transparent',
-    cursor: 'pointer',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
     transition: 'color 150ms ease, border-color 150ms ease',
   }) as const
 
@@ -224,6 +226,7 @@ export default function CampaignDetailPage() {
 
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
+  const activeTab = total === 0 ? 'leads' : tab
 
   // Clamp page if sort/filter reduced total pages below current page
   useEffect(() => {
@@ -274,17 +277,33 @@ export default function CampaignDetailPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-0 flex-shrink-0 mb-4" style={{ borderBottom: '1px solid var(--color-surface-2)' }}>
-        <button style={tabTriggerStyle(tab === 'details')} onClick={() => setTab('details')}>
-          Details
-        </button>
-        <button style={tabTriggerStyle(tab === 'leads')} onClick={() => setTab('leads')}>
+        {total === 0 ? (
+          <Tooltip content="Import leads first to enable mass emailing" position="bottom">
+            <button
+              style={tabTriggerStyle(activeTab === 'details', total === 0)}
+              onClick={() => setTab('details')}
+              disabled={total === 0}
+            >
+              Details
+            </button>
+          </Tooltip>
+        ) : (
+          <button
+            style={tabTriggerStyle(activeTab === 'details', total === 0)}
+            onClick={() => setTab('details')}
+            disabled={total === 0}
+          >
+            Details
+          </button>
+        )}
+        <button style={tabTriggerStyle(activeTab === 'leads')} onClick={() => setTab('leads')}>
           Leads{total > 0 ? ` (${total})` : ''}
         </button>
       </div>
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {tab === 'details' ? (
+        {activeTab === 'details' ? (
           <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
             {/* Left 70% — Email Template Manager */}
             <div style={{ width: '70%', minWidth: 0 }}>

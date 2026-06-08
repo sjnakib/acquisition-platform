@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 interface Deal {
   id: string
   score: string | null
+  outreach_emails: string[] | null
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
 }
 
@@ -33,10 +34,26 @@ const scoreLabel: Record<string, string> = {
 }
 
 const columns: ColumnDef<Deal>[] = [
-  { key: 'address', header: 'Property Address', minWidth: 160, sortable: true,
+  { key: 'address', header: 'Property Address', minWidth: 160, sortable: true, isRequired: true,
     render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{getDealField(r, 'address') || 'Untitled'}</span> },
-  { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true,
+  { key: 'unit_count', header: 'Units', align: 'right', width: 80, sortable: true, isRequired: true,
     render: (r) => <span className="tabular-nums" style={{ fontFamily: 'var(--font-jetbrains-mono)' }}>{getDealField(r, 'unit_count') || '—'}</span> },
+  { key: 'outreach_emails', header: 'Email Targets', minWidth: 160, sortable: false, isRequired: true,
+    accessor: (r) => (r.outreach_emails ?? []).join(', '),
+    render: (r) => {
+      const emails = r.outreach_emails
+      if (!emails || emails.length === 0) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+      const count = emails.length
+      const shown = emails.slice(0, 2).join(', ')
+      const remainder = count > 2 ? ` +${count - 2} more` : ''
+      return (
+        <span className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
+          {shown}
+          {remainder && <span style={{ color: 'var(--color-text-tertiary)' }}>{remainder}</span>}
+        </span>
+      )
+    },
+  },
   { key: 'score', header: 'Score', width: 110, sortable: true,
     render: (r) => {
       if (!r.score) return <Badge variant="neutral">Unscored</Badge>

@@ -126,7 +126,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
   const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -160,7 +160,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab}>
+      <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <TabsList className="mb-6">
           {TABS.map((tab) => (
             <TabsTrigger key={tab.key} value={tab.key}>
@@ -169,87 +169,94 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           ))}
         </TabsList>
 
-        <div
-          className="rounded-xl border p-6"
-          style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}
-        >
-          <TabsContent value="overview">
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Created
-                  </span>
-                  <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
-                    {formatDate(deal.created_at)}
-                  </p>
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <TabsContent className="overflow-y-auto" value="overview">
+            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+              <div className="space-y-8">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Created
+                    </span>
+                    <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                      {formatDate(deal.created_at)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Stage
+                    </span>
+                    <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                      {deal.stage.replace(/_/g, ' ')}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Score
+                    </span>
+                    <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                      {deal.score?.replace(/_/g, ' ') ?? '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Units
+                    </span>
+                    <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                      {unitCount ?? '—'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Stage
-                  </span>
-                  <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
-                    {deal.stage.replace(/_/g, ' ')}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Score
-                  </span>
-                  <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
-                    {deal.score?.replace(/_/g, ' ') ?? '—'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
-                    Units
-                  </span>
-                  <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
-                    {unitCount ?? '—'}
-                  </p>
-                </div>
-              </div>
 
-              <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                    Imported Fields
-                  </h3>
+                <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                      Imported Fields
+                    </h3>
+                  </div>
+                  <DealFieldsEditor dealId={dealId} />
                 </div>
-                <DealFieldsEditor dealId={dealId} />
-              </div>
 
-              <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
-                <ActivityTimeline
-                  activities={activities}
-                  isLoading={activitiesLoading}
-                  onAddActivity={handleAddActivity}
-                />
+                <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
+                  <ActivityTimeline
+                    activities={activities}
+                    isLoading={activitiesLoading}
+                    onAddActivity={handleAddActivity}
+                  />
+                </div>
               </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="emails">
-            <EmailInterface dealId={dealId} dealName={dealName} />
+          <TabsContent value="emails" className="flex-1 min-h-0 flex flex-col">
+            <EmailInterface dealId={dealId} dealName={dealName} projectId={projectId} />
           </TabsContent>
 
-          <TabsContent value="documents">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <DocumentChecklist dealId={dealId} />
-              <EvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
+          <TabsContent className="overflow-y-auto" value="documents">
+            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <DocumentChecklist dealId={dealId} />
+                <EvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
+              </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="underwriting">
-            <UnderwritingSummary dealId={dealId} unitCount={unitCount} />
+          <TabsContent className="overflow-y-auto" value="underwriting">
+            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+              <UnderwritingSummary dealId={dealId} unitCount={unitCount} />
+            </div>
           </TabsContent>
 
-          <TabsContent value="loi">
-            <LOIDetail dealId={dealId} />
+          <TabsContent className="overflow-y-auto" value="loi">
+            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+              <LOIDetail dealId={dealId} />
+            </div>
           </TabsContent>
 
-          <TabsContent value="calls">
-            <CallBriefTab dealId={dealId} />
+          <TabsContent className="overflow-y-auto" value="calls">
+            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+              <CallBriefTab dealId={dealId} />
+            </div>
           </TabsContent>
         </div>
       </Tabs>

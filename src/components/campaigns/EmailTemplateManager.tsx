@@ -4,7 +4,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Mail, Send, Loader2, CheckCircle, XCircle, AlertTriangle,
-  Plus, Pencil, Trash2, Settings, Search, Info, HelpCircle
+  Search, Info, HelpCircle
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,10 +64,25 @@ interface Props {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const BUILTIN_TYPES = [
-  { value: 'outreach', label: 'Outreach (Built-in)' },
-  { value: 'thank_you', label: 'Thank You (Built-in)' },
-  { value: 'declination', label: 'Declination (Built-in)' },
+  { value: 'outreach', label: 'Outreach' },
+  { value: 'thank_you', label: 'Thank You' },
+  { value: 'declination', label: 'Declination' },
 ]
+
+const BUILTIN_DEFAULTS: Record<string, { subject: string; body: string }> = {
+  outreach: {
+    subject: '{property_address} — Investment Opportunity',
+    body: 'Dear {contact_name},<br><br>I am reaching out regarding {property_address}. We are active acquirers in this market and would love to connect.<br><br>Best regards,<br>{sender_name}'
+  },
+  thank_you: {
+    subject: 'Thank You — {property_address}',
+    body: 'Dear {contact_name},<br><br>Thank you for your time and for providing the information regarding {property_address}. We appreciate the opportunity to review the materials.<br><br>We will be in touch with next steps shortly.<br><br>Best regards,<br>{sender_name}'
+  },
+  declination: {
+    subject: 'Update — {property_address}',
+    body: 'Dear {contact_name},<br><br>After careful review, we have decided to pass on {property_address} at this time. We appreciate you sharing the details with us.<br><br>We wish you the best with the sale.<br><br>Best regards,<br>{sender_name}'
+  }
+}
 
 const CONTACT_MERGE_FIELDS = [
   { key: 'contact_name', label: 'Contact Name' },
@@ -144,11 +159,9 @@ export function EmailTemplateManager({
   const [showSendDialog, setShowSendDialog] = useState(false)
   const [sendComplete, setSendComplete] = useState(false)
 
-  // ── Template CRUD dialog state ──
-  const [showTemplateDialog, setShowTemplateDialog] = useState(false)
+  // ── Template CRUD state ──
   const [newTemplateName, setNewTemplateName] = useState('')
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
-  const [editingName, setEditingName] = useState('')
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
 
   // ── Custom templates ──
   const { data: customTemplates = [], refetch: refetchTemplates } = useQuery<EmailTemplate[]>({
@@ -194,45 +207,128 @@ export function EmailTemplateManager({
     return Array.from(map.entries())
   }, [filteredMergeFields])
 
-  // ── Available templates for EmailComposer pills ──
-  const composerTemplates = useMemo(() =>
-    customTemplates.map((t) => ({
-      id: t.id,
-      name: t.name,
-      subject: t.subject_template,
-      body: t.body_template,
-    })),
-    [customTemplates])
 
-  // ── Persist to campaign (debounced) ──
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
-  const scheduleSave = useCallback((updates: Partial<Campaign>) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => onCampaignUpdate(updates), 800)
-  }, [onCampaignUpdate])
-  useEffect(() => { return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) } }, [])
+  // ── Active Template and Saved content tracking ──
+  const activeTemplate = useMemo(() => {
+    if (templateType.startsWith('custom:')) {
+      const tplId = templateType.replace('custom:', '')
+      return customTemplates.find((t) => t.id === tplId)
+    }
+    return null
+  }, [templateType, customTemplates])
+
+  const savedSubject = useMemo(() => {
+    if (activeTemplate) {
+      return activeTemplate.subject_template
+    }
+    return campaign.email_subject_template ?? BUILTIN_DEFAULTS[templateType]?.subject ?? ''
+  }, [activeTemplate, campaign.email_subject_template, templateType])
+
+  const savedBody = useMemo(() => {
+    if (activeTemplate) {
+      return activeTemplate.body_template
+    }
+    return campaign.email_body_template ?? BUILTIN_DEFAULTS[templateType]?.body ?? ''
+  }, [activeTemplate, campaign.email_body_template, templateType])
+
+  // ── Dirty State Checking ──
+  const isDirty = useMemo(() => {
+    const normalize = (html: string) => {
+      if (!html) return ''
+      const cleaned = html.replace(/<p>\s*<br\s*\/?>\s*<\/p>/g, '').replace(/<br\s*\/?>/g, '').trim()
+      return cleaned === '' ? '' : html
+    }
+    return subject !== savedSubject || normalize(body) !== normalize(savedBody)
+  }, [subject, savedSubject, body, savedBody])
+
+  // ── Synchronize state when template selection updates ──
+  const currentTemplateKey = templateType.startsWith('custom:')
+    ? templateType
+    : `builtin:${templateType}`
+
+  const [loadedTemplateKey, setLoadedTemplateKey] = useState<string>('')
+  const prevSavedSubjectRef = useRef(savedSubject)
+  const prevSavedBodyRef = useRef(savedBody)
+
+  useEffect(() => {
+    const isTemplateSwitch = currentTemplateKey !== loadedTemplateKey
+    const isInitialLoad = loadedTemplateKey === ''
+
+    if (isTemplateSwitch || isInitialLoad || (subject === prevSavedSubjectRef.current && body === prevSavedBodyRef.current)) {
+      setSubject(savedSubject)
+      setBody(savedBody)
+      setLoadedTemplateKey(currentTemplateKey)
+    }
+
+    prevSavedSubjectRef.current = savedSubject
+    prevSavedBodyRef.current = savedBody
+  }, [currentTemplateKey, savedSubject, savedBody, loadedTemplateKey, subject, body])
 
   // ── Template type change ──
-  const handleTypeChange = useCallback((value: string) => {
+  const handleTypeChange = useCallback(async (value: string) => {
+    if (value === 'create_new') {
+      setShowCreateDialog(true)
+      return
+    }
+
+    if (subject !== savedSubject || body !== savedBody) {
+      const confirm = window.confirm("You have unsaved changes in the current template. Do you want to discard them and switch templates?")
+      if (!confirm) return
+    }
+
     setTemplateType(value)
     if (value.startsWith('custom:')) {
       const tplId = value.replace('custom:', '')
       const tpl = customTemplates.find((t) => t.id === tplId)
-      scheduleSave({
+      await onCampaignUpdate({
         email_template_id: tplId,
         email_template: null,
-        ...(tpl ? { email_subject_template: tpl.subject_template, email_body_template: tpl.body_template } : {}),
+        email_subject_template: tpl?.subject_template ?? '',
+        email_body_template: tpl?.body_template ?? '',
       })
-      if (tpl) {
-        setSubject(tpl.subject_template)
-        setBody(tpl.body_template)
-      }
     } else {
-      scheduleSave({ email_template: value, email_template_id: null })
+      const defaultTpl = BUILTIN_DEFAULTS[value]
+      await onCampaignUpdate({
+        email_template: value,
+        email_template_id: null,
+        email_subject_template: defaultTpl?.subject ?? '',
+        email_body_template: defaultTpl?.body ?? '',
+      })
     }
-  }, [customTemplates, scheduleSave])
+  }, [customTemplates, onCampaignUpdate, subject, body, savedSubject, savedBody])
 
-  // ── Template CRUD ──
+  // ── Save & Discard changes ──
+  const handleSaveChanges = useCallback(async () => {
+    try {
+      if (templateType.startsWith('custom:')) {
+        const tplId = templateType.replace('custom:', '')
+        const res = await fetch(`/api/templates/${encodeURIComponent(tplId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject_template: subject, body_template: body }),
+        })
+        if (!res.ok) throw new Error('Failed to update template')
+        await refetchTemplates()
+      }
+
+      await onCampaignUpdate({
+        email_subject_template: subject,
+        email_body_template: body,
+      })
+
+      toast.success('Changes saved successfully')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save changes')
+    }
+  }, [templateType, subject, body, refetchTemplates, onCampaignUpdate])
+
+  const handleDiscardChanges = useCallback(() => {
+    setSubject(savedSubject)
+    setBody(savedBody)
+    toast.success('Changes discarded')
+  }, [savedSubject, savedBody])
+
+  // ── Template Creation ──
   const handleCreateTemplate = useCallback(async () => {
     const name = newTemplateName.trim()
     if (!name) return
@@ -246,49 +342,21 @@ export function EmailTemplateManager({
       const created = await res.json()
       toast.success(`Template "${name}" created`)
       setNewTemplateName('')
+      setShowCreateDialog(false)
       await refetchTemplates()
+
       // Auto-select new template
+      await onCampaignUpdate({
+        email_template_id: created.id,
+        email_template: null,
+        email_subject_template: subject,
+        email_body_template: body,
+      })
       setTemplateType(`custom:${created.id}`)
-      scheduleSave({ email_template_id: created.id, email_template: null })
     } catch {
       toast.error('Failed to create template')
     }
-  }, [newTemplateName, projectId, subject, body, refetchTemplates, scheduleSave])
-
-  const handleDeleteTemplate = useCallback(async (tplId: string) => {
-    const tpl = customTemplates.find((t) => t.id === tplId)
-    try {
-      const res = await fetch(`/api/templates/${encodeURIComponent(tplId)}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete')
-      toast.success(`Template "${tpl?.name}" deleted`)
-      if (templateType === `custom:${tplId}`) {
-        setTemplateType('outreach')
-        scheduleSave({ email_template: 'outreach', email_template_id: null })
-      }
-      await refetchTemplates()
-    } catch {
-      toast.error('Failed to delete template')
-    }
-  }, [customTemplates, templateType, refetchTemplates, scheduleSave])
-
-  const handleRenameTemplate = useCallback(async (tplId: string) => {
-    const name = editingName.trim()
-    if (!name) return
-    try {
-      const res = await fetch(`/api/templates/${encodeURIComponent(tplId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      })
-      if (!res.ok) throw new Error('Failed to rename')
-      toast.success('Template renamed')
-      setEditingTemplateId(null)
-      setEditingName('')
-      await refetchTemplates()
-    } catch {
-      toast.error('Failed to rename template')
-    }
-  }, [editingName, refetchTemplates])
+  }, [newTemplateName, projectId, subject, body, refetchTemplates, onCampaignUpdate])
 
   // ── Preview ──
   const { data: firstDealId } = useQuery<string | null>({
@@ -314,9 +382,9 @@ export function EmailTemplateManager({
   })
 
   const { data: campaignDeals = [] } = useQuery<{ id: string; deal_name: string | null }[]>({
-    queryKey: ['deals', { campaign_id: campaign.id, project_id: projectId, select: 'minimal', limit: 500 }],
+    queryKey: ['deals', { campaign_id: campaign.id, project_id: projectId, select: 'minimal', limit: 5 }],
     queryFn: async () => {
-      const p = new URLSearchParams({ campaign_id: campaign.id, project_id: projectId, limit: '500', offset: '0' })
+      const p = new URLSearchParams({ campaign_id: campaign.id, project_id: projectId, limit: '5', offset: '0' })
       const res = await fetch(`/api/deals?${p.toString()}`)
       if (!res.ok) return []
       const json = await res.json()
@@ -475,39 +543,59 @@ export function EmailTemplateManager({
       <div className="flex items-center justify-between pb-4 border-b border-[var(--color-surface-2)] mb-4 flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <Mail className="h-4 w-4 text-[var(--color-text-tertiary)]" />
+          <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Template:</span>
           <Select value={templateType} onValueChange={handleTypeChange}>
-            <SelectTrigger className="h-8 text-xs min-w-[190px] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-md)] text-[var(--color-text-primary)] font-medium">
-              <SelectValue />
+            <SelectTrigger className="h-8 text-xs min-w-[210px] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-md)] text-[var(--color-text-primary)] font-medium">
+              <SelectValue placeholder="Select email template..." />
             </SelectTrigger>
             <SelectContent>
+              <div className="px-2 py-1.5 text-[9px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] select-none">
+                READY TEMPLATES
+              </div>
               {BUILTIN_TYPES.map((bt) => (
                 <SelectItem key={bt.value} value={bt.value}>{bt.label}</SelectItem>
               ))}
               {customTemplates.length > 0 && (
-                <div className="px-2 py-1.5 text-[9px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] select-none">
-                  Custom Templates
-                </div>
+                <>
+                  <div className="px-2 py-1.5 text-[9px] font-semibold text-[var(--color-text-tertiary)] uppercase tracking-[0.06em] select-none border-t border-[var(--color-surface-2)] mt-1.5 pt-1.5">
+                    CUSTOM TEMPLATES
+                  </div>
+                  {customTemplates.map((t) => (
+                    <SelectItem key={t.id} value={`custom:${t.id}`}>{t.name}</SelectItem>
+                  ))}
+                </>
               )}
-              {customTemplates.map((t) => (
-                <SelectItem key={t.id} value={`custom:${t.id}`}>{t.name}</SelectItem>
-              ))}
+              <SelectItem value="create_new" className="text-[var(--accent)] font-semibold border-t border-[var(--color-surface-2)] mt-1.5 pt-1.5 cursor-pointer">
+                + Create New Template...
+              </SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setShowTemplateDialog(!showTemplateDialog)}
-            className="h-8 text-xs text-[var(--color-text-secondary)] font-medium hover:bg-[var(--color-surface-1)]"
-          >
-            <Settings className="h-3.5 w-3.5 mr-1.5" />
-            Manage
-          </Button>
+
+          {isDirty && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-200">
+              <Button
+                size="sm"
+                onClick={handleSaveChanges}
+                className="h-8 text-xs bg-[var(--accent)] text-[var(--color-text-inverse)] hover:opacity-95 font-medium px-3"
+              >
+                Save Changes
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDiscardChanges}
+                className="h-8 text-xs border-[var(--color-surface-3)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-1)] font-medium px-3"
+              >
+                Discard
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
           {!gmailConnected && (
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-[var(--radius-md)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-xs text-[var(--color-warning-text)] font-medium animate-pulse">
-              <AlertTriangle className="h-3.5 w-3.5" />Connect Gmail Account to send
+              <AlertTriangle className="h-3.5 w-3.5" />Connect Gmail Account to Send
             </div>
           )}
           {gmailConnected && leadsCount === 0 && (
@@ -527,79 +615,6 @@ export function EmailTemplateManager({
         </div>
       </div>
 
-      {/* ── Template CRUD Dialog (inline panel) ── */}
-      {showTemplateDialog && (
-        <div className="mb-4 border border-[var(--color-surface-2)] rounded-[var(--radius-md)] bg-[var(--color-surface-1)] p-4 shadow-[var(--shadow-xs)] animate-dropdown-show">
-          <div className="text-xs font-semibold text-[var(--color-text-primary)] mb-3">
-            Manage Custom Templates
-          </div>
-
-          {/* Create new */}
-          <div className="flex gap-2 mb-3">
-            <Input
-              value={newTemplateName}
-              onChange={(e) => setNewTemplateName(e.target.value)}
-              placeholder="New template name..."
-              className="h-8 text-xs flex-1 bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-sm)]"
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTemplate() }}
-            />
-            <Button size="sm" onClick={handleCreateTemplate} disabled={!newTemplateName.trim()}
-              className="h-8 text-xs gap-1.5 bg-[var(--accent)] text-[var(--color-text-inverse)] hover:opacity-95">
-              <Plus className="h-3.5 w-3.5" />Create
-            </Button>
-          </div>
-
-          {/* Existing templates list */}
-          {customTemplates.length === 0 ? (
-            <div className="text-xs text-[var(--color-text-secondary)] italic">No custom templates yet. Edit your email below and click Create to save it as a template.</div>
-          ) : (
-            <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto pr-1">
-              {customTemplates.map((tpl) => (
-                <div key={tpl.id} className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)]">
-                  {editingTemplateId === tpl.id ? (
-                    <>
-                      <Input
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        className="h-7 text-xs flex-1 bg-[var(--color-surface-0)] border border-[var(--color-surface-3)]"
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleRenameTemplate(tpl.id) }}
-                        autoFocus
-                      />
-                      <Button size="sm" onClick={() => handleRenameTemplate(tpl.id)} className="h-7 text-[10px] px-2">
-                        Save
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingTemplateId(null); setEditingName('') }} className="h-7 text-[10px] px-2 text-[var(--color-text-secondary)]">
-                        Cancel
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1 text-xs text-[var(--color-text-primary)] font-medium truncate">{tpl.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => { setEditingTemplateId(tpl.id); setEditingName(tpl.name) }}
-                        className="text-[var(--color-text-tertiary)] hover:text-[var(--accent)] cursor-pointer p-1 rounded transition-colors"
-                        title="Rename"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTemplate(tpl.id)}
-                        className="text-[var(--color-text-tertiary)] hover:text-[var(--color-danger-solid)] cursor-pointer p-1 rounded transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ── Main Workspace split screen ── */}
       <div className="flex-1 min-h-0 flex gap-6">
         {/* Left pane: Editor (60%) */}
@@ -610,10 +625,9 @@ export function EmailTemplateManager({
               mode="template-edit"
               subjectTemplate={subject}
               bodyTemplate={body}
-              onSubjectChange={(v) => { setSubject(v); scheduleSave({ email_subject_template: v }) }}
-              onBodyChange={(v) => { setBody(v); scheduleSave({ email_body_template: v }) }}
+              onSubjectChange={setSubject}
+              onBodyChange={setBody}
               mergeFields={mergeFields}
-              availableTemplates={composerTemplates}
               minHeight={320}
               placeholder="Dear {owner_name},&#10;&#10;I am reaching out regarding {property_address}..."
               hideMergeFields={true}
@@ -637,22 +651,20 @@ export function EmailTemplateManager({
             <button
               type="button"
               onClick={() => setHelperTab('preview')}
-              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center border-r border-[var(--color-surface-2)] relative z-10 transition-colors duration-200 ${
-                helperTab === 'preview'
-                  ? 'text-[var(--accent)]'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
-              }`}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center border-r border-[var(--color-surface-2)] relative z-10 transition-colors duration-200 ${helperTab === 'preview'
+                ? 'text-[var(--accent)]'
+                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
+                }`}
             >
               Live Preview
             </button>
             <button
               type="button"
               onClick={() => setHelperTab('merge_fields')}
-              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center relative z-10 transition-colors duration-200 ${
-                helperTab === 'merge_fields'
-                  ? 'text-[var(--accent)]'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
-              }`}
+              className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-[0.06em] text-center relative z-10 transition-colors duration-200 ${helperTab === 'merge_fields'
+                ? 'text-[var(--accent)]'
+                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]/50'
+                }`}
             >
               Merge Fields
             </button>
@@ -664,7 +676,7 @@ export function EmailTemplateManager({
               <div className="flex-1 flex flex-col h-full animate-tab-entrance">
                 <div className="flex items-center gap-2 mb-3 flex-shrink-0">
                   <span className="text-xs text-[var(--color-text-tertiary)] font-medium">Preview with deal:</span>
-                  <Select value={previewDealId} onValueChange={setPreviewDealId}>
+                  <Select value={effectivePreviewDealId} onValueChange={setPreviewDealId}>
                     <SelectTrigger className="h-7 text-xs flex-1 max-w-[200px] bg-[var(--color-surface-0)] border border-[var(--color-surface-2)]">
                       <SelectValue placeholder="Select a deal..." />
                     </SelectTrigger>
@@ -895,6 +907,47 @@ export function EmailTemplateManager({
               disabled={!sendComplete}
             >
               {sendComplete ? 'Close' : 'Sending…'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Create Template Dialog ── */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Template</DialogTitle>
+            <DialogDescription>
+              Enter a name for your new email template. The current subject and body in the editor will be saved as the template content.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label htmlFor="template-name" className="text-xs font-semibold text-[var(--color-text-secondary)]">Template Name</label>
+              <Input
+                id="template-name"
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                placeholder="e.g., Follow-up outreach..."
+                className="h-9 text-xs bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] rounded-[var(--radius-md)]"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTemplate() }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowCreateDialog(false); setNewTemplateName('') }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateTemplate}
+              disabled={!newTemplateName.trim()}
+              className="bg-[var(--accent)] text-[var(--color-text-inverse)] hover:opacity-95"
+            >
+              Create Template
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,7 +7,7 @@ import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { InlineDropdownEditor } from '@/components/shared/InlineDropdownEditor'
 import { DealScoreBadge } from './DealScoreBadge'
 import { Badge } from '@/components/ui/badge'
-import { formatDate } from '@/lib/utils'
+import { formatDate, REQUIRED_DEAL_FIELDS } from '@/lib/utils'
 import { DEAL_STAGES } from '@/lib/stage-machine'
 
 interface UnderwritingRow {
@@ -56,6 +56,7 @@ export interface Deal {
   created_at: string
   last_email_sent_on: string | null
   response_type: string | null
+  outreach_emails: string[] | null
   campaigns: { name: string; market: string } | null
   portfolios?: { id: string; name: string } | null
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
@@ -208,6 +209,7 @@ export function DealTable({
           minWidth: 120,
           sortable: true,
           editable: true,
+          isRequired: REQUIRED_DEAL_FIELDS.has(fd.key),
           accessor: (r) => getFieldValue(r, fd.key),
           render: (r) => {
             const val = getFieldValue(r, fd.key)
@@ -218,6 +220,29 @@ export function DealTable({
     }
 
     // ── Fixed system columns ──────────────────────────────────────
+
+    // Email Targets — stored as text[] on the deals table, populated during import
+    cols.push({
+      key: 'outreach_emails', header: 'Email Targets', minWidth: 160, sortable: false, editable: false, isRequired: true,
+      accessor: (r) => (r.outreach_emails ?? []).join(', '),
+      render: (r) => {
+        const emails = r.outreach_emails
+        if (!emails || emails.length === 0) {
+          return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+        }
+        const count = emails.length
+        const displayCount = Math.min(count, 2)
+        const shown = emails.slice(0, displayCount).join(', ')
+        const remainder = count > displayCount ? ` +${count - displayCount} more` : ''
+        return (
+          <span className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
+            {shown}
+            {remainder && <span style={{ color: 'var(--color-text-tertiary)' }}>{remainder}</span>}
+          </span>
+        )
+      },
+    })
+
     cols.push({
       key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable: true,
       accessor: (r) => r.stage,
@@ -390,9 +415,9 @@ export function DealTable({
     'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score',
   ])
   const fieldDefCount = fieldDefs?.filter(fd => fd.show_in_grid && !fixedSystemKeys.has(fd.key)).length ?? 0
-  const stageIdx = fieldDefCount
-  const portfolioIdx = fieldDefCount + 1
-  const responseTypeIdx = fieldDefCount + 4
+  const stageIdx = fieldDefCount + 1
+  const portfolioIdx = fieldDefCount + 2
+  const responseTypeIdx = fieldDefCount + 5
 
   const editComponents = useMemo(() => {
     const map: Record<number, (props: { value: string; rowIndex: number; onChange: (val: string) => void; onCommit: (value?: string) => void; onDiscard: () => void; cellEl?: HTMLElement | null }) => React.ReactNode> = {}

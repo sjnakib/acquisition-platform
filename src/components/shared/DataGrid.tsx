@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Asterisk, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
@@ -28,6 +28,8 @@ export interface ColumnDef<T> {
   editable?: boolean
   /** Custom save handler. When provided, called instead of the default PATCH to /api/deals/{id}/fields. */
   onSave?: (row: T, value: string) => Promise<void>
+  /** When true, a required-field indicator is shown next to the column header. */
+  isRequired?: boolean
 }
 
 interface DataGridProps<T> {
@@ -1846,7 +1848,22 @@ export function DataGrid<T>({
                   role="columnheader"
                   id={`grid-header-c${orderedColumns.indexOf(col)}`}
                 >
-                  {col.headerRender ? col.headerRender(col) : <span className="truncate">{col.header}</span>}
+                  {col.headerRender ? col.headerRender(col) : (
+                    <span className="flex items-center gap-0.5 min-w-0">
+                      <span className="truncate">{col.header}</span>
+                      {col.isRequired && (
+                        <Tooltip content="Required field" position="top">
+                          <Asterisk
+                            className="flex-shrink-0"
+                            size={11}
+                            strokeWidth={2.5}
+                            style={{ color: 'var(--accent)' }}
+                            aria-hidden="true"
+                          />
+                        </Tooltip>
+                      )}
+                    </span>
+                  )}
                   {sortIcon(col)}
                   <div
                     className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-20 transition-opacity"
