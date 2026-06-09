@@ -16,7 +16,6 @@ import { UnderwritingSummary } from '@/components/deals/UnderwritingSummary'
 import { LOIDetail } from '@/components/deals/LOIDetail'
 import { CallBriefTab } from '@/components/deals/CallBriefTab'
 import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
-import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -39,16 +38,7 @@ const TABS = [
   { key: 'calls', label: 'Follow-up Calls' },
 ]
 
-const STAGE_BADGE_VARIANT: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
-  lead: 'neutral',
-  outreach: 'info',
-  response: 'info',
-  underwriting: 'warning',
-  loi: 'accent',
-  closed: 'success',
-  failed: 'neutral',
-  archived: 'neutral',
-}
+// Stage badge helper variants removed (badge deleted)
 
 export default function DealDetailPage({ params }: { params: Promise<{ id: string; dealId: string }> }) {
   const { id: projectId, dealId } = use(params)
@@ -138,30 +128,45 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
       />
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-6 mt-3">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              {dealName}
-            </h1>
-            <Badge variant={STAGE_BADGE_VARIANT[deal.stage] ?? 'neutral'} size="sm">
-              {deal.stage.replace(/_/g, ' ')}
-            </Badge>
-          </div>
-          {unitCount ? (
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {unitCount} units
-              {deal.score ? ` · Score: ${deal.score.replace(/_/g, ' ')}` : ''}
-            </p>
-          ) : null}
+      <div className="flex items-center justify-between mb-4 mt-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-semibold leading-none" style={{ color: 'var(--color-text-primary)' }}>
+            {dealName}
+          </h1>
+          {unitCount && (
+            <>
+              <span style={{ color: 'var(--color-text-tertiary)' }} className="text-xs select-none">
+                •
+              </span>
+              <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                {unitCount} units
+              </span>
+            </>
+          )}
+          {deal.score && (
+            <>
+              <span style={{ color: 'var(--color-text-tertiary)' }} className="text-xs select-none">
+                •
+              </span>
+              <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                Score: {deal.score.replace(/_/g, ' ')}
+              </span>
+            </>
+          )}
         </div>
-        <div className="mt-1">
-          <DealStageBar stage={deal.stage} />
+        <div>
+          <DealStageBar
+            dealId={dealId}
+            stage={deal.stage}
+            onStageChange={(newStage) => {
+              setDeal((prev) => (prev ? { ...prev, stage: newStage } : null))
+            }}
+          />
         </div>
       </div>
 
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="mb-6">
+        <TabsList className="mb-4">
           {TABS.map((tab) => (
             <TabsTrigger key={tab.key} value={tab.key}>
               {tab.label}

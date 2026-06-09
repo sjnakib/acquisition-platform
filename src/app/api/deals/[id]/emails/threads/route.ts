@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getThread, modifyThreadLabels, trashThread, untrashThread } from '@/lib/google/gmail'
+import { getThread, modifyThreadLabels, trashThread, untrashThread, trashMessage, untrashMessage } from '@/lib/google/gmail'
 
 export async function GET(req: NextRequest) {
   try {
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
         date: headers['date'] ?? '',
         labelIds: msg.labelIds ?? [],
         body: decodeBody(msg.payload),
+        attachments: extractAttachments(msg.payload),
       }
     })
 
@@ -64,6 +65,40 @@ export async function GET(req: NextRequest) {
     }
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+interface GmailAttachment {
+  attachmentId: string
+  filename: string
+  mimeType: string
+  size: number
+}
+
+function extractAttachments(payload: unknown): GmailAttachment[] {
+  if (!payload || typeof payload !== 'object') return []
+  const p = payload as Record<string, unknown>
+  const attachments: GmailAttachment[] = []
+
+  if (p.filename && typeof p.filename === 'string' && p.filename.length > 0) {
+    const body = p.body as Record<string, unknown> | undefined
+    if (body && body.attachmentId && typeof body.attachmentId === 'string') {
+      attachments.push({
+        attachmentId: body.attachmentId,
+        filename: p.filename,
+        mimeType: (p.mimeType as string) ?? 'application/octet-stream',
+        size: (body.size as number) ?? 0,
+      })
+    }
+  }
+
+  const parts = p.parts as Array<Record<string, unknown>> | undefined
+  if (parts && Array.isArray(parts)) {
+    for (const part of parts) {
+      attachments.push(...extractAttachments(part))
+    }
+  }
+
+  return attachments
 }
 
 function decodeBody(payload: unknown): string {
@@ -115,7 +150,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     const body = await req.json()
-    const { threadId, threadIds, action, snoozedUntil } = body
+    const { threadId, threadIds, action, snoozedUntil, messageId } = body
 
     const ids: string[] = threadIds ?? (threadId ? [threadId] : [])
     if (ids.length === 0) return NextResponse.json({ error: 'threadId or threadIds required' }, { status: 400 })
@@ -189,6 +224,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           // Delete from database
           await supabase.from('snoozed_threads').delete().eq('thread_id', id)
           break
+        case 'deleteMessage':
+          if (!messageId) {
+            return NextResponse.json({ error: 'messageId required for deleteMessage' }, { status: 400 })
+          }
+          await trashMessage(connectionId, messageId)
+          break
+        case 'untrashMessage':
+          if (!messageId) {
+            return NextResponse.json({ error: 'messageId required for untrashMessage' }, { status: 400 })
+          }
+          await untrashMessage(connectionId, messageId)
+          break
         default:
           return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
       }
@@ -200,4 +247,3 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 })
   }
 }
-

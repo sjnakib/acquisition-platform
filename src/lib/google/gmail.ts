@@ -222,5 +222,31 @@ export async function untrashThread(
   return res.data
 }
 
+export async function trashMessage(
+  connectionId: string,
+  messageId: string
+): Promise<unknown> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.messages.trash({
+    userId: 'me',
+    id: messageId,
+  })
+  return res.data
+}
+
+export async function untrashMessage(
+  connectionId: string,
+  messageId: string
+): Promise<unknown> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.messages.untrash({
+    userId: 'me',
+    id: messageId,
+  })
+  return res.data
+}
+
 
 

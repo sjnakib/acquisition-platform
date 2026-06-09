@@ -5,8 +5,11 @@ import { Send, Loader2, X, FileText, Paperclip, ChevronDown, Trash2 } from 'luci
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RichTextEditor, type RichTextEditorHandle } from '@/components/deals/RichTextEditor'
-import { RecipientChipsInput } from '@/components/deals/RecipientChipsInput'
+import { RecipientChipsInput, isValidEmail, parseRecipient } from '@/components/deals/RecipientChipsInput'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 
 // Helper to parse comma-separated emails, respecting quotes and brackets
 function parseEmailList(str: string): string[] {
@@ -43,6 +46,7 @@ export interface EmailComposerHandle {
   insertHTML: (html: string) => void
   clear: () => void
   getDraftData: () => { to: string; cc: string; bcc: string; subject: string; htmlBody: string; contactId: string | null }
+  focusBodyAtStart: () => void
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -134,6 +138,19 @@ const fieldStyle = {
   fontFamily: 'var(--font-jetbrains-mono)', paddingLeft: 10,
 } as const
 
+interface PendingAdd {
+  field: 'to' | 'cc' | 'bcc'
+  emailStr: string
+  emailOnly: string
+  nextEmails: string[]
+}
+
+interface PendingSend {
+  type: 'send' | 'schedule'
+  scheduledDate?: Date
+  untrackedEmails: string[]
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
@@ -181,6 +198,137 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
     const [showCustomPicker, setShowCustomPicker] = useState(false)
     const [customDate, setCustomDate] = useState('')
 
+    // Tracked emails warning state
+    const [trackedEmails, setTrackedEmails] = useState<Set<string>>(new Set())
+    const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
+    const [pendingSend, setPendingSend] = useState<PendingSend | null>(null)
+    const [addingContact, setAddingContact] = useState(false)
+
+    // Load tracked contacts
+    const fetchTrackedEmails = useCallback(async () => {
+      if (!dealId || mode !== 'compose') {
+        setTrackedEmails(new Set())
+        return
+      }
+      try {
+        const res = await fetch(`/api/deals/${dealId}/contacts?all=true`)
+        if (res.ok) {
+          const contacts = await res.json()
+          const emails = new Set<string>()
+          for (const c of contacts) {
+            if (c.email) {
+              for (const e of c.email) {
+                if (e) emails.add(e.trim().toLowerCase())
+              }
+            }
+          }
+          setTrackedEmails(emails)
+        }
+      } catch (err) {
+        console.error('Failed to load tracked contacts:', err)
+      }
+    }, [dealId, mode])
+
+    useEffect(() => {
+      fetchTrackedEmails()
+    }, [fetchTrackedEmails])
+
+    useEffect(() => {
+      window.addEventListener('contacts-updated', fetchTrackedEmails)
+      return () => window.removeEventListener('contacts-updated', fetchTrackedEmails)
+    }, [fetchTrackedEmails])
+
+    const isEmailTracked = useCallback((email: string) => {
+      return trackedEmails.has(email.trim().toLowerCase())
+    }, [trackedEmails])
+
+    const handleAddContact = useCallback(async (emailStr: string) => {
+      if (!dealId) return null
+      const { name, email } = parseRecipient(emailStr)
+      setAddingContact(true)
+      try {
+        const res = await fetch('/api/contacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deal_id: dealId,
+            name: name || email,
+            email: [email],
+          }),
+        })
+        if (res.ok) {
+          const contact = await res.json()
+          toast.success(`Contact tracked: ${email}`)
+          setTrackedEmails(prev => {
+            const next = new Set(prev)
+            next.add(email.trim().toLowerCase())
+            return next
+          })
+          window.dispatchEvent(new CustomEvent('contacts-updated'))
+          return contact
+        } else {
+          const json = await res.json()
+          toast.error(json.error ?? 'Failed to track contact')
+        }
+      } catch {
+        toast.error('Failed to track contact')
+      } finally {
+        setAddingContact(false)
+      }
+      return null
+    }, [dealId])
+
+    const handleEmailsChange = useCallback((field: 'to' | 'cc' | 'bcc', nextEmails: string[]) => {
+      const prevEmails = field === 'to' ? composeTo : field === 'cc' ? composeCc : composeBcc
+      const setter = field === 'to' ? setComposeTo : field === 'cc' ? setComposeCc : setComposeBcc
+
+      if (nextEmails.length <= prevEmails.length) {
+        setter(nextEmails)
+        return
+      }
+
+      const addedEmailStr = nextEmails.find(e => !prevEmails.includes(e))
+      if (!addedEmailStr) {
+        setter(nextEmails)
+        return
+      }
+
+      const { email } = parseRecipient(addedEmailStr)
+      const valid = isValidEmail(email)
+
+      if (valid && dealId && !isEmailTracked(email)) {
+        setPendingAdd({
+          field,
+          emailStr: addedEmailStr,
+          emailOnly: email,
+          nextEmails,
+        })
+      } else {
+        setter(nextEmails)
+      }
+    }, [composeTo, composeCc, composeBcc, dealId, isEmailTracked])
+
+    const handleConfirmAddTracked = async () => {
+      if (!pendingAdd) return
+      const contact = await handleAddContact(pendingAdd.emailStr)
+      if (contact) {
+        const setter = pendingAdd.field === 'to' ? setComposeTo : pendingAdd.field === 'cc' ? setComposeCc : setComposeBcc
+        setter(pendingAdd.nextEmails)
+        setPendingAdd(null)
+      }
+    }
+
+    const handleConfirmAddUntracked = () => {
+      if (!pendingAdd) return
+      const setter = pendingAdd.field === 'to' ? setComposeTo : pendingAdd.field === 'cc' ? setComposeCc : setComposeBcc
+      setter(pendingAdd.nextEmails)
+      setPendingAdd(null)
+    }
+
+    const handleCancelAdd = () => {
+      setPendingAdd(null)
+    }
+
     const editorRef = useRef<RichTextEditorHandle>(null)
     const subjectInputRef = useRef<HTMLInputElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -215,10 +363,13 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
       if (defaultBody) {
         editorRef.current?.clear()
         editorRef.current?.insertHTML(defaultBody)
+        if (isForward) {
+          editorRef.current?.focusAtStart()
+        }
       } else {
         editorRef.current?.clear()
       }
-    }, [defaultBody])
+    }, [defaultBody, isForward])
 
     useImperativeHandle(ref, () => ({
       insertHTML: (html: string) => editorRef.current?.insertHTML(html) ?? undefined,
@@ -231,6 +382,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
         htmlBody: composeBody,
         contactId: composeContactId,
       }),
+      focusBodyAtStart: () => editorRef.current?.focusAtStart() ?? undefined,
     }))
 
     const isCompose = mode === 'compose'
@@ -274,7 +426,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
       }
     }, [availableTemplates, isCompose, onSubjectChange, onBodyChange])
 
-    const handleSend = useCallback(async () => {
+    const proceedSend = useCallback(async () => {
       if (!onSend) return
       setSending(true)
       try {
@@ -298,7 +450,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
       }
     }, [onSend, composeTo, composeCc, composeBcc, composeSubject, composeBody, composeContactId])
 
-    const handleScheduleSend = useCallback(async (date: Date) => {
+    const proceedScheduleSend = useCallback(async (date: Date) => {
       if (!onSend) return
       setSending(true)
       try {
@@ -322,6 +474,116 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
         setSending(false)
       }
     }, [onSend, composeTo, composeCc, composeBcc, composeSubject, composeBody, composeContactId])
+
+    const getUntrackedRecipients = useCallback(() => {
+      if (!dealId) return []
+      const untracked: string[] = []
+      const allRecipients = [...composeTo, ...composeCc, ...composeBcc]
+      for (const rawEmail of allRecipients) {
+        const { email } = parseRecipient(rawEmail)
+        if (isValidEmail(email) && !isEmailTracked(email)) {
+          if (!untracked.includes(email)) {
+            untracked.push(email)
+          }
+        }
+      }
+      return untracked
+    }, [composeTo, composeCc, composeBcc, dealId, isEmailTracked])
+
+    const handleSend = useCallback(async () => {
+      if (!onSend) return
+      const untracked = getUntrackedRecipients()
+      if (untracked.length > 0) {
+        setPendingSend({
+          type: 'send',
+          untrackedEmails: untracked
+        })
+        return
+      }
+      await proceedSend()
+    }, [onSend, getUntrackedRecipients, proceedSend])
+
+    const handleScheduleSend = useCallback(async (date: Date) => {
+      if (!onSend) return
+      const untracked = getUntrackedRecipients()
+      if (untracked.length > 0) {
+        setPendingSend({
+          type: 'schedule',
+          scheduledDate: date,
+          untrackedEmails: untracked
+        })
+        return
+      }
+      await proceedScheduleSend(date)
+    }, [onSend, getUntrackedRecipients, proceedScheduleSend])
+
+    const handleConfirmSendTracked = useCallback(async () => {
+      if (!pendingSend) return
+      setAddingContact(true)
+      try {
+        const successEmails: string[] = []
+        for (const email of pendingSend.untrackedEmails) {
+          const res = await fetch('/api/contacts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              deal_id: dealId,
+              name: email,
+              email: [email],
+            }),
+          })
+          if (res.ok) {
+            successEmails.push(email)
+          } else {
+            const json = await res.json()
+            toast.error(json.error ?? `Failed to track contact: ${email}`)
+            setAddingContact(false)
+            return
+          }
+        }
+        
+        toast.success(successEmails.length === 1 ? 'Contact tracked' : `${successEmails.length} contacts tracked`)
+        setTrackedEmails(prev => {
+          const next = new Set(prev)
+          for (const e of successEmails) {
+            next.add(e.trim().toLowerCase())
+          }
+          return next
+        })
+        window.dispatchEvent(new CustomEvent('contacts-updated'))
+
+        const type = pendingSend.type
+        const date = pendingSend.scheduledDate
+        setPendingSend(null)
+
+        if (type === 'schedule' && date) {
+          await proceedScheduleSend(date)
+        } else {
+          await proceedSend()
+        }
+      } catch {
+        toast.error('Failed to track contacts')
+      } finally {
+        setAddingContact(false)
+      }
+    }, [pendingSend, dealId, proceedSend, proceedScheduleSend])
+
+    const handleConfirmSendUntracked = useCallback(async () => {
+      if (!pendingSend) return
+      const type = pendingSend.type
+      const date = pendingSend.scheduledDate
+      setPendingSend(null)
+
+      if (type === 'schedule' && date) {
+        await proceedScheduleSend(date)
+      } else {
+        await proceedSend()
+      }
+    }, [pendingSend, proceedSend, proceedScheduleSend])
+
+    const handleCancelSend = useCallback(() => {
+      setPendingSend(null)
+    }, [])
 
     const handleDragEnter = useCallback((e: React.DragEvent) => {
       e.preventDefault()
@@ -414,7 +676,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
             <RecipientChipsInput
               label="To"
               emails={composeTo}
-              onChange={setComposeTo}
+              onChange={(emails) => handleEmailsChange('to', emails)}
               dealId={dealId}
               placeholder="Recipients..."
               showCcLink={showCcToggle && !showCc}
@@ -427,7 +689,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
               <RecipientChipsInput
                 label="Cc"
                 emails={composeCc}
-                onChange={setComposeCc}
+                onChange={(emails) => handleEmailsChange('cc', emails)}
                 dealId={dealId}
                 placeholder="Cc..."
               />
@@ -437,7 +699,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
               <RecipientChipsInput
                 label="Bcc"
                 emails={composeBcc}
-                onChange={setComposeBcc}
+                onChange={(emails) => handleEmailsChange('bcc', emails)}
                 dealId={dealId}
                 placeholder="Bcc..."
               />
@@ -450,21 +712,15 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
           <div>
             {!isCompose && <div style={labelStyle}>Subject</div>}
             {isCompose ? (
-              <input
+              <Input
                 ref={subjectInputRef}
                 value={subjectValue}
                 onChange={(e) => handleSubjectChange(e.target.value)}
                 placeholder="Subject"
-                className="w-full px-1 py-2 text-[13px] bg-transparent border-b outline-none focus:outline-none transition-colors rounded-none"
+                className="w-full px-1 py-2 text-[13px] bg-transparent border-t-0 border-l-0 border-r-0 border-b rounded-none shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-[var(--color-accent)]"
                 style={{
                   borderColor: 'var(--color-surface-2)',
                   color: 'var(--color-text-primary)',
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-accent)'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-surface-2)'
                 }}
               />
             ) : (
@@ -556,7 +812,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
                 >
                   <FileText size={12} style={{ color: 'var(--color-text-secondary)' }} />
                   <span className="truncate max-w-[150px]">{att.filename}</span>
-                  <span style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>
+                  <span style={{ color: 'var(--color-text-tertiary)', fontSize: 10, fontFamily: 'var(--font-jetbrains-mono)' }}>
                     ({(att.size_bytes / 1024).toFixed(0)} KB)
                   </span>
                   {onRemoveAttachment && (
@@ -636,7 +892,7 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
                         style={{ color: 'var(--color-text-primary)' }}
                       >
                         <span>{preset.label}</span>
-                        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
                           {preset.timeLabel}
                         </span>
                       </button>
@@ -666,14 +922,15 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
                       <h4 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                         Schedule send
                       </h4>
-                      <input
+                      <Input
                         type="datetime-local"
                         value={customDate}
                         onChange={(e) => setCustomDate(e.target.value)}
-                        className="w-full px-3 py-2 text-[13px] rounded-lg border outline-none bg-[var(--color-surface-1)]"
+                        className="w-full px-3 py-2 text-[13px] rounded-lg border bg-[var(--color-surface-1)]"
                         style={{
                           borderColor: 'var(--color-surface-2)',
                           color: 'var(--color-text-primary)',
+                          fontFamily: 'var(--font-jetbrains-mono)',
                         }}
                       />
                       <div className="flex justify-end gap-2 mt-2">
@@ -752,6 +1009,86 @@ export const EmailComposer = forwardRef<EmailComposerHandle, Props>(
             </div>
           </div>
         )}
+
+        {/* Dialog for adding single untracked recipient */}
+        <Dialog open={!!pendingAdd} onOpenChange={(open) => !open && handleCancelAdd()}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle style={{ color: 'var(--color-text-primary)' }}>
+                Untracked Email Address
+              </DialogTitle>
+              <DialogDescription style={{ color: 'var(--color-text-secondary)' }}>
+                <span className="font-semibold text-[var(--color-text-primary)]">{pendingAdd?.emailOnly}</span> is not currently a tracked contact for this deal.
+                <br /><br />
+                You won&apos;t be able to see their replies in the inbox unless you add them to tracked emails. Would you like to add and track them?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 sm:gap-0 mt-4">
+              <Button variant="outline" onClick={handleCancelAdd} disabled={addingContact}>
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleConfirmAddUntracked}
+                disabled={addingContact}
+                style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-surface-3)' }}
+              >
+                Add Untracked
+              </Button>
+              <Button
+                onClick={handleConfirmAddTracked}
+                disabled={addingContact}
+                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+              >
+                {addingContact ? <LoadingSpinner size="sm" /> : 'Add & Track'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog for sending with untracked recipients */}
+        <Dialog open={!!pendingSend} onOpenChange={(open) => !open && handleCancelSend()}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle style={{ color: 'var(--color-text-primary)' }}>
+                Untracked Recipients Found
+              </DialogTitle>
+              <DialogDescription style={{ color: 'var(--color-text-secondary)' }} className="space-y-3">
+                <div>
+                  The following recipient(s) are not currently tracked contacts for this deal:
+                </div>
+                <ul className="list-disc pl-5 font-mono text-[12px] max-h-[100px] overflow-y-auto" style={{ color: 'var(--color-text-primary)' }}>
+                  {pendingSend?.untrackedEmails.map((email) => (
+                    <li key={email}>{email}</li>
+                  ))}
+                </ul>
+                <div>
+                  You won&apos;t be able to see their replies in the inbox unless you add them to tracked emails.
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 sm:gap-0 mt-4">
+              <Button variant="outline" onClick={handleCancelSend} disabled={addingContact}>
+                Cancel
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleConfirmSendUntracked}
+                disabled={addingContact}
+                style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-surface-3)' }}
+              >
+                Send Untracked
+              </Button>
+              <Button
+                onClick={handleConfirmSendTracked}
+                disabled={addingContact}
+                style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+              >
+                {addingContact ? <LoadingSpinner size="sm" /> : 'Add & Track'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }

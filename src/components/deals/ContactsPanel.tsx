@@ -50,6 +50,14 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
     return () => clearTimeout(id)
   }, [fetchContacts])
 
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchContacts()
+    }
+    window.addEventListener('contacts-updated', handleUpdate)
+    return () => window.removeEventListener('contacts-updated', handleUpdate)
+  }, [fetchContacts])
+
   const handleAdd = useCallback(async () => {
     const emails = addEmail
       .split(',')
@@ -77,6 +85,7 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
         setShowAdd(false)
         setAddEmail('')
         fetchContacts()
+        window.dispatchEvent(new CustomEvent('contacts-updated'))
       } else {
         const json = await res.json()
         toast.error(json.error ?? 'Failed to add')
@@ -94,6 +103,7 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
       if (res.ok) {
         toast.success('Email removed')
         fetchContacts()
+        window.dispatchEvent(new CustomEvent('contacts-updated'))
       } else {
         const json = await res.json()
         toast.error(json.error ?? 'Failed to remove')

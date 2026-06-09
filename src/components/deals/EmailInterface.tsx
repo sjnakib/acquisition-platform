@@ -2,24 +2,28 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import {
   Mail, Reply, RefreshCw, FolderKanban,
   ChevronDown, ChevronUp, ExternalLink, X,
   Minimize2, Maximize2, Edit, Trash2, Check,
-  Clock, Archive, MailOpen, Forward,
+  Clock, Archive, MailOpen, Forward, Paperclip,
+  MoreVertical,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ContactsPanel } from './ContactsPanel'
 import { EmailComposer, type ComposeSendData, type EmailComposerHandle, type AttachmentFile } from '@/components/shared/EmailComposer'
 import { formatEmailDate, formatEmailFullDate } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface Thread {
   threadId: string
   subject: string | null
+  snippet: string | null
   dealName: string | null
   dealId: string
   contactName: string | null
@@ -44,6 +48,12 @@ interface Message {
   date: string
   labelIds: string[]
   body: string
+  attachments?: {
+    attachmentId: string
+    filename: string
+    mimeType: string
+    size: number
+  }[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -78,6 +88,40 @@ function avatarColor(name: string | null): string {
 function isOwnMessage(from: string): boolean {
   const own = from.toLowerCase()
   return own.includes('acquire') || own.includes('noreply') || own.includes('no-reply')
+}
+
+function parseSenderName(from: string): string {
+  const match = from.match(/^"([^"]+)"|^(^[^<]+)\s*</)
+  if (match) {
+    return (match[1] || match[2] || '').trim()
+  }
+  if (from.includes('@')) {
+    return from.split('@')[0] || from
+  }
+  return from
+}
+
+function parseSenderEmail(from: string): string {
+  const match = from.match(/<([^>]+)>/)
+  if (match) {
+    return match[1] || from
+  }
+  return from
+}
+
+function renderAttachmentName(filename: string): React.ReactNode {
+  const idx = filename.lastIndexOf('.')
+  if (idx === -1) {
+    return <span className="truncate max-w-[120px]">{filename}</span>
+  }
+  const name = filename.slice(0, idx)
+  const ext = filename.slice(idx)
+  return (
+    <span className="inline-flex min-w-0 max-w-[180px]">
+      <span className="truncate flex-shrink min-w-[20px]">{name}</span>
+      <span className="flex-shrink-0">{ext}</span>
+    </span>
+  )
 }
 
 function getSnoozePresets() {
@@ -120,6 +164,13 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
   const [messages, setMessages] = useState<Message[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
+
+  // Active dropdown menu for individual messages
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null)
+
+  // Delete message confirmation
+  const [deleteMsgId, setDeleteMsgId] = useState<string | null>(null)
+  const [deleteMsgThreadId, setDeleteMsgThreadId] = useState<string | null>(null)
 
   // Compose popup & drafts
   const [composeOpen, setComposeOpen] = useState(false)
@@ -296,32 +347,6 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
     }
   }, [fetchThreads])
 
-  const openThread = useCallback(async (thread: Thread) => {
-    setSelectedThread(thread)
-    setMessagesLoading(true)
-    setExpandedMessages(new Set())
-    try {
-      const res = await fetch(`/api/deals/${dealId}/emails/threads?threadId=${thread.threadId}&dealId=${dealId}`)
-      if (res.ok) {
-        const data = await res.json()
-        const msgs: Message[] = data.messages ?? []
-        setMessages(msgs)
-        if (msgs.length > 0) {
-          setExpandedMessages(new Set([msgs[msgs.length - 1]!.id]))
-        }
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to load thread')
-        setMessages([])
-      }
-    } catch {
-      toast.error('Failed to load thread')
-      setMessages([])
-    } finally {
-      setMessagesLoading(false)
-    }
-  }, [dealId])
-
   const toggleMessageExpand = useCallback((msgId: string) => {
     setExpandedMessages((prev) => {
       const next = new Set(prev)
@@ -407,6 +432,12 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
         setThreads((prev) => prev.map((t) => threadIds.includes(t.threadId) ? { ...t, isUnread: false } : t))
         if (selectedThreadRef.current && threadIds.includes(selectedThreadRef.current.threadId)) {
           setSelectedThread((prev) => prev ? { ...prev, isUnread: false } : null)
+          setMessages((prev) =>
+            prev.map((msg) => ({
+              ...msg,
+              labelIds: msg.labelIds.filter((l) => l !== 'UNREAD')
+            }))
+          )
         }
         break
       case 'markUnread':
@@ -414,6 +445,17 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
         setThreads((prev) => prev.map((t) => threadIds.includes(t.threadId) ? { ...t, isUnread: true } : t))
         if (selectedThreadRef.current && threadIds.includes(selectedThreadRef.current.threadId)) {
           setSelectedThread((prev) => prev ? { ...prev, isUnread: true } : null)
+          setMessages((prev) => {
+            if (prev.length === 0) return prev
+            return prev.map((msg, idx) => {
+              if (idx === prev.length - 1) {
+                if (!msg.labelIds.includes('UNREAD')) {
+                  return { ...msg, labelIds: [...msg.labelIds, 'UNREAD'] }
+                }
+              }
+              return msg
+            })
+          })
         }
         break
       case 'unarchive':
@@ -467,6 +509,102 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
     }
   }, [executeAction])
 
+  const openThread = useCallback(async (thread: Thread) => {
+    setSelectedThread(thread)
+    setMessagesLoading(true)
+    setExpandedMessages(new Set())
+    if (thread.isUnread) {
+      handleThreadAction([thread.threadId], 'markRead')
+    }
+    try {
+      const res = await fetch(`/api/deals/${dealId}/emails/threads?threadId=${thread.threadId}&dealId=${dealId}`)
+      if (res.ok) {
+        const data = await res.json()
+        let msgs: Message[] = data.messages ?? []
+        if (thread.isUnread) {
+          msgs = msgs.map((m) => ({
+            ...m,
+            labelIds: m.labelIds.filter((l) => l !== 'UNREAD'),
+          }))
+        }
+        setMessages(msgs)
+        if (msgs.length > 0) {
+          setExpandedMessages(new Set([msgs[msgs.length - 1]!.id]))
+        }
+      } else {
+        const json = await res.json()
+        toast.error(json.error ?? 'Failed to load thread')
+        setMessages([])
+      }
+    } catch {
+      toast.error('Failed to load thread')
+      setMessages([])
+    } finally {
+      setMessagesLoading(false)
+    }
+  }, [dealId, handleThreadAction])
+
+  const handleUndoDeleteMessage = useCallback(async (
+    messageId: string,
+    threadId: string,
+    originalMessages: Message[]
+  ) => {
+    setMessages(originalMessages)
+    try {
+      const res = await fetch(`/api/deals/${dealId}/emails/threads`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId,
+          messageId,
+          action: 'untrashMessage',
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        toast.error(json.error ?? 'Failed to restore message')
+        setMessages((prev) => prev.filter((m) => m.id !== messageId))
+      } else {
+        toast.success('Message restored')
+      }
+    } catch {
+      toast.error('Failed to restore message')
+      setMessages((prev) => prev.filter((m) => m.id !== messageId))
+    }
+  }, [dealId])
+
+  const handleDeleteMessage = useCallback(async (messageId: string, threadId: string) => {
+    const originalMessages = [...messagesRef.current]
+    setMessages((prev) => prev.filter((m) => m.id !== messageId))
+
+    toast.success('Message deleted', {
+      action: {
+        label: 'Undo',
+        onClick: () => handleUndoDeleteMessage(messageId, threadId, originalMessages),
+      },
+    })
+
+    try {
+      const res = await fetch(`/api/deals/${dealId}/emails/threads`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId,
+          messageId,
+          action: 'deleteMessage',
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        toast.error(json.error ?? 'Failed to delete message')
+        setMessages(originalMessages)
+      }
+    } catch {
+      toast.error('Failed to delete message')
+      setMessages(originalMessages)
+    }
+  }, [dealId, handleUndoDeleteMessage])
+
   // ── Compose actions ──────────────────────────────────────────────────────
 
   const openCompose = useCallback(() => {
@@ -479,21 +617,6 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
     setAttachments([])
     emailComposerRef.current?.clear()
   }, [])
-
-  const startReply = useCallback(() => {
-    if (!selectedThread || messages.length === 0) return
-    const lastMsg = messages[messages.length - 1]!
-    setComposerDefaults({
-      to: lastMsg.from,
-      subject: selectedThread.subject ? `Re: ${selectedThread.subject}` : '',
-    })
-    setComposeMode('reply')
-    setComposeMinimized(false)
-    setComposeOpen(false) // inline reply composer by default
-    setDraftBody('')
-    setDraftCc('')
-    setAttachments([])
-  }, [selectedThread, messages])
 
   const popOutReply = useCallback(() => {
     if (!emailComposerRef.current) return
@@ -674,7 +797,7 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                   style={{ color: 'var(--color-text-primary)' }}
                 >
                   <span>{preset.label}</span>
-                  <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{preset.timeLabel}</span>
+                  <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{preset.timeLabel}</span>
                 </button>
               ))}
             </div>
@@ -684,14 +807,15 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
               <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                 Custom date & time
               </span>
-              <input
+              <Input
                 type="datetime-local"
                 value={customSnoozeDate}
                 onChange={(e) => setCustomSnoozeDate(e.target.value)}
-                className="w-full h-8 px-2 border rounded-md text-[12px] bg-[var(--color-surface-0)] outline-none"
+                className="w-full h-8 px-2 border rounded-md text-[12px] bg-[var(--color-surface-0)]"
                 style={{
                   borderColor: 'var(--color-surface-3)',
                   color: 'var(--color-text-primary)',
+                  fontFamily: 'var(--font-jetbrains-mono)',
                 }}
               />
               <Button
@@ -989,16 +1113,24 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                   </button>
 
                   {/* Content (click to open) */}
-                  <button
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openThread(thread)}
-                    className="flex-1 flex items-start gap-3 min-w-0 text-left bg-transparent border-0 p-0 cursor-pointer"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        openThread(thread)
+                      }
+                    }}
+                    className="flex-1 flex items-start gap-3 min-w-0 text-left cursor-pointer outline-none"
                   >
                     {/* Avatar */}
                     <div
                       className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
                       style={{
                         background: isUnread ? 'var(--color-accent)' : avatarColor(thread.contactName),
-                        color: '#fff',
+                        color: 'var(--color-text-inverse)',
                       }}
                     >
                       {initials(thread.contactName)}
@@ -1008,19 +1140,26 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                       {/* Name + date */}
                       <div className="flex items-center justify-between">
                         <span
-                          className={`text-[13px] truncate ${isUnread ? 'font-bold' : 'font-semibold'}`}
-                          style={{ color: 'var(--color-text-primary)' }}
+                          className={`text-[13px] truncate ${isUnread ? 'font-bold' : 'font-normal'}`}
+                          style={{ color: isUnread ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
                         >
                           {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
                         </span>
-                        <span className="text-[11px] flex-shrink-0 ml-2 group-hover:opacity-0 transition-opacity" style={{ color: 'var(--color-text-tertiary)' }}>
+                        <span className="text-[11px] flex-shrink-0 ml-2 group-hover:opacity-0 transition-opacity" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
                           {formatEmailDate(thread.lastDate)}
                         </span>
                       </div>
 
-                      {/* Subject */}
-                      <p className={`text-[12px] truncate mt-0.5 ${isUnread ? 'font-semibold' : ''}`} style={{ color: 'var(--color-text-secondary)' }}>
-                        {thread.subject ?? '(no subject)'}
+                      {/* Subject & Snippet */}
+                      <p className="text-[12px] truncate mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
+                        <span className={isUnread ? 'font-bold text-[var(--color-text-primary)]' : 'font-normal text-[var(--color-text-secondary)]'}>
+                          {thread.subject ?? '(no subject)'}
+                        </span>
+                        {thread.snippet && (
+                          <span className="font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+                            {' — '}{thread.snippet}
+                          </span>
+                        )}
                       </p>
 
                       {/* Meta row */}
@@ -1046,7 +1185,7 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                         )}
                       </div>
                     </div>
-                  </button>
+                  </div>
 
                   {/* Hover Actions Bar - replaces date container on hover */}
                   <div className="absolute right-3 top-3 hidden group-hover:flex items-center gap-1 bg-[var(--color-surface-1)] pl-2">
@@ -1150,10 +1289,6 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                   <Clock size={13} />
                   Snooze
                 </button>
-                <Button size="sm" variant="outline" onClick={startReply} className="h-7 text-[11px] gap-1">
-                  <Reply size={12} />
-                  Reply
-                </Button>
               </div>
 
               {/* Right side actions (Expand/Collapse, Open in Gmail) */}
@@ -1212,6 +1347,7 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
               {messages.map((msg, idx) => {
                 const isExpanded = expandedMessages.has(msg.id)
                 const own = isOwnMessage(msg.from)
+                const isMsgUnread = msg.labelIds?.includes('UNREAD') ?? false
                 return (
                   <div
                     key={msg.id}
@@ -1219,64 +1355,217 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                     style={{ borderColor: 'var(--color-surface-2)' }}
                   >
                     {/* Clickable header row */}
-                    <button
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => toggleMessageExpand(msg.id)}
-                      className="w-full text-left px-5 py-3 flex items-start gap-3 transition-colors hover:bg-[var(--color-surface-1)]"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          toggleMessageExpand(msg.id)
+                        }
+                      }}
+                      className="w-full text-left px-5 py-3 flex items-start gap-3 transition-colors hover:bg-[var(--color-surface-1)] cursor-pointer outline-none"
                     >
-                      <div
-                        className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
-                        style={{
-                          background: own ? 'var(--color-surface-3)' : avatarColor(msg.from),
-                          color: own ? 'var(--color-text-secondary)' : '#fff',
-                        }}
-                      >
-                        {initials(msg.from)}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-[13px] font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
-                              {own ? 'me' : msg.from}
+                      {!isExpanded ? (
+                        /* Collapsed State: single horizontal row */
+                        <div className="flex items-center justify-between w-full min-w-0">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div
+                              className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold"
+                              style={{
+                                background: own ? 'var(--color-surface-3)' : avatarColor(msg.from),
+                                color: own ? 'var(--color-text-secondary)' : 'var(--color-text-inverse)',
+                              }}
+                            >
+                              {initials(msg.from)}
+                            </div>
+                            <span
+                              className={`text-[13px] truncate w-[140px] flex-shrink-0 ${isMsgUnread ? 'font-bold' : 'font-medium'}`}
+                              style={{ color: isMsgUnread ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
+                            >
+                              {own ? 'me' : parseSenderName(msg.from)}
                             </span>
-                            {idx === messages.length - 1 && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
-                                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
-                                latest
-                              </span>
-                            )}
+                            <span
+                              className={`text-[12px] truncate flex-1 ${isMsgUnread ? 'font-semibold' : 'font-normal'}`}
+                              style={{ color: isMsgUnread ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}
+                            >
+                              {msg.snippet}
+                            </span>
                           </div>
-                          <span className="text-[11px] flex-shrink-0 ml-3" style={{ color: 'var(--color-text-tertiary)' }}>
-                            {formatEmailFullDate(msg.date)}
+                          <span className="text-[11px] flex-shrink-0 ml-3" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
+                            {formatEmailDate(msg.date)}
                           </span>
                         </div>
+                      ) : (
+                        /* Expanded State: richer layout */
+                        <div className="flex items-start gap-3 w-full min-w-0">
+                          <div
+                            className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold mt-0.5"
+                            style={{
+                              background: own ? 'var(--color-surface-3)' : avatarColor(msg.from),
+                              color: own ? 'var(--color-text-secondary)' : 'var(--color-text-inverse)',
+                            }}
+                          >
+                            {initials(msg.from)}
+                          </div>
 
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                            to {msg.to}
-                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`text-[13px] truncate ${isMsgUnread ? 'font-bold' : 'font-semibold'}`}
+                                  style={{ color: isMsgUnread ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
+                                >
+                                  {own ? 'me' : parseSenderName(msg.from)}
+                                </span>
+                                <span className="text-[11px] truncate hidden sm:inline" style={{ color: 'var(--color-text-tertiary)' }}>
+                                  &lt;{parseSenderEmail(msg.from)}&gt;
+                                </span>
+                                {idx === messages.length - 1 && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                                    style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
+                                    latest
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
+                                <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
+                                  {formatEmailFullDate(msg.date)}
+                                </span>
+
+                                {/* Quick reply icon button */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setComposerDefaults({
+                                      to: msg.from,
+                                      subject: selectedThread?.subject ? `Re: ${selectedThread.subject}` : '',
+                                    })
+                                    setComposeMode('reply')
+                                    setComposeMinimized(false)
+                                    setComposeOpen(false)
+                                    setDraftBody('')
+                                    setDraftCc('')
+                                    setAttachments([])
+                                  }}
+                                  className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors text-[var(--color-text-secondary)]"
+                                  title="Reply"
+                                >
+                                  <Reply size={13} />
+                                </button>
+
+                                {/* Three-dots actions menu */}
+                                <div className="relative">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)
+                                    }}
+                                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors text-[var(--color-text-secondary)]"
+                                    title="More options"
+                                  >
+                                    <MoreVertical size={13} />
+                                  </button>
+
+                                  {activeMenuMsgId === msg.id && (
+                                    <>
+                                      <div className="fixed inset-0 z-40" onClick={() => setActiveMenuMsgId(null)} />
+                                      <div
+                                        className="absolute right-0 mt-1 w-36 rounded-lg border shadow-lg z-50 py-1 animate-dropdown-show"
+                                        style={{
+                                          background: 'var(--color-surface-0)',
+                                          borderColor: 'var(--color-surface-2)',
+                                          boxShadow: 'var(--shadow-md)',
+                                        }}
+                                      >
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setActiveMenuMsgId(null)
+                                            setComposerDefaults({
+                                              to: msg.from,
+                                              subject: selectedThread?.subject ? `Re: ${selectedThread.subject}` : '',
+                                            })
+                                            setComposeMode('reply')
+                                            setComposeMinimized(false)
+                                            setComposeOpen(false)
+                                            setDraftBody('')
+                                            setDraftCc('')
+                                            setAttachments([])
+                                          }}
+                                          className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface-1)] transition-colors flex items-center gap-1.5"
+                                          style={{ color: 'var(--color-text-primary)' }}
+                                        >
+                                          <Reply size={12} />
+                                          Reply
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setActiveMenuMsgId(null)
+                                            const header = `
+                                              <br><br>---------- Forwarded message ---------<br>
+                                              From: <b>${escapeHtml(msg.from)}</b><br>
+                                              Date: ${msg.date}<br>
+                                              Subject: ${msg.subject || selectedThread?.subject || ''}<br>
+                                              To: ${escapeHtml(msg.to)}<br><br>
+                                            `
+                                            const forwardBody = header + msg.body
+
+                                            setComposerDefaults({
+                                              to: '',
+                                              subject: selectedThread?.subject ? `Fwd: ${selectedThread.subject}` : 'Fwd: (no subject)',
+                                            })
+                                            setComposeMode('forward')
+                                            setComposeMinimized(false)
+                                            setComposeOpen(false)
+                                            setDraftBody(forwardBody)
+                                            setDraftCc('')
+                                            setAttachments([])
+                                          }}
+                                          className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface-1)] transition-colors flex items-center gap-1.5"
+                                          style={{ color: 'var(--color-text-primary)' }}
+                                        >
+                                          <Forward size={12} />
+                                          Forward
+                                        </button>
+                                        <div className="border-t my-1" style={{ borderColor: 'var(--color-surface-2)' }} />
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setActiveMenuMsgId(null)
+                                            if (selectedThread) {
+                                              setDeleteMsgId(msg.id)
+                                              setDeleteMsgThreadId(selectedThread.threadId)
+                                            }
+                                          }}
+                                          className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface-1)] text-[var(--color-danger-text)] transition-colors flex items-center gap-1.5 font-medium"
+                                        >
+                                          <Trash2 size={12} />
+                                          Delete message
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                                to {msg.to}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-
-                        {/* Collapsed snippet */}
-                        {!isExpanded && (
-                          <p className="text-[12px] truncate mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                            {msg.snippet}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex-shrink-0 self-center ml-2">
-                        {isExpanded ? (
-                          <ChevronUp size={14} style={{ color: 'var(--color-text-tertiary)' }} />
-                        ) : (
-                          <ChevronDown size={14} style={{ color: 'var(--color-text-tertiary)' }} />
-                        )}
-                      </div>
-                    </button>
+                      )}
+                    </div>
 
                     {/* Expanded body */}
                     {isExpanded && (
-                      <div className="px-5 pb-4">
+                      <div className="px-5 pb-4 animate-tab-entrance">
                         <div
                           className="text-[13px] leading-relaxed max-w-none"
                           style={{
@@ -1295,76 +1584,81 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                           )}
                         </div>
 
-                        {/* Action buttons per message (Reply & Forward) */}
-                        <div className="flex items-center gap-2 mt-4" style={{ paddingLeft: 48 }}>
-                          {/* Reply pill */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setComposerDefaults({
-                                to: msg.from,
-                                subject: selectedThread?.subject ? `Re: ${selectedThread.subject}` : '',
-                              })
-                              setComposeMode('reply')
-                              setComposeMinimized(false)
-                              setComposeOpen(false) // Inline reply
-                              setDraftBody('')
-                              setDraftCc('')
-                              setAttachments([])
-                            }}
-                            className="h-8 px-4 rounded-full border text-[12px] font-medium transition-all inline-flex items-center gap-1.5 hover:bg-[var(--color-surface-2)] active:scale-98"
-                            style={{
-                              color: 'var(--color-text-secondary)',
-                              borderColor: 'var(--color-surface-3)',
-                              background: 'var(--color-surface-0)',
-                            }}
-                            title="Reply to this message"
-                          >
-                            <Reply size={13} />
-                            Reply
-                          </button>
-
-                          {/* Forward pill */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              const header = `
-                                <br><br>---------- Forwarded message ---------<br>
-                                From: <b>${escapeHtml(msg.from)}</b><br>
-                                Date: ${msg.date}<br>
-                                Subject: ${msg.subject || selectedThread?.subject || ''}<br>
-                                To: ${escapeHtml(msg.to)}<br><br>
-                              `
-                              const forwardBody = header + msg.body
-
-                              setComposerDefaults({
-                                to: '',
-                                subject: selectedThread?.subject ? `Fwd: ${selectedThread.subject}` : 'Fwd: (no subject)',
-                              })
-                              setComposeMode('forward')
-                              setComposeMinimized(false)
-                              setComposeOpen(false) // Inline reply/forward interface
-                              setDraftBody(forwardBody)
-                              setDraftCc('')
-                              setAttachments([])
-                            }}
-                            className="h-8 px-4 rounded-full border text-[12px] font-medium transition-all inline-flex items-center gap-1.5 hover:bg-[var(--color-surface-2)] active:scale-98"
-                            style={{
-                              color: 'var(--color-text-secondary)',
-                              borderColor: 'var(--color-surface-3)',
-                              background: 'var(--color-surface-0)',
-                            }}
-                            title="Forward this message"
-                          >
-                            <Forward size={13} />
-                            Forward
-                          </button>
-                        </div>
+                        {/* Received Attachments */}
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div className="mt-4 flex flex-wrap gap-2" style={{ paddingLeft: 48 }}>
+                            {msg.attachments.map((att) => (
+                              <a
+                                key={att.attachmentId}
+                                href={`/api/deals/${dealId}/emails/attachments?messageId=${msg.id}&attachmentId=${att.attachmentId}&filename=${encodeURIComponent(att.filename)}`}
+                                download={att.filename}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] bg-[var(--color-surface-0)] border-[var(--color-surface-3)] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-2)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-all cursor-pointer shadow-xs active:scale-98"
+                              >
+                                <Paperclip size={12} className="text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] flex-shrink-0" />
+                                {renderAttachmentName(att.filename)}
+                                <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
+                                  ({(att.size / 1024).toFixed(0)} KB)
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 )
               })}
+              {/* Bottom reply/forward pills (Gmail-style) at the end of the thread */}
+              {messages.length > 0 && composeMode === null && !composeOpen && (
+                <div className="px-5 py-6 flex items-center gap-3 border-t animate-tab-entrance" style={{ paddingLeft: 68, borderColor: 'var(--color-surface-2)' }}>
+                  <button
+                    onClick={() => {
+                      setComposerDefaults({
+                        to: messages[messages.length - 1]!.from,
+                        subject: selectedThread?.subject ? `Re: ${selectedThread.subject}` : '',
+                      })
+                      setComposeMode('reply')
+                      setComposeMinimized(false)
+                      setComposeOpen(false)
+                      setDraftBody('')
+                      setDraftCc('')
+                      setAttachments([])
+                    }}
+                    className="h-8 px-5 rounded-full border text-[12px] font-medium transition-all inline-flex items-center gap-1.5 bg-[var(--color-surface-0)] border-[var(--color-surface-3)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] active:scale-98 shadow-xs cursor-pointer"
+                  >
+                    <Reply size={13} />
+                    Reply
+                  </button>
+                  <button
+                    onClick={() => {
+                      const lastMsg = messages[messages.length - 1]!
+                      const header = `
+                        <br><br>---------- Forwarded message ---------<br>
+                        From: <b>${escapeHtml(lastMsg.from)}</b><br>
+                        Date: ${lastMsg.date}<br>
+                        Subject: ${lastMsg.subject || selectedThread?.subject || ''}<br>
+                        To: ${escapeHtml(lastMsg.to)}<br><br>
+                      `
+                      const forwardBody = header + lastMsg.body
+
+                      setComposerDefaults({
+                        to: '',
+                        subject: selectedThread?.subject ? `Fwd: ${selectedThread.subject}` : 'Fwd: (no subject)',
+                      })
+                      setComposeMode('forward')
+                      setComposeMinimized(false)
+                      setComposeOpen(false)
+                      setDraftBody(forwardBody)
+                      setDraftCc('')
+                      setAttachments([])
+                    }}
+                    className="h-8 px-5 rounded-full border text-[12px] font-medium transition-all inline-flex items-center gap-1.5 bg-[var(--color-surface-0)] border-[var(--color-surface-3)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] active:scale-98 shadow-xs cursor-pointer"
+                  >
+                    <Forward size={13} />
+                    Forward
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Bottom reply block (Inline Editor vs Button) */}
@@ -1481,12 +1775,48 @@ export function EmailInterface({ dealId, projectId }: { dealId: string; dealName
                   onAttach={handleAttach}
                   onRemoveAttachment={handleRemoveAttachment}
                   onDiscard={dismissCompose}
+                  isForward={composeMode === 'forward'}
                 />
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Delete message confirmation dialog */}
+      <Dialog open={deleteMsgId !== null} onOpenChange={(open) => { if (!open) setDeleteMsgId(null) }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--color-text-primary)' }}>Delete Message</DialogTitle>
+            <DialogDescription style={{ color: 'var(--color-text-secondary)' }}>
+              Are you sure you want to delete this message?
+              <br />
+              <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+                This action can be undone.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteMsgId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (deleteMsgId && deleteMsgThreadId) {
+                  const id = deleteMsgId
+                  const tid = deleteMsgThreadId
+                  setDeleteMsgId(null)
+                  setDeleteMsgThreadId(null)
+                  await handleDeleteMessage(id, tid)
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </div>
   )

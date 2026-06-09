@@ -22,12 +22,12 @@ interface RecipientChipsInputProps {
   onBccClick?: () => void
 }
 
-function isValidEmail(email: string): boolean {
+export function isValidEmail(email: string): boolean {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return re.test(email)
 }
 
-function parseRecipient(str: string): { name?: string; email: string } {
+export function parseRecipient(str: string): { name?: string; email: string } {
   const match = str.match(/^(?:"?([^"]*)"?\s)?(?:<(.+)>|([^\s@]+@[^\s@]+\.[^\s@]+))$/)
   if (match) {
     const name = match[1]?.trim()

@@ -7,6 +7,7 @@ import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { InlineDropdownEditor } from '@/components/shared/InlineDropdownEditor'
 import { DealScoreBadge } from './DealScoreBadge'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip } from '@/components/ui/tooltip'
 import { formatDate, REQUIRED_DEAL_FIELDS } from '@/lib/utils'
 import { DEAL_STAGES } from '@/lib/stage-machine'
 
@@ -79,7 +80,7 @@ interface DealTableProps {
   loading?: boolean
   fieldDefs?: FieldDef[]
   portfolios?: { id: string; name: string }[]
-  view?: 'leads' | 'deals'
+  view?: 'leads' | 'deals' | 'archived'
   selectedRowIds?: Set<string>
   onSelectionChange?: (ids: Set<string>) => void
   emptyAction?: { label: string; onClick: () => void }
@@ -197,6 +198,7 @@ export function DealTable({
 
     const fixedSystemKeys = new Set([
       'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score',
+      'outreach_emails',
     ])
 
     // ── Dynamic columns from field_definitions (left of Stage) ────
@@ -221,7 +223,8 @@ export function DealTable({
 
     // ── Fixed system columns ──────────────────────────────────────
 
-    // Email Targets — stored as text[] on the deals table, populated during import
+    // Email Targets — stored as text[] on the deals table, populated during import.
+    // Truncated to first email + "+N more" badge. Tooltip shows all addresses on hover.
     cols.push({
       key: 'outreach_emails', header: 'Email Targets', minWidth: 160, sortable: false, editable: false, isRequired: true,
       accessor: (r) => (r.outreach_emails ?? []).join(', '),
@@ -230,15 +233,36 @@ export function DealTable({
         if (!emails || emails.length === 0) {
           return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
         }
-        const count = emails.length
-        const displayCount = Math.min(count, 2)
-        const shown = emails.slice(0, displayCount).join(', ')
-        const remainder = count > displayCount ? ` +${count - displayCount} more` : ''
+        // Wrap entire cell content so hovering anywhere reveals the full list
         return (
-          <span className="text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
-            {shown}
-            {remainder && <span style={{ color: 'var(--color-text-tertiary)' }}>{remainder}</span>}
-          </span>
+          <Tooltip
+            position="bottom"
+            className="min-w-0 overflow-hidden"
+            content={
+              <div className="flex flex-col gap-0.5 max-w-[300px] whitespace-normal">
+                {emails.map((email) => (
+                  <span key={email} className="break-all">{email}</span>
+                ))}
+              </div>
+            }
+          >
+            {emails.length === 1 ? (
+              <span className="truncate text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>{emails[0]}</span>
+            ) : (
+              <div className="flex items-center gap-1 min-w-0 text-[12px]" style={{ color: 'var(--color-text-secondary)' }}>
+                <span className="truncate">{emails[0]}</span>
+                <span
+                  className="flex-shrink-0 cursor-default select-none rounded px-1 py-px text-[11px] font-medium"
+                  style={{
+                    background: 'var(--color-surface-2)',
+                    color: 'var(--color-text-tertiary)',
+                  }}
+                >
+                  +{emails.length - 1} more
+                </span>
+              </div>
+            )}
+          </Tooltip>
         )
       },
     })

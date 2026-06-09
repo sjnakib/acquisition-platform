@@ -6,6 +6,7 @@ import { Bold, Italic, Underline, Link, List, ListOrdered, Palette, Paperclip } 
 export interface RichTextEditorHandle {
   insertHTML: (html: string) => void
   clear: () => void
+  focusAtStart: () => void
 }
 
 interface RichTextEditorProps {
@@ -102,6 +103,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         if (!el) return
         el.innerHTML = ''
         onChange('')
+      },
+      focusAtStart: () => {
+        const el = editorRef.current
+        if (!el) return
+        el.focus()
+        const sel = window.getSelection()
+        if (sel) {
+          const range = document.createRange()
+          range.selectNodeContents(el)
+          range.collapse(true)
+          sel.removeAllRanges()
+          sel.addRange(range)
+        }
       },
     }))
 

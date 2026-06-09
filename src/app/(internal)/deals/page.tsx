@@ -21,6 +21,7 @@ const SEARCH_DEBOUNCE_MS = 300
 
 const LEADS_STAGES = ['lead', 'outreach', 'response']
 const DEALS_STAGES = ['underwriting', 'loi', 'closed', 'failed']
+const ARCHIVED_STAGES = ['archived']
 
 export default function DealsPage() {
   const router = useRouter()
@@ -38,7 +39,7 @@ export default function DealsPage() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false)
   const [gridKey, setGridKey] = useState(0)
-  const [view, setView] = useState<'leads' | 'deals'>('leads')
+  const [view, setView] = useState<'leads' | 'deals' | 'archived'>('leads')
 
   const debouncedSearchRef = useRef(search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -49,7 +50,7 @@ export default function DealsPage() {
     params.set('sort', sortKey)
     params.set('order', sortDir)
     if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current)
-    const stages = view === 'leads' ? LEADS_STAGES : DEALS_STAGES
+    const stages = view === 'leads' ? LEADS_STAGES : view === 'deals' ? DEALS_STAGES : ARCHIVED_STAGES
     for (const s of stages) params.append('stage', s)
     return `/api/deals?${params.toString()}`
   }, [sortKey, sortDir, view])
@@ -121,6 +122,16 @@ export default function DealsPage() {
       >
         Deals
       </button>
+      <button
+        onClick={() => { setView('archived'); setPage(1) }}
+        className="px-3 py-1 text-[12px] font-medium transition-colors"
+        style={{
+          background: view === 'archived' ? 'var(--color-accent)' : 'var(--color-surface-0)',
+          color: view === 'archived' ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+        }}
+      >
+        Archived
+      </button>
     </div>
   )
 
@@ -128,7 +139,7 @@ export default function DealsPage() {
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader
         title={pageHeadings.deals.title}
-        description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} ${view === 'leads' ? 'leads' : 'deals'} in pipeline`}
+        description={loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} ${view === 'leads' ? 'leads' : view === 'deals' ? 'deals' : 'archived deals'} in pipeline`}
         actions={viewToggle}
       />
 

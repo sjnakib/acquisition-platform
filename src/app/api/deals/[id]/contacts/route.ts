@@ -12,6 +12,7 @@ export async function GET(
 
     const { id: dealId } = await params
     const search = req.nextUrl.searchParams.get('search') ?? ''
+    const all = req.nextUrl.searchParams.get('all') === 'true'
 
     // Contacts are linked to deals via deal_id FK — query directly
     let query = supabase
@@ -20,7 +21,10 @@ export async function GET(
       .eq('deal_id', dealId)
       .order('is_primary', { ascending: false })
       .order('name', { ascending: true })
-      .limit(20)
+
+    if (!all) {
+      query = query.limit(20)
+    }
 
     if (search) {
       // Search by name (case-insensitive) — sufficient for compose autocomplete

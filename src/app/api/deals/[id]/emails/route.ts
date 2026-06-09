@@ -3,6 +3,30 @@ import { createClient } from '@/lib/supabase/server'
 import { getAuthedClientByConnection } from '@/lib/google/oauth'
 import { google } from 'googleapis'
 
+interface DealField {
+  value: string | null
+  field_definitions: {
+    key: string
+  } | null
+}
+
+interface OutreachRow {
+  id: string
+  deal_id: string
+  contact_id: string | null
+  status: string
+  sent_at: string | null
+  subject: string | null
+  gmail_thread_id: string | null
+  gmail_message_id: string | null
+  response_classification: string | null
+  responded_at: string | null
+  conversation_log: unknown
+  created_at: string
+  deals: { portfolio_id: string | null } | null
+  contacts: { name: string | null; email: string[] | null } | null
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: dealId } = await params
@@ -73,8 +97,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 
-    const dealFields = (deal.deal_fields as any) ?? []
-    const dealAddressField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    const dealFields = (deal.deal_fields as unknown as DealField[]) ?? []
+    const dealAddressField = dealFields.find((f) => f?.field_definitions?.key === 'address')
     const mainAddress = dealAddressField?.value ?? 'Property'
 
     const addressMap = new Map<string, string>()
@@ -92,8 +116,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
       for (const s of siblings ?? []) {
         dealIds.push(s.id)
-        const sFields = (s.deal_fields as any) ?? []
-        const addrField = sFields.find((f: any) => f?.field_definitions?.key === 'address')
+        const sFields = (s.deal_fields as unknown as DealField[]) ?? []
+        const addrField = sFields.find((f) => f?.field_definitions?.key === 'address')
         addressMap.set(s.id, addrField?.value ?? 'Property')
       }
     }
@@ -122,8 +146,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    const outreachMap = new Map<string, any>()
-    for (const e of emails ?? []) {
+    const outreachMap = new Map<string, OutreachRow>()
+    for (const e of (emails as unknown as OutreachRow[]) ?? []) {
       const tid = e.gmail_thread_id ?? e.id
       outreachMap.set(tid, e)
     }
@@ -137,11 +161,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       activeSnoozedRows?.map((r) => [r.thread_id, r.snoozed_until]) ?? []
     )
 
-    // Get tracked emails for this deal
+    // Get contacts for these deals
     const { data: contacts } = await supabase
       .from('contacts')
       .select('email')
-      .eq('deal_id', dealId)
+      .in('deal_id', dealIds)
 
     const trackedEmails = contacts?.flatMap((c) => c.email ?? []).filter((e) => e.length > 0) ?? []
 
@@ -160,6 +184,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const threads: Record<string, {
       threadId: string
       subject: string | null
+      snippet: string | null
       dealName: string | null
       dealId: string
       contactName: string | null
@@ -239,11 +264,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             // Resolve subject and date
             const subject = lastHeaders['subject'] ?? firstHeaders['subject'] ?? gt.snippet?.split('.')[0]?.slice(0, 120) ?? '(no subject)'
             const date = lastHeaders['date'] ?? firstHeaders['date'] ?? new Date().toISOString()
+            const snippet = lastMsg?.snippet ?? ''
 
             // Resolve contact info
             let contactEmail = trackedEmails[0]!
             let contactName = contactEmail
 
+            // 1. First, find which tracked email is involved in this thread
             for (const msg of messagesList) {
               const headers: Record<string, string> = {}
               for (const h of msg.payload?.headers ?? []) {
@@ -256,13 +283,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
               )
               if (foundEmail) {
                 contactEmail = foundEmail
-                if (fromVal.toLowerCase().includes(foundEmail.toLowerCase())) {
-                  const nameMatch = fromVal.match(/^"([^"]+)"|^(^[^<]+)\s*</)
-                  if (nameMatch) {
-                    contactName = (nameMatch[1] || nameMatch[2] || '').trim()
+                break
+              }
+            }
+
+            // 2. Now scan all messages to find a display name for this contact (from their incoming emails)
+            for (const msg of messagesList) {
+              const headers: Record<string, string> = {}
+              for (const h of msg.payload?.headers ?? []) {
+                if (h.name) headers[h.name.toLowerCase()] = h.value ?? ''
+              }
+              const fromVal = headers['from'] ?? ''
+              if (fromVal.toLowerCase().includes(contactEmail.toLowerCase())) {
+                const nameMatch = fromVal.match(/^"([^"]+)"|^(^[^<]+)\s*</)
+                if (nameMatch) {
+                  const parsedName = (nameMatch[1] || nameMatch[2] || '').trim()
+                  if (parsedName && !parsedName.includes('@')) {
+                    contactName = parsedName
+                    break // Found a valid display name from the contact's email, so stop!
                   }
                 }
-                break
               }
             }
 
@@ -277,9 +317,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             threads[tid] = {
               threadId: tid,
               subject,
+              snippet,
               dealName: outreach ? (addressMap.get(outreach.deal_id) ?? 'Property') : mainAddress,
               dealId: outreach ? outreach.deal_id : dealId,
-              contactName: outreach?.contacts?.name ?? contactName,
+              contactName: contactName,
               contactEmail: outreach?.contacts?.email?.[0] ?? contactEmail,
               status: outreach ? outreach.status : 'gmail',
               lastDate: date,

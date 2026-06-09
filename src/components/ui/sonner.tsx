@@ -23,16 +23,34 @@ const Toaster = ({ toastOptions, ...props }: ToasterProps) => {
         ...toastOptions,
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-          description: "group-[.toast]:text-muted-foreground",
-          actionButton:
-            "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground group-[.toast]:font-semibold group-[.toast]:text-[11px] group-[.toast]:rounded-md group-[.toast]:px-2.5 group-[.toast]:py-1 transition-colors hover:opacity-90",
-          cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+            "group toast group-[.toaster]:bg-[var(--color-surface-0)] group-[.toaster]:text-[var(--color-text-primary)] group-[.toaster]:border-[var(--color-surface-3)] group-[.toaster]:shadow-[var(--shadow-lg)] group-[.toaster]:rounded-[var(--radius-lg)] group-[.toaster]:font-dm-sans group-[.toaster]:text-[13px]",
+          description: "group-[.toast]:text-[var(--color-text-tertiary)]",
           ...toastOptions?.classNames,
         },
         style: {
           ...toastOptions?.style,
+        },
+        actionButtonStyle: {
+          background: "var(--color-accent)",
+          color: "var(--color-text-inverse)",
+          fontWeight: "600",
+          fontSize: "12px",
+          borderRadius: "var(--radius-md)",
+          padding: "6px 10px",
+          fontFamily: "var(--font-dm-sans)",
+          transition: "background-color 0.2s ease, opacity 0.2s ease",
+          ...toastOptions?.actionButtonStyle,
+        },
+        cancelButtonStyle: {
+          background: "var(--color-surface-2)",
+          color: "var(--color-text-secondary)",
+          fontWeight: "500",
+          fontSize: "12px",
+          borderRadius: "var(--radius-md)",
+          padding: "6px 10px",
+          fontFamily: "var(--font-dm-sans)",
+          transition: "background-color 0.2s ease, opacity 0.2s ease",
+          ...toastOptions?.cancelButtonStyle,
         },
       }}
       {...props}
