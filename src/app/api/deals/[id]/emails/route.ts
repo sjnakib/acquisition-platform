@@ -34,11 +34,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Check user role
-    const role = user.app_metadata?.role
-    if (role !== 'internal') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-    }
+    // No role check — both internal and client users can view email threads.
+    // Data scoping is handled by RLS on deals/contacts. PATCH endpoints
+    // (archive/snooze/delete) remain internal-only.
 
     const includePortfolio = req.nextUrl.searchParams.get('portfolio') === 'true'
     const folder = req.nextUrl.searchParams.get('folder') ?? 'inbox'

@@ -29,25 +29,29 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') ?? '100', 10) || 100, 5000)
     const offset = parseInt(searchParams.get('offset') ?? '0', 10) || 0
 
-    // Build the filtered query for paginated data
+    // Build the filtered query for paginated data.
+    // Clients get a lightweight select — only tables with client RLS policies
+    // (deal_fields, call_briefs). Internal gets full joins. This avoids PostgREST
+    // edge cases where joins to internal-only tables silently empty the result.
+    const role = user.app_metadata?.role
+    const selectFields = role === 'internal'
+      ? `*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)`
+      : `*, deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)`
+
     let query = supabase
       .from('deals')
-      .select(`
-        *,
-        campaigns(name, market),
-        portfolios(id, name),
-        deal_fields(value, field_definitions(key, label, data_type)),
-        underwriting(*),
-        loi_records(*),
-        document_checklist(*),
-        email_outreach(id, status, response_classification),
-        call_briefs(id, call_status, published)
-      `, { count: 'exact' })
+      .select(selectFields, { count: 'exact' })
       .range(offset, offset + limit - 1)
 
     const sortColumn = (sortKey && SORT_COLUMNS[sortKey]) ? SORT_COLUMNS[sortKey] : 'created_at'
     const ascending = sortOrder === 'asc'
     query = query.order(sortColumn, { ascending })
+
+    // Client users: enforce non-archived deals.
+    // Mirrors RLS policy (migration 0039) as defense-in-depth.
+    if (role === 'client') {
+      query = query.eq('is_archived', false)
+    }
 
     if (campaignId) query = query.eq('campaign_id', campaignId)
     if (projectId)  query = query.eq('project_id', projectId)

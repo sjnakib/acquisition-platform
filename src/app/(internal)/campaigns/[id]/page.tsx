@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Mail, Target, BarChart3 } from 'lucide-react'
+import { ArrowLeft, Mail, Target, BarChart3, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DealTable, type Deal } from '@/components/deals/DealTable'
@@ -11,6 +11,7 @@ import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { CampaignEmailView } from '@/components/campaigns/CampaignEmailView'
 import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
@@ -131,7 +132,7 @@ export default function CampaignDetailPage() {
   const id = params.id as string
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'details' | 'leads'>('leads')
+  const [tab, setTab] = useState<'details' | 'leads' | 'emails'>('leads')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
@@ -299,6 +300,14 @@ export default function CampaignDetailPage() {
         <button style={tabTriggerStyle(activeTab === 'leads')} onClick={() => setTab('leads')}>
           Leads{total > 0 ? ` (${total})` : ''}
         </button>
+        <button
+          style={tabTriggerStyle(activeTab === 'emails')}
+          onClick={() => setTab('emails')}
+          className="inline-flex items-center gap-1.5"
+        >
+          <Inbox size={13} />
+          Emails
+        </button>
       </div>
 
       {/* Tab content */}
@@ -351,7 +360,7 @@ export default function CampaignDetailPage() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'leads' ? (
           <div className="flex flex-col" style={{ height: '100%' }}>
             <div className="flex-1 min-h-0">
               <DealTable
@@ -390,6 +399,16 @@ export default function CampaignDetailPage() {
                 }}
               />
             </div>
+          </div>
+        ) : projectId ? (
+          <div style={{ height: '100%' }}>
+            <CampaignEmailView campaignId={id} projectId={projectId} />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-center" style={{ height: '100%' }}>
+            <Mail size={32} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, marginBottom: 16 }} />
+            <p className="text-[14px] font-medium" style={{ color: 'var(--color-text-primary)' }}>Campaign not linked to a project</p>
+            <p className="text-[12px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Associate this campaign with a project to enable email tracking.</p>
           </div>
         )}
       </div>

@@ -87,14 +87,17 @@ export async function sendEmail(
 }
 
 export async function getThread(connectionId: string, threadId: string) {
-  const auth = await getAuthedClientByConnection(connectionId)
+  // Admin client — API route already verified deal access via RLS.
+  // google_connections table has no client RLS policy, so we bypass it.
+  const auth = await getAuthedClientByConnection(connectionId, { useAdminClient: true })
   const gmail = google.gmail({ version: 'v1', auth })
   const res = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' })
   return res.data
 }
 
 export async function listThreads(connectionId: string, query: string, maxResults = 20) {
-  const auth = await getAuthedClientByConnection(connectionId)
+  // Admin client — API route already verified deal access via RLS.
+  const auth = await getAuthedClientByConnection(connectionId, { useAdminClient: true })
   const gmail = google.gmail({ version: 'v1', auth })
   const res = await gmail.users.threads.list({ userId: 'me', q: query, maxResults })
   return res.data.threads ?? []

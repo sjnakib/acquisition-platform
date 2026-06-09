@@ -137,7 +137,7 @@ export default function Sidebar({ navSections, profile, collapsed, onToggleColla
     <>
       {/* Desktop sidebar */}
       <aside
-        className="hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250"
+        className="hidden lg:flex flex-col fixed left-0 top-0 h-full border-r transition-all duration-250 z-40"
         style={{
           width: 'var(--sidebar-width)',
           background: s('bg'),

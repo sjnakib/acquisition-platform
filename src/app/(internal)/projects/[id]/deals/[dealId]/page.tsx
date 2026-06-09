@@ -9,7 +9,7 @@ import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealStageBar } from '@/components/deals/DealStageBar'
 import { DealFieldsEditor } from '@/components/deals/DealFieldsEditor'
-import { EmailInterface } from '@/components/deals/EmailInterface'
+import { DealEmailView } from '@/components/deals/DealEmailView'
 import { DocumentChecklist } from '@/components/deals/DocumentChecklist'
 import { EvaluateUnderwritability } from '@/components/deals/EvaluateUnderwritability'
 import { UnderwritingSummary } from '@/components/deals/UnderwritingSummary'
@@ -234,7 +234,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </TabsContent>
 
           <TabsContent value="emails" className="flex-1 min-h-0 flex flex-col">
-            <EmailInterface dealId={dealId} dealName={dealName} projectId={projectId} />
+            <DealEmailView dealId={dealId} dealName={dealName} projectId={projectId} />
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="documents">

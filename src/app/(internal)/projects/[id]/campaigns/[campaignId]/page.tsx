@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BarChart3, Mail } from 'lucide-react'
+import { BarChart3, Mail, Inbox } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
@@ -13,6 +13,7 @@ import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { CampaignEmailView } from '@/components/campaigns/CampaignEmailView'
 import { Button } from '@/components/ui/button'
 import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
@@ -34,7 +35,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const { projectName } = useProjectContext()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'details' | 'leads'>('leads')
+  const [tab, setTab] = useState<'details' | 'leads' | 'emails'>('leads')
   const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState(''); const [sortKey, setSortKey] = useState('created_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -180,7 +181,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
-      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => setTab(v as 'details' | 'leads')} className="flex-1 flex flex-col min-h-0">
+      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => setTab(v as 'details' | 'leads' | 'emails')} className="flex-1 flex flex-col min-h-0">
         <TabsList className="mb-4 flex-shrink-0">
           {total === 0 ? (
             <Tooltip content="Import leads first to enable mass emailing" position="bottom">
@@ -190,6 +191,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <TabsTrigger value="details" disabled={total === 0}>Mass Emailing</TabsTrigger>
           )}
           <TabsTrigger value="leads">Leads{total > 0 ? ` (${total})` : ''}</TabsTrigger>
+          <TabsTrigger value="emails">
+            <span className="flex items-center gap-1.5">
+              <Inbox size={13} />
+              Emails
+            </span>
+          </TabsTrigger>
         </TabsList>
 
         <div className="flex-1 min-h-0 flex flex-col">
@@ -334,6 +341,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   }}
                 />
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="emails" className="h-full">
+            <div className="h-full pb-4">
+              <CampaignEmailView campaignId={campaignId} projectId={projectId} />
             </div>
           </TabsContent>
         </div>

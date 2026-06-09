@@ -96,11 +96,15 @@ export default function ProjectLayout({
     }, 130)
   }
 
-  const navItems = internalNavItems(projectId)
-  const internalClientViewItems = [
+  const isClient = profileData?.role === 'client'
+
+  const navItems = isClient ? clientNavItems(projectId) : internalNavItems(projectId)
+
+  // Internal users see a "Client View" section to preview the sponsor perspective
+  const internalClientViewItems = !isClient ? [
     { label: 'Active Deals', icon: clientNavItems(projectId)[0]!.icon, href: `/projects/${projectId}/client-view/overview` },
     { label: 'Call Queue',   icon: clientNavItems(projectId)[1]!.icon, href: `/projects/${projectId}/client-view/calls` },
-  ]
+  ] : []
 
   const otherProjects = projects.filter((p) => p.id !== projectId)
 
@@ -123,7 +127,7 @@ export default function ProjectLayout({
               ...otherProjects.map((p) => ({
                 label: p.name,
                 icon: FolderKanban,
-                href: `/projects/${p.id}/dashboard`,
+                href: isClient ? `/projects/${p.id}/overview` : `/projects/${p.id}/dashboard`,
               })),
               ...(projects.length >= 4
                 ? [{ label: 'View all projects', icon: ArrowRight, href: '/projects' }]
@@ -132,7 +136,9 @@ export default function ProjectLayout({
           },
         ]
       : []),
-    { label: 'Client View', items: internalClientViewItems },
+    ...(internalClientViewItems.length > 0
+      ? [{ label: 'Client View', items: internalClientViewItems }]
+      : []),
   ]
 
   return (
@@ -143,7 +149,7 @@ export default function ProjectLayout({
           avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
           avatarUrl: profileData?.avatar_url,
           name: profileData?.full_name ?? 'User',
-          subtitle: profileData?.role ?? 'Team',
+          subtitle: isClient ? 'Sponsor' : (profileData?.role ?? 'Team'),
         }}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}

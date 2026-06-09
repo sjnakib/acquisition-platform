@@ -115,6 +115,8 @@ interface DealTableProps {
   onSortChange?: (key: string, dir: 'asc' | 'desc') => void
   columnOrderStorageKey?: string
   onRowClick?: (row: Deal) => void
+  /** When false, all columns are non-editable. Default true. */
+  editable?: boolean
 }
 
 const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
@@ -184,7 +186,7 @@ export function DealTable({
   selectionActions, selectionMenuActions, topToolbar, filters,
   activeFilterCount, onClearFilters, allRowsSelected, onSelectAll,
   serverSide, serverSortKey, serverSortDir, onSortChange,
-  columnOrderStorageKey, onRowClick,
+  columnOrderStorageKey, onRowClick, editable = true,
 }: DealTableProps) {
   const router = useRouter()
 
@@ -210,7 +212,7 @@ export function DealTable({
           header: fd.label,
           minWidth: 120,
           sortable: true,
-          editable: true,
+          editable,
           isRequired: REQUIRED_DEAL_FIELDS.has(fd.key),
           accessor: (r) => getFieldValue(r, fd.key),
           render: (r) => {
@@ -268,7 +270,7 @@ export function DealTable({
     })
 
     cols.push({
-      key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable: true,
+      key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable,
       accessor: (r) => r.stage,
       render: (r) => (
         <div className="flex items-center justify-between w-full gap-1">
@@ -290,7 +292,7 @@ export function DealTable({
     })
 
     cols.push({
-      key: 'portfolio', header: 'Portfolio', minWidth: 120, sortable: true, editable: true,
+      key: 'portfolio', header: 'Portfolio', minWidth: 120, sortable: true, editable,
       accessor: (r) => r.portfolios?.id ?? '',
       render: (r) => (
         <div className="flex items-center justify-between w-full gap-1">
@@ -332,7 +334,7 @@ export function DealTable({
     })
 
     cols.push({
-      key: 'response_type', header: 'Response Type', minWidth: 130, sortable: true, editable: true,
+      key: 'response_type', header: 'Response Type', minWidth: 130, sortable: true, editable,
       accessor: (r) => r.response_type ?? '',
       render: (r) => (
         <div className="flex items-center justify-between w-full gap-1">
