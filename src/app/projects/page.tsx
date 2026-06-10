@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -18,31 +19,37 @@ interface Project {
 }
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
-  const [role, setRole] = useState<'internal' | 'client' | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  useEffect(() => {
-    Promise.all([
-      supabase.auth.getUser(),
-      fetch('/api/projects').then((r) => r.json()),
-    ])
-      .then(([{ data: { user } }, data]) => {
-        const r = (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
-        setRole(r)
-        const list = (data ?? []) as Project[]
-        setProjects(list)
+  const { data: roleData, isLoading: loading } = useQuery({
+    queryKey: ['auth', 'role'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
+    },
+    staleTime: Infinity,
+  })
 
-        if (r === 'client' && list.length === 1) {
-          router.replace(`/projects/${list[0]!.id}/overview`)
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [router, supabase])
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects', 'all'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects')
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data ?? []) as Project[]
+    },
+    enabled: !!roleData,
+  })
+
+  const role = roleData ?? null
+
+  useEffect(() => {
+    if (role === 'client' && projects.length === 1) {
+      router.replace(`/projects/${projects[0]!.id}/overview`)
+    }
+  }, [role, projects, router])
 
   if (loading) {
     return (

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -18,55 +19,75 @@ interface DocItem {
 }
 
 export function DocumentChecklist({ dealId }: { dealId: string }) {
-  const [docs, setDocs] = useState<DocItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [newDocName, setNewDocName] = useState('')
 
-  useEffect(() => {
-    fetch(`/api/deals/${dealId}/documents`)
-      .then((r) => r.json())
-      .then((data) => setDocs(Array.isArray(data) ? data : []))
-      .catch(() => toast.error('Failed to load documents'))
-      .finally(() => setLoading(false))
-  }, [dealId])
+  const { data: docs = [], isLoading: loading } = useQuery<DocItem[]>({
+    queryKey: ['deal', dealId, 'documents'],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/documents`)
+      if (!res.ok) throw new Error('Failed to load documents')
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: !!dealId,
+  })
 
-  const toggleDoc = useCallback(async (doc: DocItem) => {
-    setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, collected: !doc.collected } : d))
-    try {
-      await fetch(`/api/deals/${dealId}/documents`, {
+  const toggleMutation = useMutation({
+    mutationFn: async (doc: DocItem) => {
+      const res = await fetch(`/api/deals/${dealId}/documents`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doc_id: doc.id, collected: !doc.collected }),
       })
-    } catch {
-      setDocs((prev) => prev.map((d) => d.id === doc.id ? { ...d, collected: doc.collected } : d))
+      if (!res.ok) throw new Error('Failed to update')
+    },
+    onMutate: async (doc) => {
+      await queryClient.cancelQueries({ queryKey: ['deal', dealId, 'documents'] })
+      const prev = queryClient.getQueryData<DocItem[]>(['deal', dealId, 'documents'])
+      queryClient.setQueryData<DocItem[]>(['deal', dealId, 'documents'], (old) =>
+        (old ?? []).map((d) => d.id === doc.id ? { ...d, collected: !doc.collected } : d)
+      )
+      return { prev }
+    },
+    onError: (_err, doc, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['deal', dealId, 'documents'], ctx.prev)
       toast.error('Failed to update document status')
-    }
-  }, [dealId])
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'documents'] })
+    },
+  })
 
-  const addDoc = useCallback(async () => {
-    if (!newDocName.trim()) return
-    const name = newDocName.trim()
-    setNewDocName('')
-    setAdding(false)
-    try {
+  const toggleDoc = useCallback((doc: DocItem) => {
+    toggleMutation.mutate(doc)
+  }, [toggleMutation])
+
+  const addMutation = useMutation({
+    mutationFn: async (name: string) => {
       const res = await fetch(`/api/deals/${dealId}/documents`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doc_name: name }),
       })
-      if (res.ok) {
-        const created = await res.json()
-        setDocs((prev) => [...prev, created])
-        toast.success(`Document checklist item "${name}" added`)
-      } else {
-        toast.error('Failed to add document')
-      }
-    } catch {
-      toast.error('Failed to add document')
-    }
-  }, [newDocName, dealId])
+      if (!res.ok) throw new Error('Failed to add document')
+      return res.json()
+    },
+    onSuccess: (_, name) => {
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'documents'] })
+      toast.success(`Document checklist item "${name}" added`)
+    },
+    onError: () => toast.error('Failed to add document'),
+  })
+
+  const addDoc = useCallback(() => {
+    if (!newDocName.trim()) return
+    const name = newDocName.trim()
+    setNewDocName('')
+    setAdding(false)
+    addMutation.mutate(name)
+  }, [newDocName, addMutation])
 
   if (loading) {
     return (

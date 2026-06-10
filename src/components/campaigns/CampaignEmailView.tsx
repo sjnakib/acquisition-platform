@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { Building2, ExternalLink, Mail } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmailThreadList, type EmailThread } from '@/components/shared/EmailThreadList'
@@ -15,39 +16,32 @@ interface CampaignEmailViewProps {
 export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewProps) {
   const router = useRouter()
 
-  // ── Selected thread + messages ─────────────────────────────────────────
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
-  const [messages, setMessages] = useState<EmailMessage[]>([])
-  const [messagesLoading, setMessagesLoading] = useState(false)
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
 
-  // ── Message fetching ────────────────────────────────────────────────────
-
-  const fetchMessages = useCallback(async (thread: EmailThread) => {
-    setMessagesLoading(true)
-    try {
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
+    queryKey: ['emails', 'messages', selectedThread?.dealId, selectedThread?.threadId],
+    queryFn: async () => {
+      if (!selectedThread) return []
       const res = await fetch(
-        `/api/deals/${thread.dealId}/emails/threads?threadId=${thread.threadId}&dealId=${thread.dealId}`
+        `/api/deals/${selectedThread.dealId}/emails/threads?threadId=${selectedThread.threadId}&dealId=${selectedThread.dealId}`
       )
-      if (res.ok) {
-        const data = await res.json()
-        const msgs: EmailMessage[] = data.messages ?? []
-        setMessages(msgs)
-        setExpandedMessages(new Set(msgs.map((m) => m.id)))
-      }
-    } catch (err) {
-      console.error('[CampaignEmailView] Message fetch failed:', err)
-    } finally {
-      setMessagesLoading(false)
-    }
-  }, [])
+      if (!res.ok) throw new Error('Failed to fetch messages')
+      const data = await res.json()
+      return data.messages ?? []
+    },
+    enabled: !!selectedThread,
+  })
 
-  // ── Thread click → expand messages inline ──────────────────────────────
+  useEffect(() => {
+    if (messages.length > 0) {
+      setExpandedMessages(new Set(messages.map((m) => m.id)))
+    }
+  }, [messages])
 
   const handleThreadClick = useCallback((thread: EmailThread) => {
     setSelectedThread(thread)
-    fetchMessages(thread)
-  }, [fetchMessages])
+  }, [])
 
   // ── Message expand/collapse ─────────────────────────────────────────────
 

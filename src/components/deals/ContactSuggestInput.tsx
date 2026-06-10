@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { User } from 'lucide-react'
 
@@ -22,12 +23,29 @@ interface ContactSuggestInputProps {
 export function ContactSuggestInput({
   value, onChange, onSelect, dealId, placeholder, disabled,
 }: ContactSuggestInputProps) {
-  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([])
   const [open, setOpen] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
   const wrapperRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const fetchIdRef = useRef(0)
+
+  const { data: suggestions = [] } = useQuery<ContactSuggestion[]>({
+    queryKey: ['deal', dealId, 'contacts', 'suggest', searchQuery],
+    queryFn: async () => {
+      const url = `/api/deals/${dealId}/contacts${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`
+      const res = await fetch(url)
+      if (!res.ok) return []
+      return res.json() ?? []
+    },
+    enabled: searchQuery.length >= 1,
+    staleTime: 0,
+    gcTime: 0,
+  })
+
+  useEffect(() => {
+    setOpen(suggestions.length > 0)
+    setHighlightIndex(0)
+  }, [suggestions])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -40,36 +58,13 @@ export function ContactSuggestInput({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Fetch suggestions with debounce
-  const fetchSuggestions = useCallback(async (search: string, id: number) => {
-    try {
-      const url = `/api/deals/${dealId}/contacts${search ? `?search=${encodeURIComponent(search)}` : ''}`
-      const res = await fetch(url)
-      if (!res.ok || id !== fetchIdRef.current) return
-      const data = await res.json()
-      if (id === fetchIdRef.current) {
-        setSuggestions(data ?? [])
-        setOpen((data ?? []).length > 0)
-        setHighlightIndex(0)
-      }
-    } catch {
-      // Silently ignore fetch errors
-    }
-  }, [dealId])
-
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     onChange(val)
-    const id = ++fetchIdRef.current
-    // Extract search text (might be an email if user already selected)
     const search = val.includes('<') ? val.split('<').pop()?.replace('>', '')?.trim() ?? val : val
-    if (search.length >= 1) {
-      fetchSuggestions(search, id)
-    } else {
-      setOpen(false)
-      setSuggestions([])
-    }
-  }, [onChange, fetchSuggestions])
+    setSearchQuery(search.length >= 1 ? search : '')
+    if (search.length < 1) setOpen(false)
+  }, [onChange])
 
   const selectContact = useCallback((contact: ContactSuggestion) => {
     const primaryEmail = contact.email?.[0] ?? ''
@@ -77,7 +72,6 @@ export function ContactSuggestInput({
     onChange(display)
     onSelect(contact)
     setOpen(false)
-    setSuggestions([])
   }, [onChange, onSelect])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

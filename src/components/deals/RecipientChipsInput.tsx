@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { X, User } from 'lucide-react'
 
 export interface ContactSuggestion {
@@ -62,13 +63,30 @@ export function RecipientChipsInput({
   onBccClick,
 }: RecipientChipsInputProps) {
   const [inputValue, setInputValue] = useState('')
-  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([])
   const [open, setOpen] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const fetchIdRef = useRef(0)
+
+  const { data: suggestions = [] } = useQuery<ContactSuggestion[]>({
+    queryKey: ['deal', dealId, 'contacts', 'suggest', searchQuery],
+    queryFn: async () => {
+      const url = `/api/deals/${dealId}/contacts${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`
+      const res = await fetch(url)
+      if (!res.ok) return []
+      return res.json() ?? []
+    },
+    enabled: searchQuery.length >= 1,
+    staleTime: 0,
+    gcTime: 0,
+  })
+
+  useEffect(() => {
+    setOpen(suggestions.length > 0)
+    setHighlightIndex(0)
+  }, [suggestions])
 
   // Close suggestions on outside click
   useEffect(() => {
@@ -81,33 +99,16 @@ export function RecipientChipsInput({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const fetchSuggestions = useCallback(async (search: string, id: number) => {
-    try {
-      const url = `/api/deals/${dealId}/contacts${search ? `?search=${encodeURIComponent(search)}` : ''}`
-      const res = await fetch(url)
-      if (!res.ok || id !== fetchIdRef.current) return
-      const data = await res.json()
-      if (id === fetchIdRef.current) {
-        setSuggestions(data ?? [])
-        setOpen((data ?? []).length > 0)
-        setHighlightIndex(0)
-      }
-    } catch {
-      // Ignore
-    }
-  }, [dealId])
-
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setInputValue(val)
-    const id = ++fetchIdRef.current
     if (val.length >= 1) {
-      fetchSuggestions(val, id)
+      setSearchQuery(val)
     } else {
       setOpen(false)
-      setSuggestions([])
+      setSearchQuery('')
     }
-  }, [fetchSuggestions])
+  }, [])
 
   const addChip = useCallback((emailStr: string) => {
     const trimmed = emailStr.trim()
@@ -118,7 +119,6 @@ export function RecipientChipsInput({
     }
     setInputValue('')
     setOpen(false)
-    setSuggestions([])
     inputRef.current?.focus()
   }, [emails, onChange])
 

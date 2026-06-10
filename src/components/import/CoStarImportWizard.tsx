@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { ImportPreviewTable } from '@/components/import/ImportPreviewTable'
 import { FileDropZone } from '@/components/shared/FileDropZone'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Label } from '@/components/ui/label'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -71,11 +71,9 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
   const [previewData, setPreviewData] = useState<Record<string, unknown>[] | null>(null)
   const [previewHeaders, setPreviewHeaders] = useState<string[]>([])
   const [batchId, setBatchId] = useState<string | null>(null)
-  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
   const [columnMapping, setColumnMapping] = useState<Record<string, ColumnActionInput>>({})
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null)
   const [mappingSaving, setMappingSaving] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const router = useRouter()
 
   const dynamicCardStyle = useMemo(() => {
@@ -92,26 +90,22 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
     totalEmails: number; invalidEmails: number; errors: string[]
   } | null>(null)
 
-  // Poll import status in step 3
-  useEffect(() => {
-    if (step !== 3 || !batchId) return
-    let active = true
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/deals/import/${batchId}/status`)
-        if (!res.ok) return
-        const data: ImportStatus = await res.json()
-        if (!active) return
-        setImportStatus(data)
-        if (data.status === 'done' || data.status === 'failed') {
-          if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-        }
-      } catch { /* retry on next tick */ }
-    }
-    poll()
-    pollRef.current = setInterval(poll, 1500)
-    return () => { active = false; if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
-  }, [step, batchId])
+  // Poll import status in step 3 via React Query refetchInterval
+  const { data: importStatus = null } = useQuery<ImportStatus | null>({
+    queryKey: ['import', 'status', batchId],
+    queryFn: async () => {
+      if (!batchId) return null
+      const res = await fetch(`/api/deals/import/${batchId}/status`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: step === 3 && !!batchId,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (data && (data.status === 'done' || data.status === 'failed')) return false
+      return 1500
+    },
+  })
 
   const { data: campaigns, isLoading: campaignsLoading, error: campaignsError } = useQuery({
     queryKey: ['campaigns', projectId],
@@ -178,30 +172,32 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
     [],
   )
 
-  const onUploadSubmit = async (data: UploadSchema) => {
-    const formData = new FormData()
-    formData.append('file', data.file)
-    formData.append('campaign_id', data.campaignId)
-    try {
+  const uploadMutation = useMutation({
+    mutationFn: async (data: UploadSchema) => {
+      const formData = new FormData()
+      formData.append('file', data.file)
+      formData.append('campaign_id', data.campaignId)
       const res = await fetch('/api/deals/import', { method: 'POST', body: formData })
-      if (res.ok) {
-        const result = await res.json()
-        const headers: string[] = result.headers ?? []
-        setPreviewData(result.preview)
-        setPreviewHeaders(headers)
-        setBatchId(result.batchId)
-        setSelectedCampaignId(data.campaignId)
-        setColumnMapping(buildDefaultMapping(headers, fieldDefs))
-        toast.success('File uploaded')
-        setStep(2)
-      } else {
+      if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-        toast.error(err.error || 'Upload failed')
+        throw new Error(err.error || 'Upload failed')
       }
-    } catch {
-      toast.error('Network error — please try again')
-    }
-  }
+      return res.json() as Promise<{ headers?: string[]; preview: Record<string, unknown>[]; batchId: string }>
+    },
+    onSuccess: (result, variables) => {
+      const headers: string[] = result.headers ?? []
+      setPreviewData(result.preview)
+      setPreviewHeaders(headers)
+      setBatchId(result.batchId)
+      setSelectedCampaignId(variables.campaignId)
+      setColumnMapping(buildDefaultMapping(headers, fieldDefs))
+      toast.success('File uploaded')
+      setStep(2)
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Network error — please try again'),
+  })
+
+  const onUploadSubmit = (data: UploadSchema) => uploadMutation.mutate(data)
 
   // --- Validation helpers (called before confirm) ---
 
@@ -562,7 +558,6 @@ export function CoStarImportWizard({ projectId, defaultCampaignId }: Props) {
                       setPreviewHeaders([])
                       setBatchId(null)
                       setSelectedCampaignId(null)
-                      setImportStatus(null)
                       setColumnMapping({})
                     }}
                   >

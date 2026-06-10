@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Phone, User, Briefcase, FileText, Calendar, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,9 +40,38 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
   const [contactRole, setContactRole] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [summaryText, setSummaryText] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
+
+  const createCallMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deal_id: dealId,
+          contact_name: contactName.trim(),
+          contact_role: contactRole.trim() || undefined,
+          phone_number: phoneNumber.trim() || undefined,
+          summary_text: summaryText.trim(),
+        }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to create call request')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
+      setContactName('')
+      setContactRole('')
+      setPhoneNumber('')
+      setSummaryText('')
+      setShowForm(false)
+      toast.success('Follow-up call request created')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create call request'),
+  })
 
   const { data: callBriefs = [], isLoading: loading } = useQuery<CallBrief[]>({
     queryKey: ['call-briefs', dealId],
@@ -55,38 +84,9 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
     enabled: !!dealId,
   })
 
-  async function handleCreate() {
-    if (!contactName.trim() || !summaryText.trim() || submitting) return
-    setSubmitting(true)
-    try {
-      const res = await fetch('/api/calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deal_id: dealId,
-          contact_name: contactName.trim(),
-          contact_role: contactRole.trim() || undefined,
-          phone_number: phoneNumber.trim() || undefined,
-          summary_text: summaryText.trim(),
-        }),
-      })
-      if (res.ok) {
-        await queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
-        setContactName('')
-        setContactRole('')
-        setPhoneNumber('')
-        setSummaryText('')
-        setShowForm(false)
-        toast.success('Follow-up call request created')
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to create call request')
-      }
-    } catch {
-      toast.error('Failed to create call request')
-    } finally {
-      setSubmitting(false)
-    }
+  function handleCreate() {
+    if (!contactName.trim() || !summaryText.trim() || createCallMutation.isPending) return
+    createCallMutation.mutate()
   }
 
   const filtered = filter === 'all'
@@ -157,11 +157,11 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
           <div className="flex justify-end">
             <Button
               size="sm"
-              disabled={!contactName.trim() || !summaryText.trim() || submitting}
+              disabled={!contactName.trim() || !summaryText.trim() || createCallMutation.isPending}
               className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]"
               onClick={handleCreate}
             >
-              {submitting ? <LoadingSpinner size="sm" /> : 'Create Call Request'}
+              {createCallMutation.isPending ? <LoadingSpinner size="sm" /> : 'Create Call Request'}
             </Button>
           </div>
         </div>

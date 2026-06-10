@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -21,14 +22,15 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
   const { data: portfolio, isLoading } = usePortfolio(portfolioId)
   const deletePortfolio = useDeletePortfolio()
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([])
-
-  useEffect(() => {
-    fetch(`/api/field-definitions?project_id=${projectId}`)
-      .then((r) => r.json())
-      .then((data) => setFieldDefs(Array.isArray(data) ? data : []))
-      .catch(() => setFieldDefs([]))
-  }, [projectId])
+  const { data: fieldDefs = [] } = useQuery<FieldDef[]>({
+    queryKey: ['field-definitions', projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/field-definitions?project_id=${projectId}`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+  })
 
   if (isLoading) return <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>
   if (!portfolio) return <EmptyState title="Portfolio not found" />

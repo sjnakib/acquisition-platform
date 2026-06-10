@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,6 @@ import { pageHeadings } from '@/lib/page-headings'
 import { Trash2, Plus, Save, Folder, ExternalLink, Settings, Users, Link2, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { DriveFolderPicker } from '@/components/projects/DriveFolderPicker'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
 import { RemoveSponsorDialog } from '@/components/projects/RemoveSponsorDialog'
 
 interface Sponsor {
@@ -30,194 +30,202 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  // Project details & Sponsors state
-  const [project, setProject] = useState<{ name: string; description: string | null; google_connections: { google_email: string } | null } | null>(null)
-  const [sponsors, setSponsors] = useState<Sponsor[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [gmailConnected, setGmailConnected] = useState(false)
-  const [gmailEmail, setGmailEmail] = useState<string | null>(null)
-  const [disconnecting, setDisconnecting] = useState(false)
-
-  // Drive working folder state
-  const [workingFolder, setWorkingFolder] = useState<{ folderId: string; folderUrl: string; name: string } | null>(null)
-  const [showFolderPicker, setShowFolderPicker] = useState(false)
-  const [settingFolder, setSettingFolder] = useState(false)
-
-  // Form state
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [sponsorEmail, setSponsorEmail] = useState('')
   const [sponsorName, setSponsorName] = useState('')
-  const [addingSponsor, setAddingSponsor] = useState(false)
-
-  // Delete state
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
-  const [deleting, setDeleting] = useState(false)
-
-  // Remove sponsor dialog
   const [removingSponsor, setRemovingSponsor] = useState<Sponsor | null>(null)
+
+  const { data: project, isLoading: loading } = useQuery<{
+    name: string; description: string | null
+    google_connections: { google_email: string } | null
+  }>({
+    queryKey: ['project', projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`)
+      if (!res.ok) throw new Error('Failed to load project')
+      return res.json()
+    },
+  })
+
+  const { data: sponsors = [] } = useQuery<Sponsor[]>({
+    queryKey: ['project', projectId, 'sponsors'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/sponsors`)
+      if (!res.ok) throw new Error('Failed to load sponsors')
+      return res.json()
+    },
+  })
+
+  const { data: workingFolder = null } = useQuery<{ folderId: string; folderUrl: string; name: string } | null>({
+    queryKey: ['project', projectId, 'drive', 'working-folder'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/drive/working-folder`)
+      if (!res.ok) return null
+      const data = await res.json()
+      return data.workingFolder ?? null
+    },
+  })
+
+  useEffect(() => {
+    if (project) {
+      setName(project.name ?? '')
+      setDescription(project.description ?? '')
+    }
+  }, [project])
+
+  const gmailConnected = !!project?.google_connections?.google_email
+  const gmailEmail = project?.google_connections?.google_email ?? null
 
   // Check Gmail connection status from URL param after OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('gmail') === 'connected') {
-      const cb = () => setGmailConnected(true)
-      if (window.requestIdleCallback) { window.requestIdleCallback(cb) } else { setTimeout(cb, 0) }
-      // Clear the query param from URL
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       window.history.replaceState({}, '', window.location.pathname)
     }
-  }, [])
+  }, [projectId, queryClient])
 
-  useEffect(() => {
-    Promise.all([
-      fetch(`/api/projects/${projectId}`).then(async (r) => {
-        if (!r.ok) throw new Error('Failed to load project')
-        return r.json()
-      }),
-      fetch(`/api/projects/${projectId}/sponsors`).then(async (r) => {
-        if (!r.ok) throw new Error('Failed to load sponsors')
-        return r.json()
-      }),
-    ])
-      .then(([proj, spons]) => {
-        setProject(proj)
-        setName(proj.name ?? '')
-        setDescription(proj.description ?? '')
-        setSponsors(spons ?? [])
-        if (proj.google_connections?.google_email) {
-          setGmailConnected(true)
-          setGmailEmail(proj.google_connections.google_email)
-        }
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
       })
-
-    fetch(`/api/projects/${projectId}/drive/working-folder`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.workingFolder) {
-          setWorkingFolder(data.workingFolder)
-        }
-      })
-      .catch(() => {})
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [projectId])
-
-  async function saveProject() {
-    setSaving(true)
-    const res = await fetch(`/api/projects/${projectId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      toast.error(json.error ?? 'Failed to save project')
-    } else {
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to save project')
+      }
+    },
+    onSuccess: () => {
       toast.success('Project saved')
       queryClient.invalidateQueries({ queryKey: ['projects'] })
-      window.dispatchEvent(new CustomEvent('project-updated', { detail: { name } }))
-    }
-    setSaving(false)
-  }
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save project'),
+  })
 
-  async function addSponsor() {
-    if (!sponsorEmail) return
-    setAddingSponsor(true)
-    const res = await fetch(`/api/projects/${projectId}/sponsors`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: sponsorEmail, full_name: sponsorName || undefined }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      toast.error(json.error ?? 'Failed to add sponsor')
-    } else {
+  const addSponsorMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/sponsors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: sponsorEmail, full_name: sponsorName || undefined }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to add sponsor')
+      }
+    },
+    onSuccess: () => {
       toast.success('Sponsor added')
       setSponsorEmail('')
       setSponsorName('')
-      const data = await fetch(`/api/projects/${projectId}/sponsors`).then((r) => r.json())
-      setSponsors(data ?? [])
-    }
-    setAddingSponsor(false)
-  }
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'sponsors'] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to add sponsor'),
+  })
 
-  async function removeSponsor(sponsorId: string) {
-    const res = await fetch(`/api/projects/${projectId}/sponsors?sponsorId=${sponsorId}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const json = await res.json()
-      throw new Error(json.error ?? 'Failed to remove sponsor')
-    }
-    setSponsors((prev) => prev.filter((s) => s.id !== sponsorId))
-  }
+  const removeSponsorMutation = useMutation({
+    mutationFn: async (sponsorId: string) => {
+      const res = await fetch(`/api/projects/${projectId}/sponsors?sponsorId=${sponsorId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to remove sponsor')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'sponsors'] })
+    },
+  })
 
-  async function disconnectGmail() {
-    setDisconnecting(true)
-    try {
+  const disconnectGmailMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/google/disconnect`, { method: 'POST' })
       if (!res.ok) {
         const json = await res.json()
-        toast.error(json.error ?? 'Failed to disconnect Gmail')
-      } else {
-        setGmailConnected(false)
-        setGmailEmail(null)
-        toast.success('Gmail disconnected')
+        throw new Error(json.error ?? 'Failed to disconnect Gmail')
       }
-    } catch {
-      toast.error('Failed to disconnect Gmail')
-    } finally {
-      setDisconnecting(false)
-    }
-  }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      toast.success('Gmail disconnected')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to disconnect Gmail'),
+  })
 
-  async function setWorkingFolderHandler(folderId: string) {
-    setSettingFolder(true)
-    const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ folderId }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      setSettingFolder(false)
-      throw new Error(json.error ?? `Failed to set working folder (${res.status})`)
-    }
-    const infoRes = await fetch(`/api/projects/${projectId}/drive/working-folder`)
-    const info = await infoRes.json()
-    if (info.workingFolder) {
-      setWorkingFolder(info.workingFolder)
-    }
-    setSettingFolder(false)
-  }
+  const setWorkingFolderMutation = useMutation({
+    mutationFn: async (folderId: string) => {
+      const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? `Failed to set working folder (${res.status})`)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'drive', 'working-folder'] })
+    },
+    onError: (err) => {
+      throw err // re-throw for DriveFolderPicker to handle
+    },
+  })
 
-  async function removeWorkingFolder() {
-    try {
+  const removeWorkingFolderMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderId: null }),
       })
-      if (res.ok) {
-        setWorkingFolder(null)
-        toast.success('Working folder removed')
-      }
-    } catch {
-      toast.error('Failed to remove working folder')
-    }
-  }
+      if (!res.ok) throw new Error('Failed to remove working folder')
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'drive', 'working-folder'] })
+      toast.success('Working folder removed')
+    },
+    onError: () => toast.error('Failed to remove working folder'),
+  })
 
-  async function deleteProject() {
-    if (deleteConfirm !== 'DELETE') return
-    setDeleting(true)
-    const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
-    if (res.ok) {
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to delete project')
+      }
+    },
+    onSuccess: () => {
       toast.success('Project deleted')
       router.push('/projects')
-    } else {
-      const json = await res.json()
-      toast.error(json.error ?? 'Failed to delete project')
-      setDeleting(false)
-    }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to delete project'),
+  })
+
+  const addSponsor = () => {
+    if (!sponsorEmail) return
+    addSponsorMutation.mutate()
+  }
+
+  const removeSponsor = (sponsorId: string) => removeSponsorMutation.mutate(sponsorId)
+
+  const saveProject = () => saveMutation.mutate()
+
+  const disconnectGmail = () => disconnectGmailMutation.mutate()
+
+  const setWorkingFolderHandler = (folderId: string) => setWorkingFolderMutation.mutateAsync(folderId)
+
+  const removeWorkingFolder = () => removeWorkingFolderMutation.mutate()
+
+  const deleteProject = () => {
+    if (deleteConfirm !== 'DELETE') return
+    deleteMutation.mutate()
   }
 
   if (loading) {
@@ -289,9 +297,9 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               />
             </div>
             <div className="flex justify-end pt-2">
-              <Button onClick={saveProject} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="shadow-xs flex items-center gap-1.5 h-9">
-                {saving ? <LoadingSpinner size="sm" /> : <Save size={14} />}
-                {saving ? 'Saving Changes...' : 'Save Changes'}
+              <Button onClick={saveProject} disabled={saveMutation.isPending} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="shadow-xs flex items-center gap-1.5 h-9">
+                {saveMutation.isPending ? <LoadingSpinner size="sm" /> : <Save size={14} />}
+                {saveMutation.isPending ? 'Saving Changes...' : 'Save Changes'}
               </Button>
             </div>
           </div>
@@ -380,8 +388,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0 self-end sm:self-center">
                     <Badge variant="success" dot size="sm">Connected</Badge>
-                    <Button variant="outline" size="sm" onClick={disconnectGmail} disabled={disconnecting} className="h-8 text-xs border-[var(--color-surface-3)] hover:bg-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] bg-[var(--color-surface-0)] transition-colors duration-200">
-                      {disconnecting ? <LoadingSpinner size="sm" /> : 'Disconnect Account'}
+                    <Button variant="outline" size="sm" onClick={disconnectGmail} disabled={disconnectGmailMutation.isPending} className="h-8 text-xs border-[var(--color-surface-3)] hover:bg-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] bg-[var(--color-surface-0)] transition-colors duration-200">
+                      {disconnectGmailMutation.isPending ? <LoadingSpinner size="sm" /> : 'Disconnect Account'}
                     </Button>
                   </div>
                 </div>
@@ -393,13 +401,16 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                 {/* Branch 1: Gmail Service */}
                 <div className="relative">
                   {/* Connector Dot */}
-                  <span className="absolute -left-[30.5px] top-4.5 w-2 h-2 rounded-full bg-[var(--accent)] border border-[var(--color-surface-0)]" />
+                  <span className="absolute -left-[29px] top-[27px] w-2.5 h-2.5 rounded-full bg-[#4285F4] border-2 border-[var(--color-surface-0)] shadow-3xs" />
                   
                   <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)]">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center text-[var(--accent)] shadow-2xs">
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                      <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-2xs flex-shrink-0">
+                        <svg viewBox="0 0 32 32" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M16.58,19.1068l-12.69-8.0757A3,3,0,0,1,7.1109,5.97l9.31,5.9243L24.78,6.0428A3,3,0,0,1,28.22,10.9579Z" fill="#ea4435"/>
+                          <path d="M25.5,5.5h4v18a3,3,0,0,1-3,3h0a3,3,0,0,1-3-3V7.5a2,2,0,0,1,2-2Z" fill="#34A853" transform="translate(53.0001 32.0007) rotate(180)"/>
+                          <path d="M29.4562,8.0656c-.0088-.06-.0081-.1213-.0206-.1812-.0192-.0918-.0549-.1766-.0823-.2652a2.9312,2.9312,0,0,0-.0958-.2993c-.02-.0475-.0508-.0892-.0735-.1354A2.9838,2.9838,0,0,0,28.9686,6.8c-.04-.0581-.09-.1076-.1342-.1626a3.0282,3.0282,0,0,0-.2455-.2849c-.0665-.0647-.1423-.1188-.2146-.1771a3.02,3.02,0,0,0-.24-.1857c-.0793-.0518-.1661-.0917-.25-.1359-.0884-.0461-.175-.0963-.267-.1331-.0889-.0358-.1837-.0586-.2766-.0859s-.1853-.06-.2807-.0777a3.0543,3.0543,0,0,0-.357-.036c-.0759-.0053-.1511-.0186-.2273-.018a2.9778,2.9778,0,0,0-.4219.0425c-.0563.0084-.113.0077-.1689.0193a33.211,33.211,0,0,0-.5645.178c-.0515.022-.0966.0547-.1465.0795A2.901,2.901,0,0,0,23.5,8.5v5.762l4.72-3.3043a2.8878,2.8878,0,0,0,1.2359-2.8923Z" fill="#ffba00"/>
+                          <path d="M5.5,5.5h0a3,3,0,0,1,3,3v18a0,0,0,0,1,0,0h-4a2,2,0,0,1-2-2V8.5a3,3,0,0,1,3-3Z" fill="#4285f4"/>
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -418,13 +429,17 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                 {/* Branch 2: Google Drive Service */}
                 <div className="relative">
                   {/* Connector Dot */}
-                  <span className="absolute -left-[30.5px] top-4.5 w-2 h-2 rounded-full bg-[#0F9D58] border border-[var(--color-surface-0)]" />
+                  <span className="absolute -left-[29px] top-[27px] w-2.5 h-2.5 rounded-full bg-[#34A853] border-2 border-[var(--color-surface-0)] shadow-3xs" />
 
                   <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)] space-y-4">
                     <div className="flex items-center justify-between gap-4 pb-3 border-b border-[var(--color-surface-2)]">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center text-[#0F9D58] shadow-2xs">
-                          <Folder size={15} />
+                        <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-2xs flex-shrink-0">
+                          <svg viewBox="0 0 87.3 78" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
+                            <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#4285F4" />
+                            <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#34A853" />
+                            <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#FBBC05" />
+                          </svg>
                         </div>
                         <div className="flex-1 min-w-0">
                           <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Drive workspace storage</span>
@@ -434,8 +449,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                         </div>
                       </div>
                       {!workingFolder && (
-                        <Button onClick={() => setShowFolderPicker(true)} disabled={settingFolder} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
-                          {settingFolder ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
+                        <Button onClick={() => setShowFolderPicker(true)} disabled={setWorkingFolderMutation.isPending} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
+                          {setWorkingFolderMutation.isPending ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
                           Set Folder
                         </Button>
                       )}
@@ -445,23 +460,28 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       <div className="space-y-4 pt-1">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 rounded-lg border border-[var(--color-surface-2)] bg-[var(--color-surface-0)] shadow-3xs">
                           <div className="flex items-center gap-3 min-w-0">
-                            <svg className="w-5 h-5 flex-shrink-0 text-[#0F9D58]" viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95C8.08 7.14 9.94 6 12 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11c1.56.1 2.78 1.41 2.78 2.96 0 1.65-1.35 3-3 3z"/>
+                            <svg viewBox="0 0 87.3 78" className="w-5 h-5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg">
+                              <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#4285F4" />
+                              <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#34A853" />
+                              <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#FBBC05" />
                             </svg>
                             <div className="flex flex-col min-w-0">
-                              <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{workingFolder.name}</span>
+                              <span className="text-xs font-semibold text-[var(--color-text-primary)]">Connected Drive Root</span>
+                              <span className="text-[10px] text-[var(--color-text-secondary)] font-mono truncate max-w-[200px] mt-0.5" title={workingFolder.folderId}>
+                                ID: {workingFolder.folderId}
+                              </span>
                               <a
                                 href={workingFolder.folderUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-[10px] hover:underline inline-flex items-center gap-1 text-[var(--accent)] font-semibold mt-0.5"
+                                className="text-[10px] hover:underline inline-flex items-center gap-1 text-[var(--accent)] font-semibold mt-1"
                               >
                                 View folder in Google Drive <ExternalLink size={10} />
                               </a>
                             </div>
                           </div>
                           <div className="flex gap-2 self-end sm:self-center">
-                            <Button variant="outline" size="sm" onClick={() => setShowFolderPicker(true)} disabled={settingFolder} className="h-7 text-[10px] border-[var(--color-surface-3)] bg-[var(--color-surface-0)] px-2">
+                            <Button variant="outline" size="sm" onClick={() => setShowFolderPicker(true)} disabled={setWorkingFolderMutation.isPending} className="h-7 text-[10px] border-[var(--color-surface-3)] bg-[var(--color-surface-0)] px-2">
                               Change
                             </Button>
                             <Button variant="outline" size="sm" onClick={removeWorkingFolder} className="h-7 text-[10px] border-[var(--color-danger-border)] text-[var(--color-danger-text)] hover:bg-[var(--color-danger-bg)] px-2">
@@ -476,8 +496,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                           <div className="font-mono text-[11px] text-[var(--color-text-secondary)] leading-relaxed space-y-1">
                             <div className="flex items-center gap-1.5">
                               <span className="text-amber-500">📁</span>
-                              <span className="font-semibold text-[var(--color-text-primary)]">{workingFolder.name}</span>
-                              <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans">Root</span>
+                              <span className="font-semibold text-[var(--color-text-primary)] font-mono text-[10px] truncate max-w-[180px]" title={workingFolder.folderId}>{workingFolder.folderId}</span>
+                              <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans flex-shrink-0">Root</span>
                             </div>
                             <div className="pl-4 text-[var(--color-surface-3)]">└── <span className="text-amber-500">📁</span> <span className="text-[var(--color-text-primary)]">[Property Address]</span> <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans">Deal Folder</span></div>
                             <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-green-600">📊</span> <span className="text-[var(--color-text-secondary)]">Underwriting Spreadsheet.xlsx</span></div>
@@ -495,8 +515,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                         <p className="text-[11px] text-[var(--color-text-tertiary)] mb-4 max-w-xs leading-relaxed">
                           Choose a Google Drive folder as the primary workspace storage to automatically organize deal documents.
                         </p>
-                        <Button onClick={() => setShowFolderPicker(true)} disabled={settingFolder} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
-                          {settingFolder ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
+                        <Button onClick={() => setShowFolderPicker(true)} disabled={setWorkingFolderMutation.isPending} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
+                          {setWorkingFolderMutation.isPending ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
                           Select Root Folder
                         </Button>
                       </div>
@@ -563,12 +583,12 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             <div className="flex justify-end">
               <Button
                 onClick={addSponsor}
-                disabled={addingSponsor || !sponsorEmail}
+                disabled={addSponsorMutation.isPending || !sponsorEmail}
                 size="sm"
                 style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
                 className="h-8 px-4"
               >
-                {addingSponsor ? <LoadingSpinner size="sm" /> : <Plus size={14} className="mr-1" />}
+                {addSponsorMutation.isPending ? <LoadingSpinner size="sm" /> : <Plus size={14} className="mr-1" />}
                 Send Invite
               </Button>
             </div>
@@ -667,10 +687,10 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               <Button
                 variant="destructive"
                 onClick={deleteProject}
-                disabled={deleteConfirm !== 'DELETE' || deleting}
+                disabled={deleteConfirm !== 'DELETE' || deleteMutation.isPending}
                 className="h-9 px-4 text-xs font-medium"
               >
-                {deleting ? 'Deleting...' : 'Confirm Delete Project'}
+                {deleteMutation.isPending ? 'Deleting...' : 'Confirm Delete Project'}
               </Button>
               {deleteConfirm && (
                 <Button

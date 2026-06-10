@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Building2, Phone, FileText } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealScoreBadge } from '@/components/deals/DealScoreBadge'
+import { useDeal } from '@/lib/hooks/useDeal'
 import { formatDate } from '@/lib/utils'
 
 interface FieldValue {
@@ -60,25 +61,7 @@ export default function ClientDealDetailPage({ params }: { params: Promise<{ id:
   const { id: projectId, dealId } = use(params)
   const { projectName } = useProjectContext()
   const router = useRouter()
-  const [deal, setDeal] = useState<DealDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!dealId) return
-    const controller = new AbortController()
-    const timer = setTimeout(() => {
-      setLoading(true)
-    }, 0)
-    fetch(`/api/deals/${dealId}`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data) => setDeal(data))
-      .catch((err) => { if (err.name !== 'AbortError') console.error(err) })
-      .finally(() => setLoading(false))
-    return () => {
-      controller.abort()
-      clearTimeout(timer)
-    }
-  }, [dealId])
+  const { data: deal, isLoading: loading } = useDeal<DealDetail>(dealId)
 
   if (loading) {
     return (

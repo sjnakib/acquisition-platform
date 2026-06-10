@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import {
   Folder, FolderOpen, File, FileText, Image, Table2,
@@ -113,7 +114,6 @@ function SkeletonRow() {
 export function DriveFileManager({ dealId, dealName }: { dealId: string; dealName: string }) {
   // Data state
   const [files, setFiles] = useState<DriveFileItem[]>([])
-  const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [dealFolderId, setDealFolderId] = useState<string | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
@@ -244,7 +244,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (isSoft) {
       setRefreshing(true)
     } else {
-      setLoading(true)
       setFolderContents({})
       setExpandedFolders(new Set())
       setLoadingFolderCounts(new Set())
@@ -295,50 +294,48 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     } catch {
       toast.error('Failed to load files')
     } finally {
-      setLoading(false)
       setRefreshing(false)
     }
   }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches])
 
+  const { data: dealData } = useQuery<{ drive_folder_id?: string | null }>({
+    queryKey: ['deal', dealId, 'drive', 'folder'],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}`)
+      if (!res.ok) throw new Error('Failed to fetch deal')
+      return res.json()
+    },
+    enabled: !!dealId,
+  })
+
+  const loading = dealData === undefined
+
   useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const dealRes = await fetch(`/api/deals/${dealId}`)
-        const deal = await dealRes.json()
-        if (cancelled) return
-        if (deal?.drive_folder_id) {
-          setDealFolderId(deal.drive_folder_id)
-          setCurrentFolderId(deal.drive_folder_id)
-          
-          loadedFolderIdsRef.current.clear()
-          
-          const params = new URLSearchParams({ folderId: deal.drive_folder_id })
-          const res = await fetch(`/api/deals/${dealId}/drive/files?${params}`)
+    if (!dealData) return
+    if (dealData.drive_folder_id) {
+      setDealFolderId(dealData.drive_folder_id)
+      if (!currentFolderId) setCurrentFolderId(dealData.drive_folder_id!)
+      loadedFolderIdsRef.current.clear()
+
+      const params = new URLSearchParams({ folderId: dealData.drive_folder_id })
+      fetch(`/api/deals/${dealId}/drive/files?${params}`)
+        .then(async (res) => {
           const data = await res.json()
-          if (!cancelled) {
-            if (res.ok) {
-              const fetchedFiles = data.files ?? []
-              setFiles(fetchedFiles)
-              setDealFolderId(data.dealFolderId)
-              triggerBackgroundFolderFetches(fetchedFiles)
-            } else {
-              toast.error(data.error ?? 'Failed to load files')
-            }
+          if (res.ok) {
+            const fetchedFiles = data.files ?? []
+            setFiles(fetchedFiles)
+            setDealFolderId(data.dealFolderId)
+            triggerBackgroundFolderFetches(fetchedFiles)
+          } else {
+            toast.error(data.error ?? 'Failed to load files')
           }
-        } else {
-          if (!cancelled) { setFiles([]); setDealFolderId(null) }
-        }
-      } catch {
-        if (!cancelled) toast.error('Failed to load files')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+        })
+        .catch(() => toast.error('Failed to load files'))
+    } else {
+      setFiles([])
+      setDealFolderId(null)
     }
-    load()
-    return () => { cancelled = true }
-  }, [dealId, triggerBackgroundFolderFetches])
+  }, [dealData, dealId, triggerBackgroundFolderFetches])
 
   // Selection helpers moved below computed list rows to avoid TDZ issues
 

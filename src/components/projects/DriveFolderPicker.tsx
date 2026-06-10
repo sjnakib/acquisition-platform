@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { Folder, Link as LinkIcon, FolderPlus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -85,8 +86,6 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
 
   // Create folder state
   const [newFolderName, setNewFolderName] = useState('')
-  const [creating, setCreating] = useState(false)
-
   const scriptLoaded = useRef(false)
   const pickerRef = useRef<Picker | null>(null)
 
@@ -182,10 +181,8 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
     }
   }, [])
 
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return
-    setCreating(true)
-    try {
+  const createFolderMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/drive/create-folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,16 +192,20 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
         const json = await res.json()
         throw new Error(json.error ?? 'Failed to create folder')
       }
-      const folder = await res.json()
+      return res.json() as Promise<{ folderId: string; name: string }>
+    },
+    onSuccess: async (folder) => {
       toast.success(`Folder "${folder.name}" created`)
       await onSelect(folder.folderId)
       toast.success(`Working folder set to "${newFolderName.trim()}"`)
       onOpenChange(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create folder')
-    } finally {
-      setCreating(false)
-    }
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create folder'),
+  })
+
+  const handleCreateFolder = () => {
+    if (!newFolderName.trim()) return
+    createFolderMutation.mutate()
   }
 
   const handleManualSubmit = async () => {
@@ -226,7 +227,7 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
     }
   }
 
-  const isBusy = pickerLoading || saving || creating
+  const isBusy = pickerLoading || saving || createFolderMutation.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -268,7 +269,7 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
               disabled={isBusy || !newFolderName.trim()}
               className="h-8 text-[11px]"
             >
-              {creating ? <LoadingSpinner size="sm" /> : <FolderPlus size={12} />}
+              {createFolderMutation.isPending ? <LoadingSpinner size="sm" /> : <FolderPlus size={12} />}
               Create
             </Button>
           </div>

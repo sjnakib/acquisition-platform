@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -16,19 +17,40 @@ interface FieldDef {
 type FieldsMap = Record<string, FieldDef>
 
 export function DealFieldsEditor({ dealId }: { dealId: string }) {
-  const [fields, setFields] = useState<FieldsMap | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
-  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    fetch(`/api/deals/${dealId}/fields`)
-      .then((r) => r.json())
-      .then(setFields)
-      .catch(() => toast.error('Failed to load fields'))
-      .finally(() => setLoading(false))
-  }, [dealId])
+  const { data: fields, isLoading: loading } = useQuery<FieldsMap>({
+    queryKey: ['deal', dealId, 'fields'],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/fields`)
+      if (!res.ok) throw new Error('Failed to load fields')
+      return res.json()
+    },
+    enabled: !!dealId,
+  })
+
+  const saveFieldMutation = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string | null }) => {
+      const res = await fetch(`/api/deals/${dealId}/fields`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to save')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'fields'] })
+      setEditingKey(null)
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to save field')
+    },
+  })
 
   const startEdit = useCallback((key: string, currentValue: string | null) => {
     setEditingKey(key)
@@ -40,31 +62,10 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
     setEditValue('')
   }, [])
 
-  const saveEdit = useCallback(async () => {
-    if (!editingKey || !fields) return
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/deals/${dealId}/fields`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [editingKey]: editValue || null }),
-      })
-      if (res.ok) {
-        setFields((prev) => prev ? {
-          ...prev,
-          [editingKey]: { ...prev[editingKey]!, value: editValue || null },
-        } : prev)
-        setEditingKey(null)
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to save')
-      }
-    } catch {
-      toast.error('Failed to save field')
-    } finally {
-      setSaving(false)
-    }
-  }, [editingKey, editValue, fields, dealId])
+  const saveEdit = useCallback(() => {
+    if (!editingKey) return
+    saveFieldMutation.mutate({ key: editingKey, value: editValue || null })
+  }, [editingKey, editValue, saveFieldMutation])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') saveEdit()
@@ -194,7 +195,7 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
               {isEditing ? (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   {renderInput(def)}
-                  {saving && <LoadingSpinner size="sm" />}
+                  {saveFieldMutation.isPending && <LoadingSpinner size="sm" />}
                 </div>
               ) : (
                 <span

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import { z } from 'zod'
@@ -42,8 +42,56 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(createProjectSchema),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: async (data: FormValues) => {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.name, description: data.description || undefined }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error ?? 'Failed to create project')
+      }
+      const newProject = await res.json()
+
+      if (sponsors.length > 0) {
+        const results = await Promise.allSettled(
+          sponsors.map((s) =>
+            fetch(`/api/projects/${newProject.id}/sponsors`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: s.email, full_name: s.full_name }),
+            }).then(async (r) => {
+              if (!r.ok) {
+                const err = await r.json()
+                throw new Error(err.error ?? 'Failed to add sponsor')
+              }
+            })
+          )
+        )
+        const failed = results.filter((r) => r.status === 'rejected')
+        if (failed.length > 0) {
+          toast.error(`${failed.length} sponsor(s) could not be added`)
+        }
+      }
+
+      return newProject
+    },
+    onSuccess: (newProject) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      toast.success('Project created')
+      reset()
+      setSponsors([])
+      setSponsorsOpen(false)
+      onOpenChange(false)
+      router.push(`/projects/${newProject.id}/dashboard`)
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create project'),
   })
 
   const addSponsor = () => {
@@ -66,49 +114,7 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
     setSponsors(sponsors.filter((s) => s.email !== email))
   }
 
-  const onSubmit = async (data: FormValues) => {
-    const res = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: data.name, description: data.description || undefined }),
-    })
-    if (!res.ok) {
-      const err = await res.json()
-      toast.error(err.error ?? 'Failed to create project')
-      return
-    }
-
-    const newProject = await res.json()
-
-    if (sponsors.length > 0) {
-      const results = await Promise.allSettled(
-        sponsors.map((s) =>
-          fetch(`/api/projects/${newProject.id}/sponsors`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: s.email, full_name: s.full_name }),
-          }).then(async (r) => {
-            if (!r.ok) {
-              const err = await r.json()
-              throw new Error(err.error ?? 'Failed to add sponsor')
-            }
-          })
-        )
-      )
-      const failed = results.filter((r) => r.status === 'rejected')
-      if (failed.length > 0) {
-        toast.error(`${failed.length} sponsor(s) could not be added`)
-      }
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['projects'] })
-    toast.success('Project created')
-    reset()
-    setSponsors([])
-    setSponsorsOpen(false)
-    onOpenChange(false)
-    router.push(`/projects/${newProject.id}/dashboard`)
-  }
+  const onSubmit = (data: FormValues) => createMutation.mutate(data)
 
   const handleClose = () => {
     reset()
@@ -216,11 +222,11 @@ export function CreateProjectDialog({ open, onOpenChange }: Props) {
           )}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
+            <Button type="button" variant="outline" onClick={handleClose} disabled={createMutation.isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Project'}
+            <Button type="submit" disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating...' : 'Create Project'}
             </Button>
           </DialogFooter>
         </form>

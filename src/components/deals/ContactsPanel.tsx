@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Plus, X, ChevronDown, ChevronRight, Mail } from 'lucide-react'
 import { toast } from 'sonner'
@@ -16,49 +17,66 @@ interface ContactsPanelProps {
 }
 
 export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
+  const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [loading, setLoading] = useState(true)
 
-  // All unique emails across contacts, flattened
+  const { data: contacts = [], isLoading: loading } = useQuery<Contact[]>({
+    queryKey: ['deal', dealId, 'contacts'],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/contacts`)
+      if (!res.ok) throw new Error('Failed to load contacts')
+      return res.json()
+    },
+    enabled: !!dealId,
+  })
+
   const allEmails = contacts.flatMap((c) => (c.email ?? []).map((e) => ({ email: e, contactId: c.id })))
 
-  // Add form
   const [showAdd, setShowAdd] = useState(false)
   const [addEmail, setAddEmail] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // Remove confirmation
   const [removing, setRemoving] = useState<{ email: string; contactId: string } | null>(null)
 
-  const fetchContacts = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/deals/${dealId}/contacts`)
-      if (res.ok) {
-        setContacts(await res.json())
+  const addMutation = useMutation({
+    mutationFn: async (emails: string[]) => {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: dealId, name: emails[0], email: emails }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to add')
       }
-    } catch {
-      // Silent
-    } finally {
-      setLoading(false)
-    }
-  }, [dealId])
+    },
+    onSuccess: (_, emails) => {
+      toast.success(emails.length === 1 ? 'Email added' : `${emails.length} emails added`)
+      setShowAdd(false)
+      setAddEmail('')
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'contacts'] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to add email'),
+  })
 
-  useEffect(() => {
-    const id = setTimeout(() => fetchContacts(), 0)
-    return () => clearTimeout(id)
-  }, [fetchContacts])
+  const removeMutation = useMutation({
+    mutationFn: async (contactId: string) => {
+      const res = await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to remove')
+      }
+    },
+    onSuccess: () => {
+      toast.success('Email removed')
+      setRemoving(null)
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'contacts'] })
+    },
+    onError: (err) => {
+      setRemoving(null)
+      toast.error(err instanceof Error ? err.message : 'Failed to remove')
+    },
+  })
 
-  useEffect(() => {
-    const handleUpdate = () => {
-      fetchContacts()
-    }
-    window.addEventListener('contacts-updated', handleUpdate)
-    return () => window.removeEventListener('contacts-updated', handleUpdate)
-  }, [fetchContacts])
-
-  const handleAdd = useCallback(async () => {
+  const handleAdd = useCallback(() => {
     const emails = addEmail
       .split(',')
       .map((e) => e.trim())
@@ -68,52 +86,12 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
       toast.error('At least one valid email is required')
       return
     }
+    addMutation.mutate(emails)
+  }, [addEmail, addMutation])
 
-    setSaving(true)
-    try {
-      const res = await fetch('/api/contacts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deal_id: dealId,
-          name: emails[0], // use first email as name (DB requires a name)
-          email: emails,
-        }),
-      })
-      if (res.ok) {
-        toast.success(emails.length === 1 ? 'Email added' : `${emails.length} emails added`)
-        setShowAdd(false)
-        setAddEmail('')
-        fetchContacts()
-        window.dispatchEvent(new CustomEvent('contacts-updated'))
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to add')
-      }
-    } catch {
-      toast.error('Failed to add email')
-    } finally {
-      setSaving(false)
-    }
-  }, [addEmail, dealId, fetchContacts])
-
-  const handleRemove = useCallback(async (contactId: string) => {
-    try {
-      const res = await fetch(`/api/contacts/${contactId}`, { method: 'DELETE' })
-      if (res.ok) {
-        toast.success('Email removed')
-        fetchContacts()
-        window.dispatchEvent(new CustomEvent('contacts-updated'))
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to remove')
-      }
-    } catch {
-      toast.error('Failed to remove')
-    } finally {
-      setRemoving(null)
-    }
-  }, [fetchContacts])
+  const handleRemove = useCallback((contactId: string) => {
+    removeMutation.mutate(contactId)
+  }, [removeMutation])
 
   return (
     <div style={{ borderColor: 'var(--color-surface-2)' }}>
@@ -175,11 +153,11 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
                 </button>
                 <button
                   onClick={handleAdd}
-                  disabled={saving || !addEmail.trim()}
+                  disabled={addMutation.isPending || !addEmail.trim()}
                   className="h-6 px-3 rounded text-[11px] font-medium transition-colors disabled:opacity-50"
                   style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
                 >
-                  {saving ? 'Adding...' : 'Add'}
+                  {addMutation.isPending ? 'Adding...' : 'Add'}
                 </button>
               </div>
             </div>

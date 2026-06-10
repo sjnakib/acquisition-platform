@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,13 +43,10 @@ function ProfileContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
-  const [data, setData] = useState<ProfileData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [editAvatarUrl, setEditAvatarUrl] = useState('')
-  const [saving, setSaving] = useState(false)
   const activeTab = searchParams.get('tab') ?? 'profile'
   const setActiveTab = useCallback((tab: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -56,62 +54,60 @@ function ProfileContent() {
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }, [searchParams, router, pathname])
 
+  const { data, isLoading: loading, error: queryError } = useQuery<ProfileData>({
+    queryKey: ['auth', 'me'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/me')
+      if (res.status === 401) { router.push('/login'); throw new Error('Unauthorized') }
+      if (!res.ok) throw new Error('Failed to load profile')
+      const json = await res.json()
+      if (json.error) throw new Error(json.error)
+      return json
+    },
+  })
+
   useEffect(() => {
-    fetch('/api/auth/me')
-      .then((r) => {
-        if (r.status === 401) { router.push('/login'); return null }
-        return r.json()
+    if (data) {
+      setEditName(data.profile?.full_name ?? '')
+      setEditAvatarUrl(data.profile?.avatar_url ?? '')
+    }
+  }, [data])
+
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load profile') : ''
+
+  const updateProfile = useMutation({
+    mutationFn: async (payload: { full_name: string; avatar_url: string | null }) => {
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       })
-      .then((json) => {
-        if (!json) return
-        if (json.error) { setError(json.error); return }
-        setData(json)
-        setEditName(json.profile?.full_name ?? '')
-        setEditAvatarUrl(json.profile?.avatar_url ?? '')
-      })
-      .catch(() => setError('Failed to load profile details.'))
-      .finally(() => setLoading(false))
-  }, [router])
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to save changes')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      setEditing(false)
+      toast.success('Profile updated successfully')
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : 'Failed to save profile'
+      toast.error(msg)
+    },
+  })
 
   async function handleSave() {
     if (!editName.trim()) {
       toast.error('Name cannot be empty')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
-      const res = await fetch('/api/auth/me', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          full_name: editName.trim(),
-          avatar_url: editAvatarUrl.trim() || null
-        }),
-      })
-      if (!res.ok) {
-        const json = await res.json()
-        setError(json.error ?? 'Failed to save changes')
-        toast.error(json.error ?? 'Failed to save changes')
-      } else {
-        setData((prev) => prev ? { 
-          ...prev, 
-          profile: { 
-            ...prev.profile, 
-            full_name: editName.trim(),
-            avatar_url: editAvatarUrl.trim() || null
-          } 
-        } : prev)
-        setEditing(false)
-        toast.success('Profile updated successfully')
-        window.dispatchEvent(new Event('profile-updated'))
-      }
-    } catch {
-      setError('An error occurred while saving.')
-      toast.error('Failed to save profile')
-    } finally {
-      setSaving(false)
-    }
+    updateProfile.mutate({
+      full_name: editName.trim(),
+      avatar_url: editAvatarUrl.trim() || null,
+    })
   }
 
   function handleCancel() {
@@ -202,7 +198,7 @@ function ProfileContent() {
                   variant="outline" 
                   size="sm" 
                   onClick={handleCancel} 
-                  disabled={saving}
+                  disabled={updateProfile.isPending}
                 >
                   <X size={13} />
                   Cancel
@@ -210,11 +206,11 @@ function ProfileContent() {
                 <Button 
                   size="sm" 
                   onClick={handleSave} 
-                  disabled={saving || !editName.trim()}
+                  disabled={updateProfile.isPending || !editName.trim()}
                   className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:bg-[var(--color-accent)]/90"
                 >
                   <Save size={13} />
-                  {saving ? 'Saving...' : 'Save'}
+                  {updateProfile.isPending ? 'Saving...' : 'Save'}
                 </Button>
               </div>
             )}

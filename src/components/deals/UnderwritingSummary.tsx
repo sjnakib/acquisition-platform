@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -31,9 +32,9 @@ interface Props {
 }
 
 export function UnderwritingSummary({ dealId, unitCount }: Props) {
+  const queryClient = useQueryClient()
   const [data, setData] = useState<UnderwritingData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
   const { data: deal } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
@@ -52,10 +53,9 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     setDirty(true)
   }, [])
 
-  const save = useCallback(async () => {
-    if (!data) return
-    setSaving(true)
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!data) throw new Error('No data')
       const res = await fetch('/api/underwriting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,19 +74,23 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           uw_notes: data.uw_notes,
         }),
       })
-      if (res.ok) {
-        setDirty(false)
-        toast.success('Underwriting saved')
-      } else {
+      if (!res.ok) {
         const json = await res.json()
-        toast.error(json.error ?? 'Failed to save')
+        throw new Error(json.error ?? 'Failed to save')
       }
-    } catch {
-      toast.error('Failed to save underwriting')
-    } finally {
-      setSaving(false)
-    }
-  }, [data, dealId])
+    },
+    onSuccess: () => {
+      setDirty(false)
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      toast.success('Underwriting saved')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save underwriting'),
+  })
+
+  const save = useCallback(() => {
+    if (!data) return
+    saveMutation.mutate()
+  }, [data, saveMutation])
 
   if (loading) {
     return (
@@ -141,9 +145,9 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           </p>
         </div>
         {dirty && (
-          <Button size="sm" onClick={save} disabled={saving} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
+          <Button size="sm" onClick={save} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
             <Save size={13} />
-            {saving ? 'Saving...' : 'Save'}
+            {saveMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
         )}
       </div>

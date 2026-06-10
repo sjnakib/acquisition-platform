@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { z } from 'zod'
@@ -41,30 +41,36 @@ export function CreateCampaignDialog({ open, onOpenChange, projectId, onCreated 
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const queryClient = useQueryClient()
 
-  const { register, handleSubmit, control, reset, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(createCampaignSchema),
     defaultValues: { is_active: true },
   })
 
-  const onSubmit = async (data: FormValues) => {
-    const res = await fetch('/api/campaigns', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, project_id: projectId }),
-    })
-    if (!res.ok) {
-      const err = await res.json()
-      toast.error(err.error ?? 'Failed to create campaign')
-      return
-    }
-    const created = await res.json()
-    queryClient.invalidateQueries({ queryKey: ['campaigns', projectId] })
-    toast.success('Campaign created')
-    reset()
-    setAdvancedOpen(false)
-    onOpenChange(false)
-    onCreated?.({ id: created.id, name: created.name })
-  }
+  const createMutation = useMutation({
+    mutationFn: async (data: FormValues) => {
+      const res = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, project_id: projectId }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error ?? 'Failed to create campaign')
+      }
+      return res.json()
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns', projectId] })
+      toast.success('Campaign created')
+      reset()
+      setAdvancedOpen(false)
+      onOpenChange(false)
+      onCreated?.({ id: created.id, name: created.name })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create campaign'),
+  })
+
+  const onSubmit = (data: FormValues) => createMutation.mutate(data)
 
   const handleClose = () => {
     reset()
@@ -222,11 +228,11 @@ export function CreateCampaignDialog({ open, onOpenChange, projectId, onCreated 
           )}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleClose} disabled={isSubmitting}>
+            <Button type="button" variant="outline" onClick={handleClose} disabled={createMutation.isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create Campaign'}
+            <Button type="submit" disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating...' : 'Create Campaign'}
             </Button>
           </DialogFooter>
         </form>

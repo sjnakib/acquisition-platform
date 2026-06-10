@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
@@ -18,45 +19,40 @@ interface ProfileData {
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [collapsed, toggleCollapsed] = useSidebarCollapsed()
-  const [role, setRole] = useState<'internal' | 'client' | null>(null)
-  const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const { data: roleData } = useQuery({
+    queryKey: ['auth', 'role'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
+    },
+    staleTime: Infinity,
+  })
+  const role = roleData ?? null
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setRole((user?.app_metadata?.role as 'internal' | 'client') ?? 'internal')
-    })
-  }, [supabase])
+  const { data: profileData = null } = useQuery<ProfileData | null>({
+    queryKey: ['auth', 'me'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/me')
+      if (!res.ok) return null
+      const json = await res.json()
+      return json?.profile ?? null
+    },
+  })
 
-  useEffect(() => {
-    const loadProfile = () => {
-      fetch('/api/auth/me')
-        .then((r) => r.json())
-        .then((json) => {
-          if (json?.profile) setProfileData(json.profile)
-        })
-        .catch(() => {})
-    }
-
-    loadProfile()
-    window.addEventListener('profile-updated', loadProfile)
-    return () => window.removeEventListener('profile-updated', loadProfile)
-  }, [])
-
-  useEffect(() => {
-    if (role === 'internal') {
-      fetch('/api/projects')
-        .then((r) => r.json())
-        .then((data) => {
-          if (Array.isArray(data)) setProjects(data)
-        })
-        .catch(() => {})
-    }
-  }, [role])
+  const { data: projects = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['projects', 'all'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects')
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: role === 'internal',
+  })
 
   async function handleLogout() {
     setIsExiting(true)

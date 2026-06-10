@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { useDeal } from '@/lib/hooks/useDeal'
 
 interface Deal {
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
@@ -13,20 +14,11 @@ interface Deal {
 export default function DealDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const [deal, setDeal] = useState<Deal | null>(null)
-  const [loading, setLoading] = useState(true)
+  const dealId = params.id as string
+  const { data: deal, isLoading: loading } = useDeal<Deal>(dealId)
   const [activeTab, setActiveTab] = useState('overview')
 
   const tabs = ['Overview', 'Contacts', 'Outreach', 'Documents', 'Underwriting', 'LOI', 'Call Brief']
-
-  useEffect(() => {
-    if (!params.id) return
-    fetch(`/api/deals/${params.id}`)
-      .then((res) => res.json())
-      .then((data) => setDeal(data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [params.id])
 
   if (loading) {
     return (

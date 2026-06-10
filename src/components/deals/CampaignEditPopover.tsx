@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 interface Campaign {
   id: string
@@ -16,17 +17,19 @@ interface CampaignEditPopoverProps {
 }
 
 export function CampaignEditPopover({ value, onChange, onCommit, onDiscard }: CampaignEditPopoverProps) {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [search, setSearch] = useState(value || '')
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    fetch('/api/campaigns')
-      .then((res) => res.ok ? res.json() : [])
-      .then((data: Campaign[]) => setCampaigns(data))
-      .catch(() => {})
-  }, [])
+  const { data: campaigns = [] } = useQuery<Campaign[]>({
+    queryKey: ['campaigns', 'global'],
+    queryFn: async () => {
+      const res = await fetch('/api/campaigns')
+      if (!res.ok) return []
+      return res.json()
+    },
+    staleTime: 10 * 60 * 1000,
+  })
 
   useEffect(() => {
     inputRef.current?.focus()

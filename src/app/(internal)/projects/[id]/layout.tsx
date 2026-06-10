@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { internalNavItems, clientNavItems } from '@/lib/navigation'
@@ -24,69 +25,53 @@ export default function ProjectLayout({
 }) {
   const { id: projectId } = use(params)
   const [collapsed, toggleCollapsed] = useSidebarCollapsed()
-  const [projectName, setProjectName] = useState('Loading...')
-  const [profileData, setProfileData] = useState<ProfileData | null>(null)
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
   const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
 
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/projects/${projectId}`)
-      .then(async (r) => {
-        const data = await r.json()
-        if (cancelled) return
-        if (data?.name) {
-          setProjectName(data.name)
-        } else if (!r.ok && r.status === 404) {
-          // Project genuinely doesn't exist — navigate away
-          router.push('/projects')
-        } else {
-          // Server error, network issue, etc. — show error, don't redirect
-          setProjectName('Error loading project')
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setProjectName('Error loading project')
-      })
-    return () => { cancelled = true }
-  }, [projectId, router])
+  const { data: projectData, error: projectError } = useQuery<{ name?: string }>({
+    queryKey: ['project', projectId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}`)
+      if (res.status === 404) throw new Error('NOT_FOUND')
+      if (!res.ok) throw new Error('Failed to fetch project')
+      return res.json()
+    },
+    retry: (failureCount, error) => {
+      if (error.message === 'NOT_FOUND') return false
+      return failureCount < 2
+    },
+  })
 
   useEffect(() => {
-    const loadProfile = () => {
-      fetch('/api/auth/me')
-        .then((r) => r.json())
-        .then((json) => {
-          if (json?.profile) setProfileData(json.profile)
-        })
-        .catch(() => {})
+    if (projectError && (projectError as Error).message === 'NOT_FOUND') {
+      router.push('/projects')
     }
+  }, [projectError, router])
 
-    loadProfile()
-    window.addEventListener('profile-updated', loadProfile)
-    return () => window.removeEventListener('profile-updated', loadProfile)
-  }, [])
+  const projectName: string = projectData?.name ?? (projectData === undefined ? 'Loading...' : 'Error loading project')
 
-  useEffect(() => {
-    const handle = (e: Event) => {
-      const name = (e as CustomEvent<{ name: string }>).detail?.name
-      if (name) setProjectName(name)
-    }
-    window.addEventListener('project-updated', handle)
-    return () => window.removeEventListener('project-updated', handle)
-  }, [])
+  const { data: profileData = null } = useQuery<ProfileData | null>({
+    queryKey: ['auth', 'me'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/me')
+      if (!res.ok) return null
+      const json = await res.json()
+      return json?.profile ?? null
+    },
+  })
+
+  const { data: projects = [] } = useQuery<Array<{ id: string; name: string }>>({
+    queryKey: ['projects', 'recent'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects?recent=true&limit=4')
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+  })
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/access`, { method: 'POST' }).catch(() => {})
-  }, [projectId])
-
-  useEffect(() => {
-    fetch('/api/projects?recent=true&limit=4')
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) setProjects(data)
-      })
-      .catch(() => {})
   }, [projectId])
 
   async function handleLogout() {

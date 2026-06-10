@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, XCircle, Loader2, Archive, ArchiveRestore, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
@@ -32,43 +33,45 @@ const STAGE_LABELS: Record<string, string> = {
 }
 
 export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps) {
-  const [transitioning, setTransitioning] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
   const [showFailConfirm, setShowFailConfirm] = useState(false)
 
-  const handleStageClick = useCallback(async (targetStage: string) => {
-    if (!dealId || !onStageChange || transitioning) return
+  const stageMutation = useMutation({
+    mutationFn: async (targetStage: string) => {
+      const res = await fetch(`/api/deals/${dealId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: targetStage }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to update stage')
+      }
+      return targetStage
+    },
+    onSuccess: (targetStage) => {
+      toast.success(`Stage updated to ${STAGE_LABELS[targetStage] ?? targetStage}`)
+      onStageChange?.(targetStage)
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId!] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update stage'),
+  })
+
+  const handleStageClick = useCallback((targetStage: string) => {
+    if (!dealId || !onStageChange || stageMutation.isPending) return
 
     const currentStage = stage as DealStage
     const target = targetStage as DealStage
 
-    // Validate transition locally
     const check = canTransition(currentStage, target)
     if (!check.ok) {
       toast.error(check.reason ?? `Cannot transition from ${currentStage} to ${target}`)
       return
     }
 
-    setTransitioning(targetStage)
-    try {
-      const res = await fetch(`/api/deals/${dealId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: targetStage }),
-      })
-      if (res.ok) {
-        toast.success(`Stage updated to ${STAGE_LABELS[targetStage] ?? targetStage}`)
-        onStageChange(targetStage)
-      } else {
-        const json = await res.json()
-        toast.error(json.error ?? 'Failed to update stage')
-      }
-    } catch {
-      toast.error('Failed to update stage')
-    } finally {
-      setTransitioning(null)
-    }
-  }, [dealId, stage, onStageChange, transitioning])
+    stageMutation.mutate(targetStage)
+  }, [dealId, stage, onStageChange, stageMutation])
 
   const currentIndex = STAGES.indexOf(stage)
   const isPipelineActive = currentIndex !== -1
@@ -99,7 +102,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
           const isActive = i === currentIndex
           const label = STAGE_LABELS[s] ?? s
           
-          const isClickable = !!(dealId && onStageChange && !transitioning && stage !== s)
+          const isClickable = !!(dealId && onStageChange && !stageMutation.isPending && stage !== s)
           
           // Check if transition is valid
           const check = isClickable ? canTransition(stage as DealStage, s as DealStage) : { ok: false }
@@ -137,7 +140,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
                 }}
                 title={isDisabledTransition ? `${check.reason}` : `Transition to ${label}`}
               >
-                {transitioning === s ? (
+                {stageMutation.isPending && stageMutation.variables === s ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : isCompleted ? (
                   <Check className="h-3 w-3" />
@@ -207,11 +210,11 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
               <button
                 type="button"
                 onClick={() => handleStageClick(stage === 'failed' ? 'loi' : 'lead')}
-                disabled={!!transitioning}
+                disabled={!!stageMutation.isPending}
                 className="flex items-center gap-1.5 text-[11px] font-medium hover:underline transition-all duration-150 select-none cursor-pointer"
                 style={{ color: 'var(--color-accent)' }}
               >
-                {transitioning ? (
+                {stageMutation.isPending ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : stage === 'failed' ? (
                   <RotateCcw className="h-3.5 w-3.5" />
@@ -229,7 +232,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
               variant="outline"
               size="sm"
               onClick={() => setShowArchiveConfirm(true)}
-              disabled={!!transitioning}
+              disabled={!!stageMutation.isPending}
               className="h-8 gap-1.5 text-xs transition-all duration-200"
               style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-surface-3)' }}
             >
@@ -244,7 +247,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
               variant="outline"
               size="sm"
               onClick={() => setShowFailConfirm(true)}
-              disabled={!!transitioning}
+              disabled={!!stageMutation.isPending}
               className="h-8 gap-1.5 text-xs hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger-text)] hover:border-[var(--color-danger-border)] transition-all duration-200"
               style={{ color: 'var(--color-danger-text)', borderColor: 'var(--color-surface-3)' }}
             >
@@ -267,7 +270,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 sm:gap-0 mt-4">
-            <Button variant="outline" onClick={() => setShowArchiveConfirm(false)} disabled={!!transitioning}>
+            <Button variant="outline" onClick={() => setShowArchiveConfirm(false)} disabled={!!stageMutation.isPending}>
               Cancel
             </Button>
             <Button
@@ -275,10 +278,10 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
                 await handleStageClick('archived')
                 setShowArchiveConfirm(false)
               }}
-              disabled={!!transitioning}
+              disabled={!!stageMutation.isPending}
               style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
             >
-              {transitioning ? <LoadingSpinner size="sm" /> : 'Archive'}
+              {stageMutation.isPending ? <LoadingSpinner size="sm" /> : 'Archive'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -296,7 +299,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 sm:gap-0 mt-4">
-            <Button variant="outline" onClick={() => setShowFailConfirm(false)} disabled={!!transitioning}>
+            <Button variant="outline" onClick={() => setShowFailConfirm(false)} disabled={!!stageMutation.isPending}>
               Cancel
             </Button>
             <Button
@@ -305,9 +308,9 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
                 await handleStageClick('failed')
                 setShowFailConfirm(false)
               }}
-              disabled={!!transitioning}
+              disabled={!!stageMutation.isPending}
             >
-              {transitioning ? <LoadingSpinner size="sm" /> : 'Mark Failed'}
+              {stageMutation.isPending ? <LoadingSpinner size="sm" /> : 'Mark Failed'}
             </Button>
           </DialogFooter>
         </DialogContent>
