@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useMemo, useRef, useEffect, use, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { BarChart3, Mail, Inbox } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -30,18 +30,30 @@ interface FieldDef {
   id: string; key: string; label: string; data_type: string; show_in_grid: boolean; sort_order: number; source?: string | null
 }
 
-export default function CampaignDetailPage({ params }: { params: Promise<{ id: string; campaignId: string }> }) {
-  const { id: projectId, campaignId } = use(params)
+function CampaignDetailContent({ projectId, campaignId }: { projectId: string; campaignId: string }) {
   const { projectName } = useProjectContext()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'details' | 'leads' | 'emails'>('leads')
-  const [page, setPage] = useState(1); const [pageSize, setPageSize] = useState(50)
-  const [search, setSearch] = useState(''); const [sortKey, setSortKey] = useState('created_at')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const tab = (searchParams.get('tab') as 'details' | 'leads' | 'emails') ?? 'leads'
+  const page = parseInt(searchParams.get('page') ?? '1', 10)
+  const pageSize = parseInt(searchParams.get('pageSize') ?? '50', 10)
+  const sortKey = searchParams.get('sort') ?? 'created_at'
+  const sortDir = (searchParams.get('order') ?? 'desc') as 'asc' | 'desc'
+  const [search, setSearch] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false); const [gridKey, setGridKey] = useState(0)
+
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    const p = new URLSearchParams(searchParams.toString())
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null) p.delete(key)
+      else p.set(key, value)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }, [searchParams, router, pathname])
 
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -148,11 +160,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     if (deals.length === 0 && total > 0 && page > 1) {
       const maxPage = Math.ceil(total / pageSize)
       const timer = setTimeout(() => {
-        setPage(Math.min(page, maxPage))
+        updateParams({ page: String(Math.min(page, maxPage)) })
       }, 0)
       return () => clearTimeout(timer)
     }
-  }, [deals.length, total, page, pageSize])
+  }, [deals.length, total, page, pageSize, updateParams])
 
   if (campaignLoading) return <div className="flex justify-center py-20"><LoadingSpinner size="page" /></div>
   if (!campaign) return <div className="text-center py-20 text-[var(--color-text-tertiary)]">Campaign not found.</div>
@@ -181,7 +193,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         )}
       </div>
 
-      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => setTab(v as 'details' | 'leads' | 'emails')} className="flex-1 flex flex-col min-h-0">
+      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => updateParams({ tab: v, page: '1' })} className="flex-1 flex flex-col min-h-0">
         <TabsList className="mb-4 flex-shrink-0">
           {total === 0 ? (
             <Tooltip content="Import leads first to enable mass emailing" position="bottom">
@@ -322,12 +334,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   key={gridKey} deals={deals} loading={dealsLoading} fieldDefs={fieldDefs}
                   emptyAction={{ label: 'Import Leads', onClick: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`) }}
                   fillHeight totalRows={total} page={page} pageSize={pageSize}
-                  onPageChange={(p) => { setPage(p); setAllSelected(false) }}
-                  onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
+                  onPageChange={(p) => { updateParams({ page: String(p) }); setAllSelected(false) }}
+                  onPageSizeChange={(v) => { updateParams({ pageSize: String(v), page: '1' }); setAllSelected(false) }}
                   allRowsSelected={allSelected}
                   onSelectionChange={(ids) => { if (allSelected && ids.size === 0) setAllSelected(false) }}
                   serverSide serverSortKey={sortKey} serverSortDir={sortDir}
-                  onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
+                  onSortChange={(key, dir) => { updateParams({ sort: key, order: dir }); setAllSelected(false) }}
                   onSelectAll={() => setAllSelected(true)}
                   onRowClick={(r: Deal) => router.push(`/projects/${projectId}/deals/${r.id}`)}
                   topToolbar={{
@@ -371,5 +383,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         }}
       />
     </div>
+  )
+}
+
+export default function CampaignDetailPage({ params }: { params: Promise<{ id: string; campaignId: string }> }) {
+  const { id, campaignId } = use(params)
+  return (
+    <Suspense fallback={<LoadingSpinner size="lg" />}>
+      <CampaignDetailContent projectId={id} campaignId={campaignId} />
+    </Suspense>
   )
 }

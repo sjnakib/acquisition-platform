@@ -12,7 +12,7 @@ Commands + gotchas: see CLAUDE.md quick-start section.
 - **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect. Layout guards reinforce this.
 - **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
-## API Routes (52 route files in `src/app/api/`)
+## API Routes (61 route files in `src/app/api/`)
 
 Pattern: auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
 
@@ -23,16 +23,17 @@ Domains: admin, attachments, auth, ca-credentials, calls, campaigns, contacts, d
 
 ## Database
 
-- **34 migrations** (`supabase/migrations/0001–0034`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access. 0030 = multi-project Gmail (`google_connections` table, projects FK). 0031 = email body template fields. 0032 = custom templates (`email_templates` table, project-scoped). 0033 = `custom` enum value for `email_template_key`. 0034 = **address replaces deal_name** as primary required deal field.
+- **41 migrations** (`supabase/migrations/0001–0041`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access. 0030 = multi-project Gmail (`google_connections` table, projects FK). 0031 = email body template fields. 0032 = custom templates (`email_templates` table, project-scoped). 0033 = `custom` enum value for `email_template_key`. 0034 = **address replaces deal_name** as primary required deal field. 0035 = snoozed email threads. 0036 = enable realtime. 0037 = email attachments storage. 0038–0040 = client RLS fixes (field defs, deal visibility, contacts). 0041 = Drive folders for deal-linked file management.
 - **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
 - **8-stage `deal_stage`:** `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
 - **Flexible schema:** `deals` table stores only system fields. Property data in `deal_fields` as key/value rows catalogued by `field_definitions`. **`address` is the required primary field** (migration 0034 replaced `deal_name`). Deals API response includes `deal_fields` with nested `field_definitions` join — new code touching deals must include this join.
-- **Key tables:** users, contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_connections, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors, email_templates.
+- **Key tables:** users, contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_connections, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors, email_templates, drive_folders.
 
 ## Architecture
 
-- **Dashboard** guides new projects through system-assisted deal flow: import properties → create campaign → view pipeline. Empty states for each step surface the next action.
-- **Multi-project:** All core data scoped to `project_id` FK + RLS (migrations 0019–0034). `ProjectProvider` (`src/components/shared/ProjectContext.tsx`) wraps project pages via `useProjectContext`. Every query/API call must be project-scoped. Google connections are project-scoped via `google_connection_id` FK on `projects` (0030).
+- **Dashboard** guides new projects through system-assisted deal flow: import properties → create campaign → view pipeline. Empty states for each step surface the next action. Per-project analytics: `KPIScorecard`, `ConversionChart`, `FunnelMetrics`, `PipelineTable`, `CallStatistics`, `PipelineAnalytics`, `TopOpportunities`.
+- **Drive-linked deal rooms:** Deals can link a Google Drive folder (`drive_folders` table). `DriveFileManager` + `DriveBreadcrumb` provide file browsing, upload, and folder navigation in deal detail view. API: `/api/deals/[id]/drive/files`.
+- **Multi-project:** All core data scoped to `project_id` FK + RLS (migrations 0019–0041). `ProjectProvider` (`src/components/shared/ProjectContext.tsx`) wraps project pages via `useProjectContext`. Every query/API call must be project-scoped. Google connections are project-scoped via `google_connection_id` FK on `projects` (0030). Drive folders are deal-scoped via `drive_folders` table (0041).
 - **Supabase layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — limited use), `types.ts` (manual placeholder).
 - **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`): `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. Batch-delete logic in `src/lib/batch-delete.ts`.
 - **`src/lib/stage-machine.ts`** — `canTransition()` is source of truth for deal stages. Used by 4 API routes.

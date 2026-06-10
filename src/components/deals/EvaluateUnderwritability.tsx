@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
+import { useDeal } from '@/lib/hooks/useDeal'
 
 interface UnderwritingData {
   underwritability_status?: string | null
@@ -40,13 +41,16 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
 
+  const { data: deal } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
+
   useEffect(() => {
-    fetch(`/api/deals/${dealId}`)
-      .then((r) => r.json())
-      .then((deal) => setData(deal.underwriting ?? {}))
-      .catch(() => toast.error('Failed to load underwriting data'))
-      .finally(() => setLoading(false))
-  }, [dealId])
+    if (!deal) return
+    const t = setTimeout(() => {
+      setData(deal.underwriting ?? {})
+      setLoading(false)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [deal])
 
   const update = useCallback((field: string, value: string | number | null) => {
     setData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)

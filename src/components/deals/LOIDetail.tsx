@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useDeal } from '@/lib/hooks/useDeal'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -62,21 +63,22 @@ export function LOIDetail({ dealId }: Props) {
   const [showRoundForm, setShowRoundForm] = useState(false)
   const [newRound, setNewRound] = useState({ price: '', party: 'buyer', round_date: new Date().toISOString().split('T')[0]!, notes: '' })
 
+  const { data: deal } = useDeal<{ loi_records?: LOIRecord }>(dealId)
+
   useEffect(() => {
-    fetch(`/api/deals/${dealId}`)
-      .then((r) => r.json())
-      .then((deal) => {
-        if (deal.loi_records) {
-          setLoi(deal.loi_records)
-          fetch(`/api/loi/${deal.loi_records.id}/rounds`)
-            .then((r) => r.json())
-            .then((data) => setRounds(Array.isArray(data) ? data : []))
-            .catch(() => {})
-        }
-      })
-      .catch(() => toast.error('Failed to load LOI data'))
-      .finally(() => setLoading(false))
-  }, [dealId])
+    if (!deal) return
+    const t = setTimeout(() => {
+      if (deal.loi_records) {
+        setLoi(deal.loi_records)
+        fetch(`/api/loi/${deal.loi_records.id}/rounds`)
+          .then((r) => r.json())
+          .then((data) => setRounds(Array.isArray(data) ? data : []))
+          .catch(() => {})
+      }
+      setLoading(false)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [deal])
 
   const updateLoi = useCallback((field: string, value: unknown) => {
     setLoi((prev) => prev ? { ...prev, [field]: value } : prev)

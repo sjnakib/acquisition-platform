@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
-import { Trash2, Plus, X, Save, Folder, ExternalLink } from 'lucide-react'
+import { Trash2, Plus, Save, Folder, ExternalLink, Settings, Users, Link2, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { DriveFolderPicker } from '@/components/projects/DriveFolderPicker'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
@@ -29,6 +29,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const { projectName } = useProjectContext()
   const router = useRouter()
   const queryClient = useQueryClient()
+
+  // Project details & Sponsors state
   const [project, setProject] = useState<{ name: string; description: string | null; google_connections: { google_email: string } | null } | null>(null)
   const [sponsors, setSponsors] = useState<Sponsor[]>([])
   const [loading, setLoading] = useState(true)
@@ -50,7 +52,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const [addingSponsor, setAddingSponsor] = useState(false)
 
   // Delete state
-  const [showDelete, setShowDelete] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
 
@@ -84,14 +85,12 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         setName(proj.name ?? '')
         setDescription(proj.description ?? '')
         setSponsors(spons ?? [])
-        // Check per-project Gmail connection
         if (proj.google_connections?.google_email) {
           setGmailConnected(true)
           setGmailEmail(proj.google_connections.google_email)
         }
       })
 
-    // Fetch working folder separately
     fetch(`/api/projects/${projectId}/drive/working-folder`)
       .then((r) => r.json())
       .then((data) => {
@@ -183,7 +182,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       setSettingFolder(false)
       throw new Error(json.error ?? `Failed to set working folder (${res.status})`)
     }
-    // Refresh working folder info
     const infoRes = await fetch(`/api/projects/${projectId}/drive/working-folder`)
     const info = await infoRes.json()
     if (info.workingFolder) {
@@ -194,7 +192,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
   async function removeWorkingFolder() {
     try {
-      // Set folderId to null clears the working folder
       const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,92 +249,366 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         ]}
       />
 
-      <div className="space-y-6 max-w-2xl mx-auto w-full">
-        {/* General */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>General</h2>
+      <div className="space-y-8 max-w-3xl mx-auto w-full pb-16">
+        {/* Section 1: General Info */}
+        <div 
+          className="animate-item-entrance rounded-xl border p-6" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            borderColor: 'var(--color-surface-2)', 
+            boxShadow: 'var(--shadow-sm)',
+            animationDelay: '0ms'
+          }}
+        >
+          <div className="flex items-center gap-2.5 pb-3 mb-5 border-b border-[var(--color-surface-2)]">
+            <div className="p-1.5 rounded-lg bg-[var(--color-accent-bg)] text-[var(--accent)]">
+              <Settings size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">General Settings</h2>
+              <p className="text-[11px] text-[var(--color-text-secondary)]">Manage the basic project metadata and descriptions.</p>
+            </div>
+          </div>
+          
           <div className="space-y-4 w-full">
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Project Name</label>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Project Name</label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="bg-[var(--color-surface-1)]"
+                className="bg-[var(--color-canvas)] border-[var(--color-surface-2)] focus:ring-[var(--accent)] text-xs"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Description</label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="bg-[var(--color-surface-1)] resize-none"
+                rows={4}
+                className="bg-[var(--color-canvas)] border-[var(--color-surface-2)] resize-none focus:ring-[var(--accent)] text-xs"
               />
             </div>
-            <Button onClick={saveProject} disabled={saving}>
-              <Save size={14} />
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
+            <div className="flex justify-end pt-2">
+              <Button onClick={saveProject} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="shadow-xs flex items-center gap-1.5 h-9">
+                {saving ? <LoadingSpinner size="sm" /> : <Save size={14} />}
+                {saving ? 'Saving Changes...' : 'Save Changes'}
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Sponsors */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Sponsors</h2>
-
-          <div className="flex gap-2 w-full mb-4">
-            <Input
-              value={sponsorEmail}
-              onChange={(e) => setSponsorEmail(e.target.value)}
-              placeholder="email@example.com"
-              type="email"
-              className="flex-1 bg-[var(--color-surface-1)]"
-            />
-            <Input
-              value={sponsorName}
-              onChange={(e) => setSponsorName(e.target.value)}
-              placeholder="Full name (optional)"
-              className="flex-1 bg-[var(--color-surface-1)]"
-            />
-            <Button
-              onClick={addSponsor}
-              disabled={addingSponsor || !sponsorEmail}
-            >
-              <Plus size={14} />
-              Add
-            </Button>
+        {/* Section 2: Google Workspace (Merged Integration Card) */}
+        <div 
+          className="animate-item-entrance rounded-xl border p-6" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            borderColor: 'var(--color-surface-2)', 
+            boxShadow: 'var(--shadow-sm)',
+            animationDelay: '75ms'
+          }}
+        >
+          <div className="flex items-center gap-2.5 pb-3 mb-5 border-b border-[var(--color-surface-2)]">
+            <div className="p-1.5 rounded-lg bg-[var(--color-accent-bg)] text-[var(--accent)]">
+              <Link2 size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Google Workspace Integration</h2>
+              <p className="text-[11px] text-[var(--color-text-secondary)]">Manage connected services powered by your Google Account credentials.</p>
+            </div>
           </div>
 
-          {sponsors.length > 0 && (
-            <div className="border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
-              <table className="w-full text-sm">
-                <thead style={{ background: 'var(--color-surface-1)' }}>
-                  <tr>
-                    <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Name</th>
-                    <th className="text-left px-4 py-2 text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>Email</th>
-                    <th className="w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sponsors.map((s) => (
-                    <tr key={s.id} className="border-t" style={{ borderColor: 'var(--color-border)' }}>
-                      <td className="px-4 py-2" style={{ color: 'var(--color-text-primary)' }}>{s.full_name ?? '—'}</td>
-                      <td className="px-4 py-2" style={{ color: 'var(--color-text-secondary)' }}>{s.email ?? '—'}</td>
-                      <td className="px-2 py-2">
-                        <button
-                          onClick={() => setRemovingSponsor(s)}
-                          className="p-1 rounded transition-colors hover:bg-[var(--color-surface-1)]"
-                          style={{ color: 'var(--color-text-tertiary)' }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {!gmailConnected ? (
+            <div className="flex flex-col items-center justify-center text-center p-8 border border-dashed border-[var(--color-surface-3)] rounded-xl bg-[var(--color-canvas)] py-10">
+              <div className="w-12 h-12 rounded-full bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-xs mb-4">
+                <svg className="w-6 h-6" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.77-.07-1.54-.2-2.27H12v4.51h6.6c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.68-5.17 3.68-8.82z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 22.25 7.37 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.27 14.29a7.18 7.18 0 0 1 0-4.58V6.62H1.29a11.94 11.94 0 0 0 0 10.76l3.98-3.09z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.26 1.75 1.29 4.75l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-xs font-semibold text-[var(--color-text-primary)] mb-1">Unified Google Integration</h3>
+              <p className="text-[11px] text-[var(--color-text-tertiary)] max-w-sm mb-6 leading-relaxed">
+                Connect your Google Account to authorize email communications (Gmail) and document storage organization (Google Drive) under a single sign-on.
+              </p>
+              <Button asChild style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-9 px-6 rounded-lg text-xs font-medium shadow-xs">
+                <a href={`/api/auth/google?projectId=${projectId}`}>Connect Google Account</a>
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Account Node (Parent) */}
+              <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center flex-shrink-0 shadow-xs">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M23.745 12.27c0-.77-.07-1.54-.2-2.27H12v4.51h6.6c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.68-5.17 3.68-8.82z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 22.25 7.37 24 12 24z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.27 14.29a7.18 7.18 0 0 1 0-4.58V6.62H1.29a11.94 11.94 0 0 0 0 10.76l3.98-3.09z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.26 1.75 1.29 4.75l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+                        />
+                      </svg>
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Integration Account</span>
+                      <span className="text-[11px] text-[var(--color-text-secondary)] font-mono truncate">{gmailEmail ?? 'Connected Account'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 self-end sm:self-center">
+                    <Badge variant="success" dot size="sm">Connected</Badge>
+                    <Button variant="outline" size="sm" onClick={disconnectGmail} disabled={disconnecting} className="h-8 text-xs border-[var(--color-surface-3)] hover:bg-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] bg-[var(--color-surface-0)] transition-colors duration-200">
+                      {disconnecting ? <LoadingSpinner size="sm" /> : 'Disconnect Account'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Branching tree representation */}
+              <div className="relative pl-6 ml-9 border-l border-dashed border-[var(--color-surface-3)] space-y-6">
+                
+                {/* Branch 1: Gmail Service */}
+                <div className="relative">
+                  {/* Connector Dot */}
+                  <span className="absolute -left-[30.5px] top-4.5 w-2 h-2 rounded-full bg-[var(--accent)] border border-[var(--color-surface-0)]" />
+                  
+                  <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center text-[var(--accent)] shadow-2xs">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">Gmail outreach & reply tracking</span>
+                          <span className="text-[9px] font-semibold bg-[var(--color-success-bg)] text-[var(--color-success-text)] px-1.5 py-0.5 rounded-full border border-[var(--color-success-border)]">Active</span>
+                        </div>
+                        <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5 leading-relaxed">
+                          Automated email sequences and incoming owner responses synchronize directly through this Google Account.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Branch 2: Google Drive Service */}
+                <div className="relative">
+                  {/* Connector Dot */}
+                  <span className="absolute -left-[30.5px] top-4.5 w-2 h-2 rounded-full bg-[#0F9D58] border border-[var(--color-surface-0)]" />
+
+                  <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)] space-y-4">
+                    <div className="flex items-center justify-between gap-4 pb-3 border-b border-[var(--color-surface-2)]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center text-[#0F9D58] shadow-2xs">
+                          <Folder size={15} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Drive workspace storage</span>
+                          <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5 leading-relaxed">
+                            Organizes checklist items and documents in the project's Drive folder under the same account.
+                          </p>
+                        </div>
+                      </div>
+                      {!workingFolder && (
+                        <Button onClick={() => setShowFolderPicker(true)} disabled={settingFolder} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
+                          {settingFolder ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
+                          Set Folder
+                        </Button>
+                      )}
+                    </div>
+
+                    {workingFolder ? (
+                      <div className="space-y-4 pt-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3 rounded-lg border border-[var(--color-surface-2)] bg-[var(--color-surface-0)] shadow-3xs">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <svg className="w-5 h-5 flex-shrink-0 text-[#0F9D58]" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95C8.08 7.14 9.94 6 12 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11c1.56.1 2.78 1.41 2.78 2.96 0 1.65-1.35 3-3 3z"/>
+                            </svg>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{workingFolder.name}</span>
+                              <a
+                                href={workingFolder.folderUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] hover:underline inline-flex items-center gap-1 text-[var(--accent)] font-semibold mt-0.5"
+                              >
+                                View folder in Google Drive <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 self-end sm:self-center">
+                            <Button variant="outline" size="sm" onClick={() => setShowFolderPicker(true)} disabled={settingFolder} className="h-7 text-[10px] border-[var(--color-surface-3)] bg-[var(--color-surface-0)] px-2">
+                              Change
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={removeWorkingFolder} className="h-7 text-[10px] border-[var(--color-danger-border)] text-[var(--color-danger-text)] hover:bg-[var(--color-danger-bg)] px-2">
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Mapping Schema visualization */}
+                        <div className="rounded-lg border border-[var(--color-surface-2)] bg-[var(--color-surface-0)] p-4">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-text-tertiary)] mb-2.5">Workspace Folder Mapping Schema</p>
+                          <div className="font-mono text-[11px] text-[var(--color-text-secondary)] leading-relaxed space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-amber-500">📁</span>
+                              <span className="font-semibold text-[var(--color-text-primary)]">{workingFolder.name}</span>
+                              <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans">Root</span>
+                            </div>
+                            <div className="pl-4 text-[var(--color-surface-3)]">└── <span className="text-amber-500">📁</span> <span className="text-[var(--color-text-primary)]">[Property Address]</span> <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans">Deal Folder</span></div>
+                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-green-600">📊</span> <span className="text-[var(--color-text-secondary)]">Underwriting Spreadsheet.xlsx</span></div>
+                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-red-500">📄</span> <span className="text-[var(--color-text-secondary)]">Diligence Checklist.pdf</span></div>
+                            <div className="pl-8 text-[var(--color-surface-3)]">└── <span className="text-amber-500">📁</span> <span className="text-[var(--color-text-tertiary)]">Attachments/</span></div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="pt-2 flex flex-col items-center justify-center text-center p-6 border border-dashed border-[var(--color-surface-2)] rounded-lg bg-[var(--color-surface-0)] py-8">
+                        <div className="w-10 h-10 rounded-full bg-[var(--color-canvas)] border border-[var(--color-surface-2)] flex items-center justify-center text-[var(--color-text-tertiary)] mb-2.5">
+                          <Folder size={18} />
+                        </div>
+                        <p className="text-xs font-semibold text-[var(--color-text-primary)] mb-0.5">No Drive folder linked</p>
+                        <p className="text-[11px] text-[var(--color-text-tertiary)] mb-4 max-w-xs leading-relaxed">
+                          Choose a Google Drive folder as the primary workspace storage to automatically organize deal documents.
+                        </p>
+                        <Button onClick={() => setShowFolderPicker(true)} disabled={settingFolder} size="sm" style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }} className="h-8 shadow-xs">
+                          {settingFolder ? <LoadingSpinner size="sm" /> : <Folder size={12} className="mr-1" />}
+                          Select Root Folder
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
+
+          <DriveFolderPicker
+            open={showFolderPicker}
+            onOpenChange={setShowFolderPicker}
+            projectId={projectId}
+            onSelect={setWorkingFolderHandler}
+          />
+        </div>
+
+        {/* Section 3: Sponsors & Access */}
+        <div 
+          className="animate-item-entrance rounded-xl border p-6" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            borderColor: 'var(--color-surface-2)', 
+            boxShadow: 'var(--shadow-sm)',
+            animationDelay: '150ms'
+          }}
+        >
+          <div className="flex items-center gap-2.5 pb-3 mb-5 border-b border-[var(--color-surface-2)]">
+            <div className="p-1.5 rounded-lg bg-[var(--color-accent-bg)] text-[var(--accent)]">
+              <Users size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Sponsors & Project Access</h2>
+              <p className="text-[11px] text-[var(--color-text-secondary)]">Manage third-party investor and sponsor read-only permissions.</p>
+            </div>
+          </div>
+
+          {/* Add Sponsor Form Box */}
+          <div className="border border-[var(--color-surface-2)] rounded-xl p-4 bg-[var(--color-canvas)] mb-6 shadow-2xs">
+            <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-primary)]">Invite New Sponsor</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-text-tertiary)] pl-0.5">Email Address</label>
+                <Input
+                  value={sponsorEmail}
+                  onChange={(e) => setSponsorEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  type="email"
+                  className="bg-[var(--color-surface-0)] border-[var(--color-surface-2)] focus:ring-[var(--accent)] text-xs h-9"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-text-tertiary)] pl-0.5">Full Name</label>
+                <Input
+                  value={sponsorName}
+                  onChange={(e) => setSponsorName(e.target.value)}
+                  placeholder="Name (optional)"
+                  className="bg-[var(--color-surface-0)] border-[var(--color-surface-2)] focus:ring-[var(--accent)] text-xs h-9"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={addSponsor}
+                disabled={addingSponsor || !sponsorEmail}
+                size="sm"
+                style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
+                className="h-8 px-4"
+              >
+                {addingSponsor ? <LoadingSpinner size="sm" /> : <Plus size={14} className="mr-1" />}
+                Send Invite
+              </Button>
+            </div>
+          </div>
+
+          {/* Sponsors Grid List */}
+          <div>
+            <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-secondary)]">Active Sponsors ({sponsors.length})</h3>
+            {sponsors.length === 0 ? (
+              <div className="text-center py-8 border border-dashed rounded-xl border-[var(--color-surface-3)] bg-[var(--color-canvas)] text-[var(--color-text-tertiary)] text-xs leading-relaxed">
+                No sponsors invited yet. Invite sponsors above to grant access.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {sponsors.map((s) => {
+                  const initials = (s.full_name ?? s.email ?? 'U').charAt(0).toUpperCase()
+                  return (
+                    <div key={s.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)] hover:border-[var(--accent)] hover:shadow-xs transition-all duration-300 group">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-[var(--color-accent-bg)] text-[var(--accent)] font-semibold text-xs flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-105 border border-[var(--color-accent-light)]">
+                          {initials}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{s.full_name ?? 'Unnamed Sponsor'}</span>
+                          <span className="text-[10px] text-[var(--color-text-tertiary)] truncate font-mono">{s.email ?? '—'}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setRemovingSponsor(s)}
+                        className="p-1.5 rounded-md hover:bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger-text)] transition-colors duration-200 flex-shrink-0 cursor-pointer"
+                        title="Remove Access"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           <RemoveSponsorDialog
             open={removingSponsor !== null}
@@ -351,140 +622,67 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
           />
         </div>
 
-        {/* Gmail */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Gmail Connection</h2>
-          {gmailConnected ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="success" dot>Connected</Badge>
-                {gmailEmail && (
-                  <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{gmailEmail}</span>
-                )}
-              </div>
-              <Button variant="outline" onClick={disconnectGmail} disabled={disconnecting}>
-                {disconnecting ? 'Disconnecting...' : 'Disconnect'}
-              </Button>
+        {/* Section 4: Advanced Settings */}
+        <div 
+          className="animate-item-entrance rounded-xl border p-6 border-[var(--color-danger-border)]" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            boxShadow: 'var(--shadow-sm)',
+            animationDelay: '225ms'
+          }}
+        >
+          <div className="flex items-center gap-2.5 pb-3 mb-5 border-b border-[var(--color-danger-border)]">
+            <div className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] text-[var(--color-danger-text)]">
+              <AlertTriangle size={16} />
             </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
-                Gmail account not connected — required for sending outreach emails and receiving replies for this project.
-              </div>
-              <Button asChild>
-                <a href={`/api/auth/google?projectId=${projectId}`}>Connect Gmail Account</a>
-              </Button>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-danger-text)]">Advanced Settings</h2>
+              <p className="text-[11px] text-[var(--color-danger-text)]/70">Sensitive actions. Proceed with caution.</p>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* Google Drive Working Folder */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Google Drive Working Folder</h2>
-          {!gmailConnected ? (
-            <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
-              Connect Gmail first to configure a Google Drive working folder for document storage.
-            </div>
-          ) : workingFolder ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Folder size={18} style={{ color: 'var(--color-accent)' }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>Working folder set</p>
-                  <a
-                    href={workingFolder.folderUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[11px] hover:underline inline-flex items-center gap-1"
-                    style={{ color: 'var(--color-accent)' }}
-                  >
-                    Open in Drive <ExternalLink size={10} />
-                  </a>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowFolderPicker(true)}
-                    disabled={settingFolder}
-                    className="h-7 text-[11px]"
-                  >
-                    Change
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={removeWorkingFolder}
-                    className="h-7 text-[11px]"
-                    style={{ color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-surface-1)', border: '1px solid var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
-                Set a working folder on Google Drive. All deal document folders will be created inside this folder.
-              </div>
-              <Button
-                onClick={() => setShowFolderPicker(true)}
-                disabled={settingFolder}
-              >
-                <Folder size={14} />
-                Set Working Folder
-              </Button>
-            </div>
-          )}
-        </div>
-
-        <DriveFolderPicker
-          open={showFolderPicker}
-          onOpenChange={setShowFolderPicker}
-          projectId={projectId}
-          onSelect={setWorkingFolderHandler}
-        />
-
-        {/* Danger Zone */}
-        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-danger-border)' }}>
-          <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-danger-text)', fontFamily: 'var(--font-dm-sans)' }}>Danger Zone</h2>
-          <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
-            Deleting a project removes all deals, campaigns, portfolios, and field definitions. This cannot be undone.
-          </p>
-          {!showDelete ? (
-            <Button variant="destructive" onClick={() => setShowDelete(true)}>
-              <Trash2 size={14} />
-              Delete Project
-            </Button>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                Type <code className="px-1.5 py-0.5 rounded text-xs font-bold" style={{ background: 'var(--color-danger-bg)' }}>DELETE</code> to confirm:
+          <div className="rounded-xl border border-[var(--color-danger-border)] p-4 bg-[var(--color-danger-bg)]/10 mb-6 flex gap-3 items-start">
+            <ShieldAlert size={18} className="text-[var(--color-danger-text)] flex-shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-semibold text-[var(--color-danger-text)]">Delete Project & Pipeline</span>
+              <p className="text-[11px] leading-relaxed text-[var(--color-danger-text)]">
+                Deleting this project removes all deal data, campaign tracking, portfolios, and underwriting schemas. Sponsor invite codes will be invalidated. <strong>This action is permanent and cannot be undone.</strong>
               </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold text-[var(--color-text-secondary)] mb-1.5">
+                Type <code className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[var(--color-danger-bg)] text-[var(--color-danger-text)]">DELETE</code> to confirm:
+              </label>
               <Input
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
-                className="max-w-[220px] w-full font-mono bg-[var(--color-surface-1)]"
+                className="max-w-[240px] w-full font-mono bg-[var(--color-canvas)] border-[var(--color-surface-2)] focus:ring-[var(--color-danger-text)] focus:border-[var(--color-danger-text)] text-xs h-9"
                 placeholder="DELETE"
               />
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={deleteProject}
-                  disabled={deleteConfirm !== 'DELETE' || deleting}
-                >
-                  {deleting ? 'Deleting...' : 'Confirm Delete'}
-                </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                onClick={deleteProject}
+                disabled={deleteConfirm !== 'DELETE' || deleting}
+                className="h-9 px-4 text-xs font-medium"
+              >
+                {deleting ? 'Deleting...' : 'Confirm Delete Project'}
+              </Button>
+              {deleteConfirm && (
                 <Button
                   variant="outline"
-                  onClick={() => { setShowDelete(false); setDeleteConfirm('') }}
+                  onClick={() => setDeleteConfirm('')}
+                  className="h-9 px-4 text-xs border-[var(--color-surface-3)] bg-[var(--color-surface-0)] text-[var(--color-text-secondary)]"
                 >
                   Cancel
                 </Button>
-              </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

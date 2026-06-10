@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { use, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -19,6 +19,8 @@ import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTime
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { useDeal } from '@/lib/hooks/useDeal'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface DealHeader {
   id: string
@@ -40,39 +42,30 @@ const TABS = [
 
 // Stage badge helper variants removed (badge deleted)
 
-export default function DealDetailPage({ params }: { params: Promise<{ id: string; dealId: string }> }) {
-  const { id: projectId, dealId } = use(params)
+function DealDetailContent({ projectId, dealId }: { projectId: string; dealId: string }) {
   const { projectName } = useProjectContext()
   const router = useRouter()
-  const [deal, setDeal] = useState<DealHeader | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('overview')
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [activitiesLoading, setActivitiesLoading] = useState(false)
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const queryClient = useQueryClient()
+  const { data: deal, isLoading: loading } = useDeal<DealHeader>(dealId)
+  const activeTab = searchParams.get('tab') ?? 'overview'
+  const setActiveTab = useCallback((tab: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('tab', tab)
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+  }, [searchParams, router, pathname])
 
-  useEffect(() => {
-    if (!dealId) return
-    const timer = setTimeout(() => {
-      setLoading(true)
-      setActivitiesLoading(true)
-    }, 0)
-
-    Promise.all([
-      fetch(`/api/deals/${dealId}`).then((r) => r.json()),
-      fetch(`/api/deals/${dealId}/activity`).then((r) => r.json()).catch(() => []),
-    ])
-      .then(([data, acts]) => {
-        setDeal(data)
-        setActivities(Array.isArray(acts) ? acts : [])
-      })
-      .catch(console.error)
-      .finally(() => {
-        setLoading(false)
-        setActivitiesLoading(false)
-      })
-
-    return () => clearTimeout(timer)
-  }, [dealId])
+  const { data: activities = [], isLoading: activitiesLoading } = useQuery<Activity[]>({
+    queryKey: ['deal-activity', dealId],
+    queryFn: async () => {
+      const res = await fetch(`/api/deals/${dealId}/activity`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: !!dealId,
+  })
 
   async function handleAddActivity(data: { type: string; summary: string }) {
     const res = await fetch(`/api/deals/${dealId}/activity`, {
@@ -81,8 +74,7 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
       body: JSON.stringify(data),
     })
     if (res.ok) {
-      const created = await res.json()
-      setActivities((prev) => [created, ...prev])
+      await queryClient.invalidateQueries({ queryKey: ['deal-activity', dealId] })
       toast.success('Activity added')
     } else {
       const json = await res.json()
@@ -158,8 +150,8 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           <DealStageBar
             dealId={dealId}
             stage={deal.stage}
-            onStageChange={(newStage) => {
-              setDeal((prev) => (prev ? { ...prev, stage: newStage } : null))
+            onStageChange={() => {
+              queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
             }}
           />
         </div>
@@ -268,5 +260,14 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </Tabs>
     </div>
+  )
+}
+
+export default function DealDetailPage({ params }: { params: Promise<{ id: string; dealId: string }> }) {
+  const { id, dealId } = use(params)
+  return (
+    <Suspense fallback={<LoadingSpinner size="lg" />}>
+      <DealDetailContent projectId={id} dealId={dealId} />
+    </Suspense>
   )
 }

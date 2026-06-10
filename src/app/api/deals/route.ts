@@ -34,8 +34,53 @@ export async function GET(req: NextRequest) {
     // (deal_fields, call_briefs). Internal gets full joins. This avoids PostgREST
     // edge cases where joins to internal-only tables silently empty the result.
     const role = user.app_metadata?.role
+    const view = searchParams.get('view')
+
+    // Dashboard / counts views: minimal select — only what's needed for aggregation
+    if (role === 'internal' && (view === 'dashboard' || view === 'counts')) {
+      const selectFields = '*, campaigns(name, market), email_outreach(id, status, response_classification)'
+      let query = supabase
+        .from('deals')
+        .select(selectFields, { count: 'exact' })
+        .range(offset, offset + limit - 1)
+      // ... (rest of filtering replicated inline below)
+
+      if (projectId) query = query.eq('project_id', projectId)
+      if (campaignId) query = query.eq('campaign_id', campaignId)
+      if (stage) {
+        const stages = searchParams.getAll('stage')
+        if (stages.length > 1) query = query.in('stage', stages)
+        else query = query.eq('stage', stages[0]!)
+      }
+      if (search) {
+        const { data: matchingDealIds } = await supabase
+          .from('deal_fields')
+          .select('deal_id')
+          .ilike('value', `%${search}%`)
+        if (matchingDealIds && matchingDealIds.length > 0) {
+          query = query.in('id', matchingDealIds.map((r) => r.deal_id))
+        } else {
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000')
+        }
+      }
+      query = query.order('created_at', { ascending: false })
+
+      const { data, error, count } = await query
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ data, total: count ?? 0, filtered_total: count ?? 0 })
+    }
+
+    // Determine select based on stage context — drop heavy joins for lead-stage views
+    const stages = searchParams.getAll('stage')
+    const onlyLeadStages = stages.length > 0 && stages.every((s) =>
+      ['lead', 'outreach', 'response', 'archived'].includes(s)
+    )
+    const internalLightSelect = onlyLeadStages
+      ? '*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)'
+      : '*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)'
+
     const selectFields = role === 'internal'
-      ? `*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)`
+      ? internalLightSelect
       : `*, deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)`
 
     let query = supabase

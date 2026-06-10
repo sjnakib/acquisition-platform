@@ -7,6 +7,7 @@ import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { PageTransition } from '@/components/shared/PageTransition'
+import { useSidebarCollapsed } from '@/lib/hooks/useSidebarCollapsed'
 
 interface ProfileData {
   full_name: string | null
@@ -16,7 +17,7 @@ interface ProfileData {
 
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
   const [role, setRole] = useState<'internal' | 'client' | null>(null)
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [isExiting, setIsExiting] = useState(false)
@@ -117,7 +118,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           subtitle: profileData?.role ?? 'Team',
         }}
         collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed(!collapsed)}
+        onToggleCollapse={toggleCollapsed}
         onLogout={handleLogout}
       />
 

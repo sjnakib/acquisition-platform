@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
 import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -57,6 +57,8 @@ export function DealsPageView({
   description,
 }: DealsPageViewProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
   const { data: portfolios } = usePortfolios(projectId ?? '')
 
   const [deals, setDeals] = useState<Deal[]>([])
@@ -64,17 +66,26 @@ export function DealsPageView({
   const [error, setError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [filteredTotal, setFilteredTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const page = parseInt(searchParams.get('page') ?? '1', 10)
+  const pageSize = parseInt(searchParams.get('pageSize') ?? '50', 10)
+  const sortKey = searchParams.get('sort') ?? 'created_at'
+  const sortDir = (searchParams.get('order') ?? 'desc') as 'asc' | 'desc'
+  const view = (searchParams.get('view') ?? 'leads') as 'leads' | 'deals' | 'archived'
   const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([])
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState('created_at')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false)
   const [gridKey, setGridKey] = useState(0)
-  const [view, setView] = useState<'leads' | 'deals' | 'archived'>('leads')
+
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    const p = new URLSearchParams(searchParams.toString())
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null) p.delete(key)
+      else p.set(key, value)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }, [searchParams, router, pathname])
 
   const debouncedSearchRef = useRef(search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -110,9 +121,9 @@ export function DealsPageView({
     setFilteredTotal(filteredCount)
     if (data.length === 0 && filteredCount > 0 && p > 1) {
       const maxPage = Math.ceil(filteredCount / size)
-      setPage(maxPage)
+      updateParams({ page: String(maxPage) })
     }
-  }, [buildUrl])
+  }, [buildUrl, updateParams])
 
   const refetch = useCallback(() => {
     setTimeout(() => setLoading(true), 0)
@@ -196,7 +207,7 @@ export function DealsPageView({
           <Tabs
             defaultValue="leads"
             value={view}
-            onValueChange={(v) => { setView(v as 'leads' | 'deals' | 'archived'); setPage(1) }}
+            onValueChange={(v) => { updateParams({ view: v, page: '1' }) }}
           >
             <TabsList>
               <TabsTrigger value="leads">Leads</TabsTrigger>
@@ -226,15 +237,15 @@ export function DealsPageView({
           totalRows={filteredTotal}
           page={page}
           pageSize={pageSize}
-          onPageChange={(p) => { setPage(p); setAllSelected(false) }}
-          onPageSizeChange={(v) => { setPageSize(v); setPage(1); setAllSelected(false) }}
+          onPageChange={(p) => { updateParams({ page: String(p) }); setAllSelected(false) }}
+          onPageSizeChange={(v) => { updateParams({ pageSize: String(v), page: '1' }); setAllSelected(false) }}
           allRowsSelected={allSelected}
           onSelectAll={() => setAllSelected(true)}
           onSelectionChange={(ids) => { if (allSelected && ids.size === 0) setAllSelected(false) }}
           serverSide
           serverSortKey={sortKey}
           serverSortDir={sortDir}
-          onSortChange={(key, dir) => { setSortKey(key); setSortDir(dir); setAllSelected(false) }}
+          onSortChange={(key, dir) => { updateParams({ sort: key, order: dir }); setAllSelected(false) }}
           columnOrderStorageKey={columnOrderStorageKey}
           onRowClick={handleRowClick}
           topToolbar={showToolbar ? {

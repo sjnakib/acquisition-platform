@@ -196,6 +196,28 @@ export async function untrashDriveFile(
   })
 }
 
+export async function moveDriveFile(
+  connectionId: string,
+  fileId: string,
+  newParentFolderId: string,
+): Promise<void> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const drive = google.drive({ version: 'v3', auth })
+
+  const file = await drive.files.get({
+    fileId,
+    fields: 'parents',
+  })
+  const previousParents = file.data.parents?.join(',')
+
+  await drive.files.update({
+    fileId,
+    addParents: newParentFolderId,
+    removeParents: previousParents || undefined,
+    fields: 'id, parents',
+  })
+}
+
 export async function renameDriveFile(
   connectionId: string,
   fileId: string,

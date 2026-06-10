@@ -7,6 +7,7 @@ import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { internalNavItems, clientNavItems } from '@/lib/navigation'
 import { ArrowRight, FolderKanban } from 'lucide-react'
 import { PageTransition } from '@/components/shared/PageTransition'
+import { useSidebarCollapsed } from '@/lib/hooks/useSidebarCollapsed'
 
 interface ProfileData {
   full_name: string | null
@@ -22,7 +23,7 @@ export default function ProjectLayout({
   params: Promise<{ id: string }>
 }) {
   const { id: projectId } = use(params)
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
   const [projectName, setProjectName] = useState('Loading...')
   const [profileData, setProfileData] = useState<ProfileData | null>(null)
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
@@ -152,7 +153,7 @@ export default function ProjectLayout({
           subtitle: isClient ? 'Sponsor' : (profileData?.role ?? 'Team'),
         }}
         collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed(!collapsed)}
+        onToggleCollapse={toggleCollapsed}
         onLogout={handleLogout}
       />
 

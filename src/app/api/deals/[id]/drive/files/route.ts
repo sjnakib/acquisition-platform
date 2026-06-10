@@ -6,6 +6,7 @@ import {
   deleteDriveFile,
   renameDriveFile,
   untrashDriveFile,
+  moveDriveFile,
 } from '@/lib/google/drive'
 
 /**
@@ -169,9 +170,10 @@ export async function DELETE(
 
     const { id: dealId } = await params
     const fileId = req.nextUrl.searchParams.get('fileId')
+    const fileIdsStr = req.nextUrl.searchParams.get('fileIds')
 
-    if (!fileId) {
-      return NextResponse.json({ error: 'fileId is required' }, { status: 400 })
+    if (!fileId && !fileIdsStr) {
+      return NextResponse.json({ error: 'fileId or fileIds is required' }, { status: 400 })
     }
 
     // Resolve connection
@@ -195,7 +197,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Gmail not connected' }, { status: 400 })
     }
 
-    await deleteDriveFile(project.google_connection_id, fileId)
+    const fileIds = fileIdsStr ? fileIdsStr.split(',') : [fileId!]
+    await Promise.all(fileIds.map((id) => deleteDriveFile(project.google_connection_id, id)))
 
     return NextResponse.json({ success: true })
   } catch (err) {
@@ -207,7 +210,7 @@ export async function DELETE(
 /**
  * PATCH /api/deals/[id]/drive/files
  * Renames or restores a file or folder in Drive.
- * Body: { fileId: string, name?: string, trashed?: boolean }
+ * Body: { fileId?: string, fileIds?: string[], name?: string, trashed?: boolean, newParentFolderId?: string }
  */
 export async function PATCH(
   req: NextRequest,
@@ -223,15 +226,25 @@ export async function PATCH(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { id: dealId } = await params
-    const body = (await req.json()) as { fileId?: string; name?: string; trashed?: boolean }
-    const { fileId, name, trashed } = body
+    const body = (await req.json()) as { 
+      fileId?: string
+      fileIds?: string[]
+      name?: string
+      trashed?: boolean
+      newParentFolderId?: string 
+    }
+    const { fileId, fileIds, name, trashed, newParentFolderId } = body
 
-    if (!fileId) {
-      return NextResponse.json({ error: 'fileId is required' }, { status: 400 })
+    if (!fileId && (!fileIds || fileIds.length === 0)) {
+      return NextResponse.json({ error: 'fileId or fileIds is required' }, { status: 400 })
     }
 
-    if (trashed === undefined && (!name || typeof name !== 'string' || !name.trim())) {
-      return NextResponse.json({ error: 'name or trashed parameter is required' }, { status: 400 })
+    if (
+      trashed === undefined &&
+      newParentFolderId === undefined &&
+      (!name || typeof name !== 'string' || !name.trim())
+    ) {
+      return NextResponse.json({ error: 'name, trashed, or newParentFolderId parameter is required' }, { status: 400 })
     }
 
     const { data: deal, error: dealError } = await supabase
@@ -254,12 +267,19 @@ export async function PATCH(
       return NextResponse.json({ error: 'Gmail not connected' }, { status: 400 })
     }
 
+    const targetFileIds = fileIds ?? [fileId!]
+
     if (trashed === false) {
-      await untrashDriveFile(project.google_connection_id, fileId)
+      await Promise.all(targetFileIds.map((id) => untrashDriveFile(project.google_connection_id, id)))
       return NextResponse.json({ success: true })
     }
 
-    if (name) {
+    if (newParentFolderId) {
+      await Promise.all(targetFileIds.map((id) => moveDriveFile(project.google_connection_id, id, newParentFolderId)))
+      return NextResponse.json({ success: true })
+    }
+
+    if (name && fileId) {
       const renamed = await renameDriveFile(project.google_connection_id, fileId, name.trim())
       return NextResponse.json(renamed)
     }

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,8 +38,10 @@ const TABS = [
   { key: 'system', label: 'System Details' }
 ]
 
-export default function ProfilePage() {
+function ProfileContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
   const [data, setData] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -47,7 +49,12 @@ export default function ProfilePage() {
   const [editName, setEditName] = useState('')
   const [editAvatarUrl, setEditAvatarUrl] = useState('')
   const [saving, setSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState('profile')
+  const activeTab = searchParams.get('tab') ?? 'profile'
+  const setActiveTab = useCallback((tab: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('tab', tab)
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+  }, [searchParams, router, pathname])
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -386,5 +393,13 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<LoadingSpinner size="lg" />}>
+      <ProfileContent />
+    </Suspense>
   )
 }

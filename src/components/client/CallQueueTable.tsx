@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { PageHeader } from '@/components/shared/PageHeader'
 import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { pageHeadings } from '@/lib/page-headings'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface Call {
   id: string
@@ -44,20 +45,21 @@ const scoreLabel: Record<string, string> = {
 }
 
 export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { projectId?: string; breadcrumb?: BreadcrumbItem[]; onRowClick?: (row: Call) => void }) {
-  const [calls, setCalls] = useState<Call[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    const url = projectId
-      ? `/api/calls?project_id=${projectId}`
-      : '/api/calls'
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => setCalls(Array.isArray(data) ? data : []))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [projectId])
+  const { data: calls = [], isLoading: loading } = useQuery<Call[]>({
+    queryKey: ['call-queue', projectId ?? 'global'],
+    queryFn: async () => {
+      const url = projectId
+        ? `/api/calls?project_id=${projectId}`
+        : '/api/calls'
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('Failed to load calls')
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+  })
 
   const saveNotes = useCallback(async (callId: string, notes: string) => {
     setSavingNotes((prev) => new Set(prev).add(callId))
@@ -69,6 +71,8 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
       })
       if (!res.ok) {
         toast.error('Failed to save notes')
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['call-queue', projectId ?? 'global'] })
       }
     } catch {
       toast.error('Failed to save notes')
@@ -79,7 +83,7 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
         return next
       })
     }
-  }, [])
+  }, [projectId, queryClient])
 
   const columns: ColumnDef<Call>[] = [
     { key: 'address', header: 'Property Address', minWidth: 160, sortable: true, isRequired: true,
@@ -119,7 +123,9 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
               onBlur={async (e) => {
                 const val = e.target.value
                 if (val !== (r.client_notes ?? '')) {
-                  setCalls((prev) => prev.map((c) => c.id === r.id ? { ...c, client_notes: val } : c))
+                  queryClient.setQueryData<Call[]>(['call-queue', projectId ?? 'global'], (prev) =>
+                    (prev ?? []).map((c) => c.id === r.id ? { ...c, client_notes: val } : c)
+                  )
                   await saveNotes(r.id, val)
                 }
               }}
@@ -150,7 +156,9 @@ export default function CallQueueTable({ projectId, breadcrumb, onRowClick }: { 
             const res = await fetch(`/api/calls/${r.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ call_status: status }) })
             if (res.ok) {
               toast.success('Call status updated')
-              setCalls((prev) => prev.map((c) => c.id === r.id ? { ...c, call_status: status } : c))
+              queryClient.setQueryData<Call[]>(['call-queue', projectId ?? 'global'], (prev) =>
+                (prev ?? []).map((c) => c.id === r.id ? { ...c, call_status: status } : c)
+              )
             } else {
               toast.error('Failed to update call status')
             }

@@ -83,8 +83,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  let updated = 0
-  const errors: string[] = []
+  const rows: { deal_id: string; field_id: string; value: string | null }[] = []
   const skipped: string[] = []
 
   for (const [key, value] of Object.entries(body)) {
@@ -93,18 +92,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       skipped.push(key)
       continue
     }
-    const strValue = value === null ? null : String(value)
-    const { error } = await supabase.from('deal_fields')
-      .upsert({ deal_id: id, field_id: fieldId, value: strValue }, { onConflict: 'deal_id,field_id' })
-    if (error) {
-      errors.push(`${key}: ${error.message}`)
-    } else {
-      updated++
-    }
+    rows.push({ deal_id: id, field_id: fieldId, value: value === null ? null : String(value) })
   }
 
-  if (errors.length > 0) {
-    return NextResponse.json({ ok: false, updated, errors, skipped: skipped.length > 0 ? skipped : undefined }, { status: 500 })
+  let updated = 0
+  if (rows.length > 0) {
+    const { error } = await supabase.from('deal_fields')
+      .upsert(rows, { onConflict: 'deal_id,field_id' })
+    if (error) {
+      return NextResponse.json({ ok: false, updated: 0, errors: [error.message], skipped: skipped.length > 0 ? skipped : undefined }, { status: 500 })
+    }
+    updated = rows.length
   }
 
   return NextResponse.json({ ok: true, updated, skipped: skipped.length > 0 ? skipped : undefined })

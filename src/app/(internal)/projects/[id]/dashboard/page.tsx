@@ -4,16 +4,16 @@ import { useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { FunnelMetrics } from '@/components/dashboard/FunnelMetrics'
+import { PipelineAnalytics } from '@/components/dashboard/PipelineAnalytics'
 import { KPIScorecard } from '@/components/dashboard/KPIScorecard'
-import { ConversionChart } from '@/components/dashboard/ConversionChart'
-import { PipelineTable } from '@/components/dashboard/PipelineTable'
+import { CallStatistics } from '@/components/dashboard/CallStatistics'
+import { TopOpportunities } from '@/components/dashboard/TopOpportunities'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { CreateCampaignDialog } from '@/components/campaigns/CreateCampaignDialog'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
-import { Building2, Megaphone, Upload } from 'lucide-react'
+import { Megaphone, Upload } from 'lucide-react'
 
 interface Campaign {
   id: string
@@ -47,25 +47,67 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   })
 
   const {
-    data: pipeline = [],
+    data: dashboardData = { pipeline: [], deals: [], callStats: { total: 0, pending: 0, completed: 0, cancelled: 0, published: 0 } },
     isLoading: pipelineLoading,
-  } = useQuery<Array<{
-    campaign_name: string
-    market: string
-    leads: number
-    emails_sent: number
-    responses_positive: number
-    underwritten: number
-    scored_good: number
-    loi_count: number
-    closed_count: number
-  }>>({
+  } = useQuery<{
+    pipeline: Array<{
+      campaign_name: string
+      market: string
+      leads: number
+      emails_sent: number
+      responses_positive: number
+      underwritten: number
+      scored_good: number
+      loi_count: number
+      closed_count: number
+    }>
+    deals: Array<{
+      id: string
+      address: string | null
+      unit_count: number | null
+      stage: string
+      score: string | null
+      is_archived?: boolean
+      created_at?: string
+      market?: string
+    }>
+    callStats: {
+      total: number
+      pending: number
+      completed: number
+      cancelled: number
+      published: number
+    }
+  }>({
     queryKey: ['pipeline', projectId],
     queryFn: async () => {
       const res = await fetch(`/api/deals?limit=10000&project_id=${projectId}`)
       if (!res.ok) throw new Error('Failed to fetch pipeline')
       const json = await res.json()
       const deals = (json.data ?? []) as Array<Record<string, unknown>>
+      
+      // Calculate callStats from nested call_briefs
+      let totalCalls = 0
+      let pendingCalls = 0
+      let completedCalls = 0
+      let cancelledCalls = 0
+      let publishedCalls = 0
+      
+      for (const d of deals) {
+        const briefs = d.call_briefs as Array<{ id: string; call_status: 'pending' | 'completed' | 'cancelled'; published: boolean }> | undefined
+        if (briefs) {
+          for (const b of briefs) {
+            totalCalls++
+            if (b.call_status === 'pending') pendingCalls++
+            else if (b.call_status === 'completed') completedCalls++
+            else if (b.call_status === 'cancelled') cancelledCalls++
+            
+            if (b.published) publishedCalls++
+          }
+        }
+      }
+
+      // Aggregate deals by campaign for pipeline metrics
       const byCampaign = new Map<string, {
         campaign_name: string; market: string; leads: number; emails_sent: number
         responses_positive: number; underwritten: number; scored_good: number
@@ -94,11 +136,31 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         if ((d.stage as string) === 'loi') row.loi_count++
         if ((d.stage as string) === 'closed') row.closed_count++
       }
-      return Array.from(byCampaign.values())
+      return {
+        pipeline: Array.from(byCampaign.values()),
+        deals: deals.map((d) => ({
+          id: d.id as string,
+          address: d.address as string | null,
+          unit_count: d.unit_count as number | null,
+          stage: d.stage as string,
+          score: d.score as string | null,
+          is_archived: d.is_archived as boolean | undefined,
+          created_at: d.created_at as string | undefined,
+          market: (d.campaigns as { name: string; market: string } | null)?.market ?? 'Unassigned',
+        })),
+        callStats: {
+          total: totalCalls,
+          pending: pendingCalls,
+          completed: completedCalls,
+          cancelled: cancelledCalls,
+          published: publishedCalls,
+        }
+      }
     },
     enabled: dealsTotal > 0,
   })
 
+  const { pipeline = [], deals = [], callStats = { total: 0, pending: 0, completed: 0, cancelled: 0, published: 0 } } = dashboardData || {}
   const isLoading = campaignsLoading || dealsLoading
 
   if (isLoading) {
@@ -187,13 +249,20 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       ) : (
         <div className="space-y-6">
           <KPIScorecard data={pipeline} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <FunnelMetrics data={pipeline} />
-            <ConversionChart data={pipeline} />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+            <div className="lg:col-span-2">
+              <PipelineAnalytics deals={deals} />
+            </div>
+            <div className="lg:col-span-1">
+              <CallStatistics stats={callStats} />
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Pipeline by Campaign</h3>
-            <PipelineTable data={pipeline} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+            <div className="lg:col-span-3">
+              <TopOpportunities deals={deals} projectId={projectId} />
+            </div>
           </div>
         </div>
       )}

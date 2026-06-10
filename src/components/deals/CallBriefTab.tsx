@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Phone, User, Briefcase, FileText, Calendar, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,8 +35,7 @@ const FILTERS = ['all', 'pending', 'completed'] as const
 type Filter = (typeof FILTERS)[number]
 
 export function CallBriefTab({ dealId }: { dealId: string }) {
-  const [callBriefs, setCallBriefs] = useState<CallBrief[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [contactName, setContactName] = useState('')
   const [contactRole, setContactRole] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
@@ -44,19 +44,16 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
 
-  useEffect(() => {
-    if (!dealId) return
-    const controller = new AbortController()
-    setTimeout(() => setLoading(true), 0)
-    fetch(`/api/calls?deal_id=${dealId}`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data) => setCallBriefs(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        if (err.name !== 'AbortError') console.error(err)
-      })
-      .finally(() => setLoading(false))
-    return () => controller.abort()
-  }, [dealId])
+  const { data: callBriefs = [], isLoading: loading } = useQuery<CallBrief[]>({
+    queryKey: ['call-briefs', dealId],
+    queryFn: async () => {
+      const res = await fetch(`/api/calls?deal_id=${dealId}`)
+      if (!res.ok) throw new Error('Failed to load calls')
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: !!dealId,
+  })
 
   async function handleCreate() {
     if (!contactName.trim() || !summaryText.trim() || submitting) return
@@ -74,8 +71,7 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
         }),
       })
       if (res.ok) {
-        const created = await res.json()
-        setCallBriefs((prev) => [created, ...prev])
+        await queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
         setContactName('')
         setContactRole('')
         setPhoneNumber('')
