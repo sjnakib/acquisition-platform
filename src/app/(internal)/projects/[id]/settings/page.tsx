@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
-import { Trash2, Plus, X, Save } from 'lucide-react'
+import { Trash2, Plus, X, Save, Folder, ExternalLink } from 'lucide-react'
+import { DriveFolderPicker } from '@/components/projects/DriveFolderPicker'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { RemoveSponsorDialog } from '@/components/projects/RemoveSponsorDialog'
@@ -35,6 +36,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gmailEmail, setGmailEmail] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+
+  // Drive working folder state
+  const [workingFolder, setWorkingFolder] = useState<{ folderId: string; folderUrl: string; name: string } | null>(null)
+  const [showFolderPicker, setShowFolderPicker] = useState(false)
+  const [settingFolder, setSettingFolder] = useState(false)
 
   // Form state
   const [name, setName] = useState('')
@@ -84,6 +90,16 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
           setGmailEmail(proj.google_connections.google_email)
         }
       })
+
+    // Fetch working folder separately
+    fetch(`/api/projects/${projectId}/drive/working-folder`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.workingFolder) {
+          setWorkingFolder(data.workingFolder)
+        }
+      })
+      .catch(() => {})
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [projectId])
@@ -152,6 +168,44 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       toast.error('Failed to disconnect Gmail')
     } finally {
       setDisconnecting(false)
+    }
+  }
+
+  async function setWorkingFolderHandler(folderId: string) {
+    setSettingFolder(true)
+    const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderId }),
+    })
+    if (!res.ok) {
+      const json = await res.json()
+      setSettingFolder(false)
+      throw new Error(json.error ?? `Failed to set working folder (${res.status})`)
+    }
+    // Refresh working folder info
+    const infoRes = await fetch(`/api/projects/${projectId}/drive/working-folder`)
+    const info = await infoRes.json()
+    if (info.workingFolder) {
+      setWorkingFolder(info.workingFolder)
+    }
+    setSettingFolder(false)
+  }
+
+  async function removeWorkingFolder() {
+    try {
+      // Set folderId to null clears the working folder
+      const res = await fetch(`/api/projects/${projectId}/drive/working-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId: null }),
+      })
+      if (res.ok) {
+        setWorkingFolder(null)
+        toast.success('Working folder removed')
+      }
+    } catch {
+      toast.error('Failed to remove working folder')
     }
   }
 
@@ -323,6 +377,74 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             </div>
           )}
         </div>
+
+        {/* Google Drive Working Folder */}
+        <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)', boxShadow: 'var(--shadow-xs)' }}>
+          <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>Google Drive Working Folder</h2>
+          {!gmailConnected ? (
+            <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning-border)', color: 'var(--color-warning-text)' }}>
+              Connect Gmail first to configure a Google Drive working folder for document storage.
+            </div>
+          ) : workingFolder ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Folder size={18} style={{ color: 'var(--color-accent)' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>Working folder set</p>
+                  <a
+                    href={workingFolder.folderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] hover:underline inline-flex items-center gap-1"
+                    style={{ color: 'var(--color-accent)' }}
+                  >
+                    Open in Drive <ExternalLink size={10} />
+                  </a>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowFolderPicker(true)}
+                    disabled={settingFolder}
+                    className="h-7 text-[11px]"
+                  >
+                    Change
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={removeWorkingFolder}
+                    className="h-7 text-[11px]"
+                    style={{ color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-md p-3 text-sm" style={{ background: 'var(--color-surface-1)', border: '1px solid var(--color-surface-2)', color: 'var(--color-text-secondary)' }}>
+                Set a working folder on Google Drive. All deal document folders will be created inside this folder.
+              </div>
+              <Button
+                onClick={() => setShowFolderPicker(true)}
+                disabled={settingFolder}
+              >
+                <Folder size={14} />
+                Set Working Folder
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <DriveFolderPicker
+          open={showFolderPicker}
+          onOpenChange={setShowFolderPicker}
+          projectId={projectId}
+          onSelect={setWorkingFolderHandler}
+        />
 
         {/* Danger Zone */}
         <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-danger-border)' }}>

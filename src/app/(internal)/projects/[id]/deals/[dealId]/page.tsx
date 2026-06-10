@@ -10,7 +10,7 @@ import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealStageBar } from '@/components/deals/DealStageBar'
 import { DealFieldsEditor } from '@/components/deals/DealFieldsEditor'
 import { DealEmailView } from '@/components/deals/DealEmailView'
-import { DocumentChecklist } from '@/components/deals/DocumentChecklist'
+import { DriveFileManager } from '@/components/deals/DriveFileManager'
 import { EvaluateUnderwritability } from '@/components/deals/EvaluateUnderwritability'
 import { UnderwritingSummary } from '@/components/deals/UnderwritingSummary'
 import { LOIDetail } from '@/components/deals/LOIDetail'
@@ -238,9 +238,11 @@ export default function DealDetailPage({ params }: { params: Promise<{ id: strin
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="documents">
-            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <DocumentChecklist dealId={dealId} />
+            <div className="space-y-6">
+              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                <DriveFileManager dealId={dealId} dealName={dealName} />
+              </div>
+              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
                 <EvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
               </div>
             </div>

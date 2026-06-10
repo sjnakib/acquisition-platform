@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createDealFolder } from '@/lib/google/drive'
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
       return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
@@ -21,28 +24,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
-    // Resolve Google connection from project
+    // Resolve Google connection and working folder from project
     const { data: project } = await supabase
       .from('projects')
-      .select('google_connection_id')
+      .select('google_connection_id, google_drive_folder_id')
       .eq('id', deal.project_id)
       .single()
 
     if (!project?.google_connection_id) {
-      return NextResponse.json({ error: 'Project not connected to Gmail. Connect in project settings.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Project not connected to Gmail. Connect in project settings.' },
+        { status: 400 },
+      )
     }
 
-    const dealFields = (deal.deal_fields as any) ?? []
-    const addrField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    if (!project.google_drive_folder_id) {
+      return NextResponse.json(
+        { error: 'Working folder not set. Configure in project settings.' },
+        { status: 400 },
+      )
+    }
+
+    type DealFieldRow = { value: string | null; field_definitions: { key: string } | null }
+    const dealFields: DealFieldRow[] = (deal.deal_fields as unknown as DealFieldRow[]) ?? []
+    const addrField = dealFields.find((f) => f?.field_definitions?.key === 'address')
     const address = addrField?.value ?? 'Untitled Deal'
 
-    const { folderUrl } = await createDealFolder(project.google_connection_id, address)
+    const { folderId, folderUrl } = await createDealFolder(
+      project.google_connection_id,
+      address,
+      project.google_drive_folder_id, // parent = working folder
+    )
 
     const { data: updated } = await supabase
       .from('deals')
-      .update({ drive_folder_url: folderUrl })
+      .update({ drive_folder_url: folderUrl, drive_folder_id: folderId })
       .eq('id', id)
-      .select('drive_folder_url')
+      .select('drive_folder_url, drive_folder_id')
       .single()
 
     return NextResponse.json(updated)

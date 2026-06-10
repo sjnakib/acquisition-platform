@@ -68,6 +68,7 @@ export async function sendEmail(
   cc?: string,
   attachments?: EmailAttachment[],
   bcc?: string,
+  threadId?: string,
 ): Promise<{ messageId: string; threadId: string }> {
   const auth = await getAuthedClientByConnection(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
@@ -77,7 +78,10 @@ export async function sendEmail(
 
   const res = await gmail.users.messages.send({
     userId: 'me',
-    requestBody: { raw },
+    requestBody: {
+      raw,
+      ...(threadId ? { threadId } : {}),
+    },
   })
 
   return {

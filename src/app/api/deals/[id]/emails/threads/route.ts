@@ -45,9 +45,12 @@ export async function GET(req: NextRequest) {
       return {
         id: msg.id,
         threadId: msg.threadId,
+        messageId: headers['message-id'] ?? '',
         snippet: msg.snippet ?? '',
         from: headers['from'] ?? '',
         to: headers['to'] ?? '',
+        cc: headers['cc'] ?? '',
+        bcc: headers['bcc'] ?? '',
         subject: headers['subject'] ?? '',
         date: headers['date'] ?? '',
         labelIds: msg.labelIds ?? [],
@@ -134,18 +137,27 @@ function decodeBody(payload: unknown): string {
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
+    const origin = req.headers.get('origin')
+    const expectedOrigin = process.env.NEXT_PUBLIC_APP_URL
+    const reqOrigin = new URL(req.url).origin
+
+    if (origin && origin !== expectedOrigin && origin !== reqOrigin) {
+      console.error('[emails/threads] CSRF check failed. Origin:', origin, 'Expected:', expectedOrigin, 'or', reqOrigin)
       return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
     }
 
     const { id: dealId } = await params
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user) {
+      console.error('[emails/threads] Unauthorized. No user session found.')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     // Check role from JWT app_metadata
     const role = user.app_metadata?.role
     if (role !== 'internal') {
+      console.error('[emails/threads] Unauthorized. User:', user.email, 'Role:', role)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 

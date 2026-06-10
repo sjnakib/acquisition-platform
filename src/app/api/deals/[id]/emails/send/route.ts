@@ -44,7 +44,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const body = await req.json()
-    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc, bcc, scheduledAt, attachment_ids } = body
+    const { contact_id, to, subject, htmlBody, threadId, inReplyTo, cc, bcc, scheduledAt } = body
+    const attachment_ids = (body.attachment_ids ?? body.attachments) as string[] | undefined
 
     if (!to || !subject || !htmlBody) {
       return NextResponse.json({ error: 'to, subject, and htmlBody required' }, { status: 400 })
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Resolve attachments: download file content from storage
     const gmailAttachments: EmailAttachment[] = []
     if (attachment_ids?.length) {
-      for (const attId of attachment_ids as string[]) {
+      for (const attId of attachment_ids) {
         const { data: attachment } = await supabase
           .from('email_attachments')
           .select('*')
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (threadId && inReplyTo) {
         result = await sendReply(connectionId, threadId, to, subject, htmlBody, inReplyTo, cc, gmailAttachments, bcc)
       } else {
-        result = await sendEmail(connectionId, to, subject, htmlBody, cc, gmailAttachments, bcc)
+        result = await sendEmail(connectionId, to, subject, htmlBody, cc, gmailAttachments, bcc, threadId)
       }
     }
 

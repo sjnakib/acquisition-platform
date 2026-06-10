@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode, forwardRef, useImperativeHandle } from 'react'
 import {
   Mail, RefreshCw, Archive, Trash2,
-  Clock, MailOpen, Check, X,
+  Clock, MailOpen, Check, X, Star,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatEmailDate } from '@/lib/utils'
@@ -84,31 +84,51 @@ function getSnoozePresets() {
 export interface EmailThreadListProps {
   /** Base URL for fetching threads (GET) and performing actions (PATCH). */
   apiBase: string
+  /** Optional separate URL for performing actions (PATCH). Defaults to apiBase. */
+  actionApiBase?: string
   /** Project ID for Gmail disconnect CTA link. */
   projectId: string
   /** Called when a thread row is clicked. */
   onThreadClick: (thread: EmailThread) => void
+  /** ID of the currently selected thread (for active row highlight). */
+  selectedThreadId?: string | null
   /** Render extra content below the subject/snippet line (e.g. deal badge, portfolio indicator). */
   renderMetaRow?: (thread: EmailThread) => ReactNode
   /** Render extra actions in the header row (e.g. portfolio toggle, compose button). */
   renderHeaderActions?: () => ReactNode
+  /** Render extra actions on the right of the refresh button. */
+  renderHeaderRightActions?: () => ReactNode
   /** Show the select-all checkbox and folder tabs row. Default true. */
   showToolbar?: boolean
   /** Optional className for the root element. */
   className?: string
+  /** Called when threads load, passing connection-level meta. */
+  onLoad?: (data: { googleEmail: string | null }) => void
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function EmailThreadList({
-  apiBase,
-  projectId,
-  onThreadClick,
-  renderMetaRow,
-  renderHeaderActions,
-  showToolbar = true,
-  className,
-}: EmailThreadListProps) {
+export interface EmailThreadListHandle {
+  handleThreadAction: (ids: string[], action: string) => Promise<void>
+  handleSnooze: (ids: string[], until: string) => Promise<void>
+}
+
+export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadListProps>(
+  function EmailThreadList({
+    apiBase,
+    actionApiBase,
+    projectId,
+    onThreadClick,
+    selectedThreadId,
+    renderMetaRow,
+    renderHeaderActions,
+    renderHeaderRightActions,
+    showToolbar = true,
+    className,
+    onLoad,
+  }, ref) {
+    const patchUrl = actionApiBase ?? apiBase
+
   // Thread list state
   const [threads, setThreads] = useState<EmailThread[]>([])
   const [loading, setLoading] = useState(true)
@@ -119,10 +139,34 @@ export function EmailThreadList({
   // Selection
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set())
 
+  // Starred threads (client-side only for now)
+  const [starredThreadIds, setStarredThreadIds] = useState<Set<string>>(new Set())
+
   // Snooze dialog
   const [snoozingThreadIds, setSnoozingThreadIds] = useState<string[] | null>(null)
   const [customSnoozeDate, setCustomSnoozeDate] = useState('')
   const [snoozing, setSnoozing] = useState(false)
+
+  // Background activity tracker
+  const [pendingActionsCount, setPendingActionsCount] = useState(0)
+
+  // ── Tab close prevention ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (pendingActionsCount === 0) return
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = 'Background activity is in progress. Are you sure you want to leave?'
+      return e.returnValue
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [pendingActionsCount])
+
+  const hasSelection = selectedThreadIds.size > 0
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
@@ -135,6 +179,7 @@ export function EmailThreadList({
         const data = await res.json()
         setThreads(data.threads ?? [])
         setGmailConnected(data.gmailConnected ?? true)
+        onLoad?.({ googleEmail: data.googleEmail ?? null })
       } else if (res.status === 400) {
         const body = await res.json().catch(() => ({}))
         setGmailConnected(false)
@@ -147,7 +192,7 @@ export function EmailThreadList({
       if (!silent) setLoading(false)
       else setRefreshing(false)
     }
-  }, [apiBase, folder])
+  }, [apiBase, folder, onLoad])
 
   useEffect(() => {
     fetchThreads()
@@ -156,33 +201,60 @@ export function EmailThreadList({
   // ── Thread actions ─────────────────────────────────────────────────────────
 
   const handleThreadAction = useCallback(async (ids: string[], action: string) => {
+    const previousThreads = [...threads]
+
+    let updatedThreads = [...threads]
+    const labels: Record<string, string> = {
+      archive: 'Archived', delete: 'Deleted',
+      markRead: 'Marked as read', markUnread: 'Marked as unread',
+      snooze: 'Snoozed',
+    }
+
+    if (action === 'archive' || action === 'delete' || action === 'snooze') {
+      updatedThreads = threads.filter(t => !ids.includes(t.threadId))
+    } else if (action === 'markRead') {
+      updatedThreads = threads.map(t => ids.includes(t.threadId) ? { ...t, isUnread: false } : t)
+    } else if (action === 'markUnread') {
+      updatedThreads = threads.map(t => ids.includes(t.threadId) ? { ...t, isUnread: true } : t)
+    }
+
+    setThreads(updatedThreads)
+    setSelectedThreadIds(new Set())
+    setPendingActionsCount(prev => prev + 1)
+
     try {
-      const res = await fetch(apiBase, {
+      const res = await fetch(patchUrl, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threadIds: ids, action }),
       })
       if (res.ok) {
-        setSelectedThreadIds(new Set())
         fetchThreads(true)
-        const labels: Record<string, string> = {
-          archive: 'Archived', delete: 'Deleted',
-          markRead: 'Marked as read', markUnread: 'Marked as unread',
-        }
-        toast.success(labels[action] ?? 'Done')
       } else {
+        setThreads(previousThreads)
         const body = await res.json().catch(() => ({}))
-        toast.error(body.error ?? 'Action failed')
+        toast.error(body.error ?? `${labels[action] ?? 'Action'} failed`)
       }
     } catch {
-      toast.error('Action failed')
+      setThreads(previousThreads)
+      toast.error(`${labels[action] ?? 'Action'} failed`)
+    } finally {
+      setPendingActionsCount(prev => Math.max(0, prev - 1))
     }
-  }, [apiBase, fetchThreads])
+  }, [patchUrl, threads, fetchThreads])
 
   const handleSnooze = useCallback(async (ids: string[], until: string) => {
     setSnoozing(true)
+    const previousThreads = [...threads]
+
+    if (folder === 'inbox') {
+      setThreads(prev => prev.filter(t => !ids.includes(t.threadId)))
+    }
+    setSelectedThreadIds(new Set())
+    setPendingActionsCount(prev => prev + 1)
+
     try {
-      const res = await fetch(apiBase, {
+      const res = await fetch(patchUrl, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threadIds: ids, action: 'snooze', snoozedUntil: until }),
@@ -190,19 +262,26 @@ export function EmailThreadList({
       if (res.ok) {
         setSnoozingThreadIds(null)
         setCustomSnoozeDate('')
-        setSelectedThreadIds(new Set())
         fetchThreads(true)
         toast.success('Snoozed')
       } else {
+        setThreads(previousThreads)
         const body = await res.json().catch(() => ({}))
         toast.error(body.error ?? 'Snooze failed')
       }
     } catch {
+      setThreads(previousThreads)
       toast.error('Snooze failed')
     } finally {
       setSnoozing(false)
+      setPendingActionsCount(prev => Math.max(0, prev - 1))
     }
-  }, [apiBase, fetchThreads])
+  }, [patchUrl, folder, threads, fetchThreads])
+
+  useImperativeHandle(ref, () => ({
+    handleThreadAction,
+    handleSnooze,
+  }), [handleThreadAction, handleSnooze])
 
   // ── Selection ──────────────────────────────────────────────────────────────
 
@@ -223,6 +302,18 @@ export function EmailThreadList({
     setSelectedThreadIds(new Set())
   }, [])
 
+  // ── Star ───────────────────────────────────────────────────────────────────
+
+  const toggleStar = useCallback((threadId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setStarredThreadIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(threadId)) next.delete(threadId)
+      else next.add(threadId)
+      return next
+    })
+  }, [])
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   // Gmail not connected state
@@ -238,7 +329,7 @@ export function EmailThreadList({
         </p>
         <a
           href={`/projects/${projectId}/settings`}
-          className="inline-flex h-8 px-4 rounded-md text-[12px] font-medium transition-colors items-center no-underline"
+          className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline"
           style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
         >
           Connect Gmail
@@ -248,16 +339,17 @@ export function EmailThreadList({
   }
 
   return (
-    <div className={`flex flex-col h-full rounded-lg border overflow-hidden ${className ?? ''}`}
+    <div
+      className={`flex flex-col h-full rounded-lg border overflow-hidden ${className ?? ''}`}
       style={{ borderColor: 'var(--color-surface-2)', background: 'var(--color-surface-0)' }}
     >
-      {/* Header row */}
+      {/* ── Header row ─────────────────────────────────────────────────────── */}
       <div
-        className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0"
+        className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
         style={{ borderColor: 'var(--color-surface-2)' }}
       >
         <div className="flex items-center gap-2">
-          <Mail size={15} style={{ color: 'var(--color-accent)' }} />
+          <Mail size={14} style={{ color: 'var(--color-accent)' }} />
           <span className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             {folder === 'inbox' ? 'Inbox' : folder === 'snoozed' ? 'Snoozed' : 'Archived'}
           </span>
@@ -271,58 +363,61 @@ export function EmailThreadList({
           {renderHeaderActions?.()}
           <button
             onClick={() => fetchThreads(true)}
-            className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-[var(--color-surface-2)] transition-colors"
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
             style={{ color: 'var(--color-text-secondary)' }}
             title="Refresh"
           >
             <RefreshCw size={13} className={loading || refreshing ? 'animate-spin' : ''} />
           </button>
+          {renderHeaderRightActions?.()}
         </div>
       </div>
 
-      {/* Bulk actions or folder tabs */}
-      {showToolbar && selectedThreadIds.size > 0 ? (
+      {/* ── Bulk actions or folder tabs ─────────────────────────────────────── */}
+      {showToolbar && hasSelection ? (
         <div
-          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0 animate-tab-entrance"
+          className="flex items-center justify-between px-3 py-1.5 border-b flex-shrink-0 animate-tab-entrance"
           style={{ borderColor: 'var(--color-surface-2)', background: 'var(--color-accent-bg)' }}
         >
           <div className="flex items-center gap-2">
             <button
               onClick={clearSelection}
-              className="h-6 w-6 flex items-center justify-center rounded hover:bg-[var(--color-surface-3)] transition-colors"
+              className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
               style={{ color: 'var(--color-accent)' }}
               title="Clear selection"
             >
-              <X size={14} />
+              <X size={13} />
             </button>
             <span className="text-[12px] font-semibold" style={{ color: 'var(--color-accent)' }}>
               {selectedThreadIds.size} selected
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-0.5">
             {folder === 'inbox' && (
-              <ActionBtn icon={Archive} label="Archive selected" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'archive')} />
+              <ActionIconBtn icon={Archive} label="Archive selected" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'archive')} />
             )}
-            <ActionBtn icon={Trash2} label="Delete selected" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'delete')} />
-            <ActionBtn icon={MailOpen} label="Mark selected as read" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'markRead')} />
-            <ActionBtn icon={Mail} label="Mark selected as unread" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'markUnread')} />
-            <ActionBtn icon={Clock} label="Snooze selected" onClick={() => setSnoozingThreadIds(Array.from(selectedThreadIds))} />
+            <ActionIconBtn icon={Trash2} label="Delete selected" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'delete')} />
+            <ActionIconBtn icon={MailOpen} label="Mark as read" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'markRead')} />
+            <ActionIconBtn icon={Mail} label="Mark as unread" onClick={() => handleThreadAction(Array.from(selectedThreadIds), 'markUnread')} />
+            <ActionIconBtn icon={Clock} label="Snooze selected" onClick={() => setSnoozingThreadIds(Array.from(selectedThreadIds))} />
           </div>
         </div>
       ) : showToolbar ? (
         <div
-          className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0"
+          className="flex items-center justify-between px-3 py-1.5 border-b flex-shrink-0"
           style={{ borderColor: 'var(--color-surface-2)', background: 'var(--color-surface-1)' }}
         >
+          {/* Select-all checkbox */}
           <button
             onClick={selectAllThreads}
-            className="h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 transition-colors hover:border-[var(--color-text-tertiary)]"
+            className="h-4 w-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors hover:border-[var(--color-text-tertiary)]"
             style={{ borderColor: 'var(--color-surface-3)', background: 'var(--color-surface-0)' }}
             title="Select all"
           >
-            <Check size={10} style={{ color: 'var(--color-text-tertiary)', opacity: 0.6 }} />
+            <Check size={9} style={{ color: 'var(--color-text-tertiary)', opacity: 0.7 }} />
           </button>
 
+          {/* Folder tabs */}
           <div
             className="flex rounded-lg p-0.5 border"
             style={{ borderColor: 'var(--color-surface-3)', background: 'var(--color-surface-2)' }}
@@ -349,22 +444,22 @@ export function EmailThreadList({
         </div>
       ) : null}
 
-      {/* Thread list */}
+      {/* ── Thread list ─────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="space-y-0.5 p-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="rounded-lg px-3 py-3 animate-pulse">
-                <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-full flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="flex justify-between">
-                      <div className="h-3 w-24 rounded" style={{ background: 'var(--color-surface-2)' }} />
-                      <div className="h-3 w-10 rounded" style={{ background: 'var(--color-surface-2)' }} />
-                    </div>
-                    <div className="h-3 w-20 rounded" style={{ background: 'var(--color-surface-2)' }} />
-                    <div className="h-3 w-full rounded" style={{ background: 'var(--color-surface-2)' }} />
+          // Skeleton rows
+          <div>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5 border-b animate-pulse" style={{ borderColor: 'var(--color-surface-2)' }}>
+                <div className="h-4 w-4 rounded flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
+                <div className="h-4 w-4 rounded flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
+                <div className="h-9 w-9 rounded-full flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex justify-between">
+                    <div className="h-3 w-28 rounded" style={{ background: 'var(--color-surface-2)' }} />
+                    <div className="h-3 w-12 rounded" style={{ background: 'var(--color-surface-2)' }} />
                   </div>
+                  <div className="h-3 w-full rounded" style={{ background: 'var(--color-surface-2)' }} />
                 </div>
               </div>
             ))}
@@ -382,112 +477,196 @@ export function EmailThreadList({
         ) : (
           threads.map((thread) => {
             const isChecked = selectedThreadIds.has(thread.threadId)
+            const isStarred = starredThreadIds.has(thread.threadId)
+            const isActive = selectedThreadId === thread.threadId
+
             return (
               <div
                 key={thread.threadId}
-                className="group flex items-start gap-2 px-3 py-3 border-b transition-colors hover:bg-[var(--color-surface-1)] relative"
-                style={{ borderColor: 'var(--color-surface-2)' }}
+                className="group relative border-b transition-colors"
+                style={{
+                  borderColor: 'var(--color-surface-2)',
+                  background: isActive
+                    ? 'var(--color-accent-bg)'
+                    : isChecked
+                    ? 'var(--color-surface-1)'
+                    : thread.isUnread
+                    ? 'var(--color-surface-0)'
+                    : 'var(--color-canvas)',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    ;(e.currentTarget as HTMLElement).style.background = 'var(--color-surface-1)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    ;(e.currentTarget as HTMLElement).style.background = isChecked
+                      ? 'var(--color-surface-1)'
+                      : thread.isUnread
+                      ? 'var(--color-surface-0)'
+                      : 'var(--color-canvas)'
+                  }
+                }}
               >
-                {/* Checkbox */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleThreadSelection(thread.threadId) }}
-                  className="h-5 w-5 rounded border flex items-center justify-center flex-shrink-0 mt-1 transition-colors hover:border-[var(--color-text-tertiary)]"
-                  style={{
-                    borderColor: isChecked ? 'var(--color-accent)' : 'var(--color-surface-3)',
-                    background: isChecked ? 'var(--color-accent-bg)' : 'var(--color-surface-0)',
-                  }}
-                >
-                  {isChecked && <Check size={10} style={{ color: 'var(--color-accent)' }} />}
-                </button>
-
-                {/* Content */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onThreadClick(thread)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onThreadClick(thread)
-                    }
-                  }}
-                  className="flex-1 flex items-start gap-3 min-w-0 text-left cursor-pointer outline-none"
-                >
-                  {/* Avatar */}
+                {/* Active left indicator */}
+                {isActive && (
                   <div
-                    className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
-                    style={{
-                      background: thread.isUnread ? 'var(--color-accent)' : threadAvatarColor(thread.contactName),
-                      color: 'var(--color-text-inverse)',
-                    }}
+                    className="absolute left-0 top-0 bottom-0 w-0.5 rounded-r"
+                    style={{ background: 'var(--color-accent)' }}
+                  />
+                )}
+
+                <div className="flex items-center min-h-[52px] px-3 gap-2">
+                  {/* ── Checkbox (hidden until hover or selection) ───────────── */}
+                  <div
+                    className={`flex-shrink-0 transition-opacity ${
+                      hasSelection ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    }`}
                   >
-                    {threadInitials(thread.contactName)}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleThreadSelection(thread.threadId) }}
+                      className="h-4 w-4 rounded border flex items-center justify-center transition-colors"
+                      style={{
+                        borderColor: isChecked ? 'var(--color-accent)' : 'var(--color-surface-3)',
+                        background: isChecked ? 'var(--color-accent)' : 'transparent',
+                      }}
+                      title={isChecked ? 'Deselect' : 'Select'}
+                    >
+                      {isChecked && <Check size={10} style={{ color: 'var(--color-text-inverse)' }} />}
+                    </button>
                   </div>
 
-                  <div className="flex-1 min-w-0">
-                    {/* Name + date */}
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`text-[13px] truncate ${thread.isUnread ? 'font-bold' : 'font-normal'}`}
-                        style={{ color: thread.isUnread ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}
-                      >
-                        {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
-                      </span>
-                      <span
-                        className="text-[11px] flex-shrink-0 ml-2 group-hover:opacity-0 transition-opacity"
-                        style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}
-                      >
-                        {formatEmailDate(thread.lastDate)}
-                      </span>
+                  {/* ── Star (always visible) ──────────────────────────────── */}
+                  <button
+                    onClick={(e) => toggleStar(thread.threadId, e)}
+                    className="flex-shrink-0 h-5 w-5 flex items-center justify-center transition-colors hover:scale-110"
+                    style={{ color: isStarred ? '#F4B400' : 'var(--color-surface-3)', transition: 'color 0.15s, transform 0.15s' }}
+                    title={isStarred ? 'Unstar' : 'Star'}
+                  >
+                    <Star size={14} fill={isStarred ? '#F4B400' : 'none'} />
+                  </button>
+
+                  {/* ── Clickable row content ──────────────────────────────── */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onThreadClick(thread)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onThreadClick(thread)
+                      }
+                    }}
+                    className="flex-1 flex items-center gap-3 min-w-0 text-left cursor-pointer outline-none py-2"
+                  >
+                    {/* Avatar */}
+                    <div
+                      className="h-9 w-9 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold"
+                      style={{
+                        background: threadAvatarColor(thread.contactName),
+                        color: 'var(--color-text-inverse)',
+                      }}
+                    >
+                      {threadInitials(thread.contactName)}
                     </div>
 
-                    {/* Subject + snippet */}
-                    <p className="text-[12px] truncate mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                      <span className={thread.isUnread ? 'font-bold text-[var(--color-text-primary)]' : 'font-normal text-[var(--color-text-secondary)]'}>
-                        {thread.subject ?? '(no subject)'}
-                      </span>
-                      {thread.snippet && (
-                        <span className="font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
-                          {' — '}{thread.snippet}
+                    {/* Text content */}
+                    <div className="flex-1 min-w-0">
+                      {/* Row 1: Sender name + message count + date */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`text-[14px] truncate ${thread.isUnread ? 'font-semibold' : 'font-normal'}`}
+                          style={{ color: 'var(--color-text-primary)' }}
+                        >
+                          {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
+                          {thread.messageCount > 1 && (
+                            <span
+                              className="ml-1 text-[12px] font-normal"
+                              style={{ color: 'var(--color-text-tertiary)' }}
+                            >
+                              ({thread.messageCount})
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </p>
+                        {/* Timestamp — hides on hover, replaced by action icons */}
+                        <span
+                          className="text-[12px] flex-shrink-0 ml-2 transition-opacity group-hover:opacity-0"
+                          style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}
+                        >
+                          {formatEmailDate(thread.lastDate)}
+                        </span>
+                      </div>
 
-                    {/* Meta row: consumer slot + built-in badges */}
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {renderMetaRow?.(thread)}
-                      {thread.status === 'replied' && (
-                        <span className="text-[10px] font-medium" style={{ color: 'var(--color-success-text)' }}>Replied</span>
-                      )}
-                      {thread.isUnread && (
-                        <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: 'var(--color-accent)' }} />
-                      )}
-                      {thread.snoozedUntil && (
-                        <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                          <Clock size={10} /> Snoozed
+                      {/* Row 2: Subject — snippet */}
+                      <p className="text-[14px] truncate mt-0.5">
+                        <span
+                          className={thread.isUnread ? 'font-semibold' : 'font-normal'}
+                          style={{ color: 'var(--color-text-primary)' }}
+                        >
+                          {thread.subject ?? '(no subject)'}
                         </span>
-                      )}
-                      {thread.messageCount > 1 && (
-                        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                          {thread.messageCount} msgs
-                        </span>
+                        {thread.snippet && (
+                          <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
+                            {' '}—{' '}{thread.snippet}
+                          </span>
+                        )}
+                      </p>
+
+                      {/* Row 3: Meta badges (consumer slot + built-in) */}
+                      {(renderMetaRow || thread.snoozedUntil || thread.status === 'replied') && (
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {renderMetaRow?.(thread)}
+                          {thread.status === 'replied' && (
+                            <span className="text-[10px] font-medium" style={{ color: 'var(--color-success-text)' }}>Replied</span>
+                          )}
+                          {thread.snoozedUntil && (
+                            <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                              <Clock size={9} /> Snoozed
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Hover actions */}
-                <div className="absolute right-3 top-3 hidden group-hover:flex items-center gap-1 bg-[var(--color-surface-1)] pl-2 rounded">
-                  {thread.isInbox && (
-                    <ActionBtn icon={Archive} label="Archive" onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], 'archive') }} />
-                  )}
-                  <ActionBtn icon={Trash2} label="Delete" onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], 'delete') }} />
-                  <ActionBtn
-                    icon={thread.isUnread ? MailOpen : Mail}
-                    label={thread.isUnread ? 'Mark as read' : 'Mark as unread'}
-                    onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], thread.isUnread ? 'markRead' : 'markUnread') }}
-                  />
-                  <ActionBtn icon={Clock} label="Snooze" onClick={(e) => { e.stopPropagation(); setSnoozingThreadIds([thread.threadId]) }} />
+                {/* ── Hover actions (replace timestamp area) ──────────────── */}
+                <div
+                  className="absolute right-0 top-0 bottom-0 hidden group-hover:flex items-center pl-10 pr-3"
+                  style={{
+                    pointerEvents: 'none',
+                    background: `linear-gradient(90deg, transparent 0%, ${
+                      isActive ? 'var(--color-accent-bg)' : 'var(--color-surface-1)'
+                    } 40px, ${
+                      isActive ? 'var(--color-accent-bg)' : 'var(--color-surface-1)'
+                    } 100%)`
+                  }}
+                >
+                  <div style={{ pointerEvents: 'auto' }} className="flex items-center gap-0.5">
+                    {thread.isInbox && (
+                      <ActionIconBtn
+                        icon={Archive}
+                        label="Archive"
+                        onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], 'archive') }}
+                      />
+                    )}
+                    <ActionIconBtn
+                      icon={Clock}
+                      label="Snooze"
+                      onClick={(e) => { e.stopPropagation(); setSnoozingThreadIds([thread.threadId]) }}
+                    />
+                    <ActionIconBtn
+                      icon={thread.isUnread ? MailOpen : Mail}
+                      label={thread.isUnread ? 'Mark as read' : 'Mark as unread'}
+                      onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], thread.isUnread ? 'markRead' : 'markUnread') }}
+                    />
+                    <ActionIconBtn
+                      icon={Trash2}
+                      label="Delete"
+                      onClick={(e) => { e.stopPropagation(); handleThreadAction([thread.threadId], 'delete') }}
+                    />
+                  </div>
                 </div>
               </div>
             )
@@ -495,7 +674,7 @@ export function EmailThreadList({
         )}
       </div>
 
-      {/* Snooze dialog */}
+      {/* ── Snooze dialog ──────────────────────────────────────────────────── */}
       <Dialog open={snoozingThreadIds !== null} onOpenChange={(open) => { if (!open) { setSnoozingThreadIds(null); setCustomSnoozeDate('') } }}>
         <DialogContent>
           <DialogHeader>
@@ -510,7 +689,7 @@ export function EmailThreadList({
                 key={preset.value}
                 onClick={() => snoozingThreadIds && handleSnooze(snoozingThreadIds, preset.value)}
                 disabled={snoozing}
-                className="w-full text-left px-4 py-3 rounded-lg border transition-colors hover:bg-[var(--color-surface-1)] text-[13px] font-medium"
+                className="w-full text-left px-4 py-3 rounded-xl border transition-colors hover:bg-[var(--color-surface-1)] text-[13px] font-medium"
                 style={{ borderColor: 'var(--color-surface-2)', color: 'var(--color-text-primary)' }}
               >
                 {preset.label}
@@ -518,7 +697,7 @@ export function EmailThreadList({
             ))}
             <div className="border-t pt-3 mt-1" style={{ borderColor: 'var(--color-surface-2)' }}>
               <label className="text-[11px] font-medium block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                Custom date & time
+                Custom date &amp; time
               </label>
               <input
                 type="datetime-local"
@@ -542,18 +721,18 @@ export function EmailThreadList({
               disabled={snoozing || !customSnoozeDate}
               onClick={() => snoozingThreadIds && customSnoozeDate && handleSnooze(snoozingThreadIds, new Date(customSnoozeDate).toISOString())}
             >
-              {snoozing ? 'Snoozing...' : 'Snooze'}
+              {snoozing ? 'Snoozing…' : 'Snooze'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   )
-}
+})
 
-// ── Internal sub-component ───────────────────────────────────────────────────
+// ── Internal sub-components ───────────────────────────────────────────────────
 
-function ActionBtn({
+function ActionIconBtn({
   icon: Icon,
   label,
   onClick,
@@ -565,11 +744,11 @@ function ActionBtn({
   return (
     <button
       onClick={onClick}
-      className="h-7 w-7 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors"
+      className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
       style={{ color: 'var(--color-text-secondary)' }}
       title={label}
     >
-      <Icon size={14} />
+      <Icon size={15} />
     </button>
   )
 }

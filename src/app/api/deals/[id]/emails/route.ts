@@ -169,6 +169,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Resolve Google connection from the deal's project
     let connectionId: string | null = null
+    let googleEmail: string | null = null
     if (trackedEmails.length > 0) {
       const { data: project } = await supabase
         .from('projects')
@@ -177,6 +178,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         .single()
 
       connectionId = project?.google_connection_id ?? null
+
+      if (connectionId) {
+        const { data: conn } = await supabase
+          .from('google_connections')
+          .select('google_email')
+          .eq('id', connectionId)
+          .single()
+        googleEmail = conn?.google_email ?? null
+      }
     }
 
     const threads: Record<string, {
@@ -342,7 +352,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return new Date(b.lastDate ?? 0).getTime() - new Date(a.lastDate ?? 0).getTime()
     })
 
-    return NextResponse.json({ threads: sorted, gmailConnected: !!connectionId })
+    return NextResponse.json({ threads: sorted, gmailConnected: !!connectionId, googleEmail })
   } catch (err) {
     console.error('Emails list error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
