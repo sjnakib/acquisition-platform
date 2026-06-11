@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useRef, useEffect, type ReactNode, memo } from 'react'
 import {
   ChevronDown, ChevronUp, Paperclip, MoreVertical, ExternalLink,
   ChevronRight,
@@ -168,12 +168,430 @@ function MessageHeaderMeta({ msg }: { msg: EmailMessage }) {
   )
 }
 
+// ── Safe HTML Viewer (Sandboxed iframe to prevent global style leakage) ────────
+
+function SafeHtmlViewer({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [height, setHeight] = useState('120px')
+
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+
+    let resizeObserver: ResizeObserver | null = null
+
+    const getCssVariable = (name: string, fallback: string) => {
+      if (typeof window === 'undefined') return fallback
+      return window.getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+    }
+
+    const updateHeight = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document
+        if (!doc) return
+        const body = doc.body
+        const htmlEl = doc.documentElement
+        if (!body || !htmlEl) return
+
+        const measuredHeight = Math.max(
+          body.scrollHeight,
+          body.offsetHeight,
+          htmlEl.clientHeight,
+          htmlEl.scrollHeight,
+          htmlEl.offsetHeight
+        )
+        if (measuredHeight > 0) {
+          setHeight(`${measuredHeight}px`)
+        }
+      } catch (err) {
+        // Suppress cross-origin/iframe detached issues
+      }
+    }
+
+    const updateThemeStyles = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document
+        const styleEl = doc?.getElementById('theme-styles')
+        if (styleEl) {
+          const isDark = document.documentElement.classList.contains('dark')
+          const textPrimary = getCssVariable('--color-text-primary', isDark ? '#f3f4f6' : '#111827')
+          const textSecondary = getCssVariable('--color-text-secondary', isDark ? '#9ca3af' : '#4b5563')
+          const textTertiary = getCssVariable('--color-text-tertiary', isDark ? '#6b7280' : '#9ca3af')
+          const surface1 = getCssVariable('--color-surface-1', isDark ? '#1f2937' : '#f3f4f6')
+          const surface2 = getCssVariable('--color-surface-2', isDark ? '#374151' : '#e5e7eb')
+          const surface3 = getCssVariable('--color-surface-3', isDark ? '#4b5563' : '#d1d5db')
+          const accent = getCssVariable('--color-accent', '#3b82f6')
+
+          styleEl.textContent = `
+            body {
+              color: ${textSecondary};
+            }
+            h1, h2, h3, h4, h5, h6 {
+              color: ${textPrimary};
+            }
+            blockquote {
+              border-left-color: ${surface3};
+              color: ${textTertiary};
+            }
+            pre, code {
+              background: ${surface1};
+            }
+            th, td {
+              border-color: ${surface2};
+            }
+            th {
+              background: ${surface1};
+            }
+            a {
+              color: ${accent};
+            }
+          `
+        }
+      } catch (err) {
+        // Suppress
+      }
+    }
+
+    const handleLoad = () => {
+      updateHeight()
+      updateThemeStyles()
+
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document
+        if (doc?.body && typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(() => {
+            updateHeight()
+          })
+          resizeObserver.observe(doc.body)
+        }
+      } catch (err) {
+        // Suppress
+      }
+    }
+
+    iframe.addEventListener('load', handleLoad)
+    const fallbackTimer = setTimeout(updateHeight, 300)
+    window.addEventListener('resize', updateHeight)
+
+    // Mutation observer for theme updates on <html> element
+    const themeObserver = new MutationObserver(() => {
+      updateThemeStyles()
+      updateHeight()
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+
+    return () => {
+      iframe.removeEventListener('load', handleLoad)
+      window.removeEventListener('resize', updateHeight)
+      clearTimeout(fallbackTimer)
+      themeObserver.disconnect()
+      if (resizeObserver) {
+        resizeObserver.disconnect()
+      }
+    }
+  }, [html])
+
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  const initialTextSecondary = isDark ? '#9ca3af' : '#4b5563'
+  const isHtml = /<[a-z][\s\S]*>/i.test(html)
+  const bodyContent = isHtml ? html : `<div style="white-space: pre-wrap; word-break: break-word;">${html}</div>`
+
+  return (
+    <iframe
+      ref={iframeRef}
+      srcDoc={`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <base target="_blank">
+            <style id="base-styles">
+              body {
+                margin: 0;
+                padding: 0;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                font-size: 13px;
+                line-height: 1.6;
+              }
+              p {
+                margin-top: 0;
+                margin-bottom: 1em;
+              }
+              h1, h2, h3, h4, h5, h6 {
+                font-weight: 600;
+                line-height: 1.25;
+                margin-top: 1.5em;
+                margin-bottom: 0.5em;
+              }
+              h1 { font-size: 1.8em; }
+              h2 { font-size: 1.4em; }
+              h3 { font-size: 1.2em; }
+              h4 { font-size: 1.1em; }
+              a {
+                text-decoration: underline;
+              }
+              a:hover {
+                opacity: 0.8;
+              }
+              ul, ol {
+                margin-top: 0;
+                margin-bottom: 1em;
+                padding-left: 2em;
+              }
+              ul {
+                list-style-type: disc;
+              }
+              ol {
+                list-style-type: decimal;
+              }
+              li {
+                margin-bottom: 0.25em;
+              }
+              blockquote {
+                margin: 1em 0;
+                padding-left: 1em;
+                border-left: 3px solid;
+              }
+              pre, code {
+                font-family: monospace;
+                font-size: 0.9em;
+                padding: 2px 4px;
+                border-radius: 4px;
+              }
+              pre {
+                padding: 12px;
+                overflow-x: auto;
+                margin-bottom: 1em;
+              }
+              pre code {
+                padding: 0;
+                background: transparent;
+              }
+              table {
+                border-collapse: collapse;
+                width: 100%;
+                margin-bottom: 1em;
+              }
+              th, td {
+                border: 1px solid;
+                padding: 8px 12px;
+                text-align: left;
+              }
+              th {
+                font-weight: 600;
+              }
+              img {
+                max-width: 100%;
+                height: auto;
+              }
+            </style>
+            <style id="theme-styles">
+              body { color: ${initialTextSecondary}; }
+            </style>
+          </head>
+          <body>${bodyContent}</body>
+        </html>
+      `}
+      title="Email Message Content"
+      sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+      style={{
+        width: '100%',
+        height: height,
+        border: 'none',
+        overflow: 'hidden',
+        display: 'block',
+      }}
+    />
+  )
+}
+
+// ── Memoized Message Item ────────────────────────────────────────────────────
+
+interface MessageItemProps {
+  msg: EmailMessage
+  isExpanded: boolean
+  isLast: boolean
+  activeMenuMsgId: string | null | undefined
+  attachmentDealId: string
+  showMessageMenu: boolean
+  onToggle: (msgId: string) => void
+  onSetActiveMenuMsgId: (msgId: string | null) => void
+  renderMessageMenu?: (message: EmailMessage, closeMenu: () => void) => ReactNode
+  renderMessageActions?: (message: EmailMessage) => ReactNode
+  renderInlineReply?: (lastMessage: EmailMessage | null) => ReactNode
+  lastMessage: EmailMessage | null
+}
+
+const MessageItem = memo(function MessageItem({
+  msg,
+  isExpanded,
+  isLast,
+  activeMenuMsgId,
+  attachmentDealId,
+  showMessageMenu,
+  onToggle,
+  onSetActiveMenuMsgId,
+  renderMessageMenu,
+  renderMessageActions,
+  renderInlineReply,
+  lastMessage,
+}: MessageItemProps) {
+  const own = isOwnMessage(msg.from)
+  const senderName = own ? 'Me' : parseSenderName(msg.from)
+  const senderEmail = parseSenderEmail(msg.from)
+
+  return (
+    <div
+      className="border-b"
+      style={{ borderColor: 'var(--color-surface-2)' }}
+    >
+      {/* ── Message header: always visible ────────────────────── */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onToggle(msg.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle(msg.id)
+          }
+        }}
+        className="flex items-start gap-3 px-6 py-3 cursor-pointer hover:bg-[var(--color-surface-1)] transition-colors group/msg"
+      >
+        {/* Avatar */}
+        <div
+          className="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold mt-0.5"
+          style={{
+            background: own ? 'var(--color-accent)' : avatarColor(senderName),
+            color: 'var(--color-text-inverse)',
+          }}
+        >
+          {initials(own ? 'Me' : senderName)}
+        </div>
+
+        {/* Sender info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[14px] font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+              {senderName}
+              {!own && senderEmail && senderEmail !== senderName && (
+                <span className="ml-1.5 text-[12px] font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
+                  &lt;{senderEmail}&gt;
+                </span>
+              )}
+            </span>
+
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Timestamp */}
+              <span
+                className="text-[12px]"
+                style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}
+              >
+                {formatEmailFullDate(msg.date)}
+              </span>
+
+              {/* ⋮ More options — always visible, fully isolated from expand toggle */}
+              {showMessageMenu && renderMessageMenu && (
+                <div
+                  className="relative"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSetActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)
+                    }}
+                    className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
+                    style={{ color: 'var(--color-text-tertiary)' }}
+                    title="More options"
+                  >
+                    <MoreVertical size={15} />
+                  </button>
+                  {activeMenuMsgId === msg.id && renderMessageMenu(msg, () => onSetActiveMenuMsgId?.(null))}
+                </div>
+              )}
+
+              {/* Expand/collapse chevron */}
+              {isExpanded
+                ? <ChevronUp size={15} style={{ color: 'var(--color-text-tertiary)' }} />
+                : <ChevronDown size={15} style={{ color: 'var(--color-text-tertiary)' }} />
+              }
+            </div>
+          </div>
+
+          {/* Collapsed: show snippet; Expanded: show "to me ▾" */}
+          {isExpanded ? (
+            <MessageHeaderMeta msg={msg} />
+          ) : (
+            <p
+              className="text-[12px] truncate mt-0.5"
+              style={{ color: 'var(--color-text-tertiary)' }}
+            >
+              {msg.snippet}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Message body: shown when expanded ─────────────────── */}
+      {isExpanded && (
+        <div className="px-6 pb-6" style={{ paddingLeft: '4.75rem' /* 24px + 40px avatar + 12px gap */ }}>
+          {/* Email body */}
+          <div className="text-[14px] leading-relaxed email-content">
+            <SafeHtmlViewer html={msg.body || `<p style="color:var(--color-text-tertiary)">(No content)</p>`} />
+          </div>
+
+          {/* Attachments */}
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div
+              className="mt-5 pt-4 border-t flex flex-wrap gap-2"
+              style={{ borderColor: 'var(--color-surface-2)' }}
+            >
+              {msg.attachments.map((att) => (
+                <a
+                  key={att.attachmentId}
+                  href={`/api/deals/${attachmentDealId}/emails/attachments?messageId=${msg.id}&attachmentId=${att.attachmentId}&filename=${encodeURIComponent(att.filename)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[12px] font-medium transition-colors hover:bg-[var(--color-surface-1)]"
+                  style={{ borderColor: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}
+                >
+                  <Paperclip size={11} />
+                  {renderAttachmentName(att.filename)}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Per-message action buttons: Reply | Reply All | Forward */}
+          {renderMessageActions && (
+            <div className="flex items-center gap-2 mt-5">
+              {renderMessageActions(msg)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Inline reply box (below last message only) ─────────── */}
+      {isLast && renderInlineReply && (
+        <div className="px-6 pb-6 pt-2" style={{ paddingLeft: '4.75rem' }}>
+          {renderInlineReply(lastMessage)}
+        </div>
+      )}
+    </div>
+  )
+}, (prev, next) => {
+  // Only re-render if these specific props changed for this message
+  return prev.msg.id === next.msg.id &&
+    prev.isExpanded === next.isExpanded &&
+    prev.isLast === next.isLast &&
+    prev.activeMenuMsgId === next.activeMenuMsgId &&
+    // If menu was open for this msg or is now open for this msg, re-render
+    (prev.activeMenuMsgId === prev.msg.id) === (next.activeMenuMsgId === next.msg.id)
+})
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function EmailMessagePanel({
   thread,
   messages,
-  loading,
   expandedMessages,
   onToggleMessage,
   onExpandAll,
@@ -193,6 +611,18 @@ export function EmailMessagePanel({
   const allExpanded = messages.length > 0 && expandedCount === messages.length
   const threadId = gmailThreadId ?? thread.threadId
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] ?? null : null
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevThreadIdRef = useRef<string | null>(null)
+  const [animKey, setAnimKey] = useState(0)
+
+  useEffect(() => {
+    if (prevThreadIdRef.current !== null && prevThreadIdRef.current !== threadId) {
+      setAnimKey((k) => k + 1)
+      scrollRef.current?.scrollTo({ top: 0 })
+    }
+    prevThreadIdRef.current = threadId
+  }, [threadId])
 
   return (
     <div className="flex flex-col h-full">
@@ -244,7 +674,7 @@ export function EmailMessagePanel({
       </div>
 
       {/* ── Messages + inline reply ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} key={animKey} className="flex-1 overflow-y-auto animate-thread-entrance">
         {/* Subject header */}
         <div
           className="px-6 pt-5 pb-3 flex flex-col gap-1"
@@ -270,157 +700,23 @@ export function EmailMessagePanel({
         </div>
 
         {/* Messages */}
-        {messages.map((msg, idx) => {
-          const isExpanded = expandedMessages.has(msg.id)
-          const own = isOwnMessage(msg.from)
-          const senderName = own ? 'Me' : parseSenderName(msg.from)
-          const senderEmail = parseSenderEmail(msg.from)
-          const isLast = idx === messages.length - 1
-
-          return (
-            <div
-              key={msg.id}
-              className="border-b"
-              style={{ borderColor: 'var(--color-surface-2)' }}
-            >
-              {/* ── Message header: always visible ────────────────────── */}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onToggleMessage(msg.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onToggleMessage(msg.id)
-                  }
-                }}
-                className="flex items-start gap-3 px-6 py-3 cursor-pointer hover:bg-[var(--color-surface-1)] transition-colors group/msg"
-              >
-                {/* Avatar */}
-                <div
-                  className="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold mt-0.5"
-                  style={{
-                    background: own ? 'var(--color-accent)' : avatarColor(senderName),
-                    color: 'var(--color-text-inverse)',
-                  }}
-                >
-                  {initials(own ? 'Me' : senderName)}
-                </div>
-
-                {/* Sender info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[14px] font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
-                      {senderName}
-                      {!own && senderEmail && senderEmail !== senderName && (
-                        <span className="ml-1.5 text-[12px] font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
-                          &lt;{senderEmail}&gt;
-                        </span>
-                      )}
-                    </span>
-
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {/* Timestamp */}
-                      <span
-                        className="text-[12px]"
-                        style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-jetbrains-mono)' }}
-                      >
-                        {formatEmailFullDate(msg.date)}
-                      </span>
-
-                      {/* ⋮ More options — always visible, fully isolated from expand toggle */}
-                      {showMessageMenu && renderMessageMenu && (
-                        <div
-                          className="relative"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onSetActiveMenuMsgId?.(activeMenuMsgId === msg.id ? null : msg.id)
-                            }}
-                            className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
-                            style={{ color: 'var(--color-text-tertiary)' }}
-                            title="More options"
-                          >
-                            <MoreVertical size={15} />
-                          </button>
-                          {activeMenuMsgId === msg.id && renderMessageMenu(msg, () => onSetActiveMenuMsgId?.(null))}
-                        </div>
-                      )}
-
-                      {/* Expand/collapse chevron */}
-                      {isExpanded
-                        ? <ChevronUp size={15} style={{ color: 'var(--color-text-tertiary)' }} />
-                        : <ChevronDown size={15} style={{ color: 'var(--color-text-tertiary)' }} />
-                      }
-                    </div>
-                  </div>
-
-                  {/* Collapsed: show snippet; Expanded: show "to me ▾" */}
-                  {isExpanded ? (
-                    <MessageHeaderMeta msg={msg} />
-                  ) : (
-                    <p
-                      className="text-[12px] truncate mt-0.5"
-                      style={{ color: 'var(--color-text-tertiary)' }}
-                    >
-                      {msg.snippet}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Message body: shown when expanded ─────────────────── */}
-              {isExpanded && (
-                <div className="px-6 pb-6" style={{ paddingLeft: '4.75rem' /* 24px + 40px avatar + 12px gap */ }}>
-                  {/* Email body */}
-                  <div
-                    className="text-[14px] leading-relaxed email-content"
-                    style={{ color: 'var(--color-text-primary)' }}
-                    dangerouslySetInnerHTML={{
-                      __html: msg.body || `<p style="color:var(--color-text-tertiary)">(No content)</p>`,
-                    }}
-                  />
-
-                  {/* Attachments */}
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div
-                      className="mt-5 pt-4 border-t flex flex-wrap gap-2"
-                      style={{ borderColor: 'var(--color-surface-2)' }}
-                    >
-                      {msg.attachments.map((att) => (
-                        <a
-                          key={att.attachmentId}
-                          href={`/api/deals/${attachmentDealId}/emails/attachments?messageId=${msg.id}&attachmentId=${att.attachmentId}&filename=${encodeURIComponent(att.filename)}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[12px] font-medium transition-colors hover:bg-[var(--color-surface-1)]"
-                          style={{ borderColor: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}
-                        >
-                          <Paperclip size={11} />
-                          {renderAttachmentName(att.filename)}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Per-message action buttons: Reply | Reply All | Forward */}
-                  {renderMessageActions && (
-                    <div className="flex items-center gap-2 mt-5">
-                      {renderMessageActions(msg)}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ── Inline reply box (below last message only) ─────────── */}
-              {isLast && renderInlineReply && (
-                <div className="px-6 pb-6 pt-2" style={{ paddingLeft: '4.75rem' }}>
-                  {renderInlineReply(lastMessage)}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {messages.map((msg, idx) => (
+          <MessageItem
+            key={msg.id}
+            msg={msg}
+            isExpanded={expandedMessages.has(msg.id)}
+            isLast={idx === messages.length - 1}
+            activeMenuMsgId={activeMenuMsgId}
+            attachmentDealId={attachmentDealId}
+            showMessageMenu={showMessageMenu}
+            onToggle={onToggleMessage}
+            onSetActiveMenuMsgId={(id) => onSetActiveMenuMsgId?.(id)}
+            renderMessageMenu={renderMessageMenu}
+            renderMessageActions={renderMessageActions}
+            renderInlineReply={renderInlineReply}
+            lastMessage={lastMessage}
+          />
+        ))}
       </div>
     </div>
   )

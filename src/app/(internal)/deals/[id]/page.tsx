@@ -18,7 +18,7 @@ export default function DealDetailPage() {
   const { data: deal, isLoading: loading } = useDeal<Deal>(dealId)
   const [activeTab, setActiveTab] = useState('overview')
 
-  const tabs = ['Overview', 'Contacts', 'Outreach', 'Documents', 'Underwriting', 'LOI', 'Call Brief']
+  const tabs = ['Overview', 'Contacts', 'Outreach', 'Deal Room', 'Underwriting', 'LOI', 'Call Brief']
 
   if (loading) {
     return (

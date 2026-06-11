@@ -7,7 +7,7 @@ import {
   Folder, FolderOpen, File, FileText, Image, Table2,
   MoreHorizontal, Upload, FolderPlus, RotateCw, Check, X,
   Trash2, Pencil, ExternalLink, LayoutList, LayoutGrid,
-  ChevronDown, ChevronRight, ChevronUp,
+  ChevronDown, ChevronRight, ChevronUp, FolderUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -117,6 +117,13 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   const [refreshing, setRefreshing] = useState(false)
   const [dealFolderId, setDealFolderId] = useState<string | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
+  const [deletingFolder, setDeletingFolder] = useState(false)
+  const [showDeleteRoomConfirm, setShowDeleteRoomConfirm] = useState(false)
+
+  // Folder upload (webkitdirectory)
+  const folderUploadInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingFolder, setUploadingFolder] = useState(false)
+  const [folderUploadProgress, setFolderUploadProgress] = useState<{ foldersCreated: number; filesUploaded: number; totalFiles: number } | null>(null)
 
   // Navigation
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
@@ -349,16 +356,181 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       if (res.ok) {
         setDealFolderId(data.drive_folder_id)
         setCurrentFolderId(data.drive_folder_id)
-        toast.success('Deal folder created')
+        toast.success('Deal room created')
         await fetchFiles(data.drive_folder_id)
       } else {
-        toast.error(data.error ?? 'Failed to create deal folder')
+        toast.error(data.error ?? 'Failed to create deal room')
       }
     } catch {
-      toast.error('Failed to create deal folder')
+      toast.error('Failed to create deal room')
     } finally {
       setCreatingFolder(false)
     }
+  }
+
+  const deleteDealFolder = async () => {
+    setDeletingFolder(true)
+    try {
+      const res = await fetch(`/api/deals/${dealId}/drive`, { method: 'DELETE' })
+      if (res.ok) {
+        setDealFolderId(null)
+        setCurrentFolderId(null)
+        setFiles([])
+        setBreadcrumb([])
+        setFolderContents({})
+        setExpandedFolders(new Set())
+        toast.success('Deal room deleted')
+      } else {
+        const data = await res.json().catch(() => ({}))
+        toast.error(data.error ?? 'Failed to delete deal room')
+      }
+    } catch {
+      toast.error('Failed to delete deal room')
+    } finally {
+      setDeletingFolder(false)
+      setShowDeleteRoomConfirm(false)
+    }
+  }
+
+  // ── Folder upload (webkitdirectory) ──────────────────────────────────────
+
+  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+
+    const targetFolderId = currentFolderId ?? dealFolderId
+    if (!targetFolderId) {
+      toast.error('No deal room. Create one first.')
+      return
+    }
+
+    setUploadingFolder(true)
+
+    try {
+      const allFiles = Array.from(fileList)
+
+      // ── Parse folder structure from webkitRelativePath ──────────────────
+      const folderPaths = new Set<string>()
+      for (const file of allFiles) {
+        const parts = file.webkitRelativePath.split('/')
+        for (let i = 0; i < parts.length - 1; i++) {
+          folderPaths.add(parts.slice(0, i + 1).join('/'))
+        }
+      }
+
+      // Sort by depth so parents are created before children
+      const sortedFolders = [...folderPaths].sort(
+        (a, b) => a.split('/').length - b.split('/').length
+      )
+
+      // ── Create folders in Drive ─────────────────────────────────────────
+      const folderIdMap = new Map<string, string>()
+      let foldersCreated = 0
+
+      for (const folderPath of sortedFolders) {
+        const parts = folderPath.split('/')
+        const folderName = parts[parts.length - 1]!
+        const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
+        const parentId = parentPath ? folderIdMap.get(parentPath)! : targetFolderId
+
+        const res = await fetch(`/api/deals/${dealId}/drive/folders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: folderName, parentFolderId: parentId }),
+        })
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.error ?? `Failed to create folder "${folderName}"`)
+        }
+
+        const data = await res.json()
+        folderIdMap.set(folderPath, data.folderId)
+        foldersCreated++
+        setFolderUploadProgress({ foldersCreated, filesUploaded: 0, totalFiles: allFiles.length })
+      }
+
+      // ── Group files by their parent folder ──────────────────────────────
+      const filesByParent = new Map<string, File[]>()
+      for (const file of allFiles) {
+        const parts = file.webkitRelativePath.split('/')
+        const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
+        const parentId = folderPath ? folderIdMap.get(folderPath)! : targetFolderId
+
+        const batch = filesByParent.get(parentId)
+        if (batch) {
+          batch.push(file)
+        } else {
+          filesByParent.set(parentId, [file])
+        }
+      }
+
+      // ── Upload each batch using existing XHR-based handleUpload ─────────
+      let uploadFailures = 0
+      let uploadedCount = 0
+
+      for (const [parentId, batchFiles] of filesByParent) {
+        const results = await uploadFilesBatch(batchFiles, parentId)
+        uploadedCount += results.success
+        uploadFailures += results.failures
+        setFolderUploadProgress({ foldersCreated, filesUploaded: uploadedCount, totalFiles: allFiles.length })
+      }
+
+      if (uploadFailures > 0) {
+        toast.warning(`Uploaded ${uploadedCount} / ${allFiles.length} files. ${uploadFailures} failed.`)
+      } else {
+        toast.success(`Uploaded ${allFiles.length} file${allFiles.length !== 1 ? 's' : ''} in ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`)
+      }
+      fetchFiles()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Folder upload failed')
+    } finally {
+      setUploadingFolder(false)
+      setFolderUploadProgress(null)
+      if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
+    }
+  }
+
+  // ── Batch file upload helper (XHR-based, per-folder) ────────────────────
+
+  const uploadFilesBatch = async (files: File[], parentFolderId: string): Promise<{ success: number; failures: number }> => {
+    let success = 0
+    let failures = 0
+
+    const uploadSingle = (file: File): Promise<boolean> => {
+      return new Promise((resolve) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('folderId', parentFolderId)
+
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `/api/deals/${dealId}/drive/files`)
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            success++
+            resolve(true)
+          } else {
+            failures++
+            let errorMsg = 'Upload failed'
+            try { const data = JSON.parse(xhr.responseText); errorMsg = data.error ?? errorMsg } catch {}
+            toast.error(`Failed to upload "${file.name}": ${errorMsg}`)
+            resolve(false)
+          }
+        }
+
+        xhr.onerror = () => {
+          failures++
+          toast.error(`Upload error on "${file.name}"`)
+          resolve(false)
+        }
+
+        xhr.send(formData)
+      })
+    }
+
+    await Promise.all(files.map((f) => uploadSingle(f)))
+    return { success, failures }
   }
 
   // ── Navigation (Soft Loader Enabled) ──
@@ -1102,15 +1274,15 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         </div>
         <div className="text-center space-y-1.5 px-4">
           <h3 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-            No folder initialized
+            No deal room
           </h3>
           <p className="text-[11px] max-w-[340px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
-            Create a Google Drive workspace folder for &quot;{dealName}&quot; to upload, organize, and view files.
+            Create a Google Drive deal room for &quot;{dealName}&quot; to upload, organize, and view files.
           </p>
         </div>
         <Button onClick={createDealFolder} disabled={creatingFolder} size="sm" className="mt-1 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90">
           {creatingFolder ? <LoadingSpinner size="sm" /> : <FolderPlus size={14} />}
-          Create Deal Folder
+          Create Deal Room
         </Button>
       </div>
     )
@@ -1230,12 +1402,32 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           </Button>
           <Button
             size="sm"
+            variant="outline"
+            onClick={() => setShowDeleteRoomConfirm(true)}
+            disabled={deletingFolder}
+            className="h-7 text-[11px] gap-1.5 border-[var(--color-danger-border)] hover:bg-[var(--color-danger-bg)]"
+            style={{ color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}
+          >
+            <Trash2 size={12} />
+            Delete Deal Room
+          </Button>
+          <Button
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={uploading || uploadingFolder}
             className="h-7 text-[11px] gap-1.5 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90"
           >
             {uploading ? <LoadingSpinner size="sm" /> : <Upload size={12} />}
             Upload
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => folderUploadInputRef.current?.click()}
+            disabled={uploading || uploadingFolder}
+            className="h-7 text-[11px] gap-1.5 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90"
+          >
+            {uploadingFolder ? <LoadingSpinner size="sm" /> : <FolderUp size={12} />}
+            Upload Folder
           </Button>
           <input
             ref={fileInputRef}
@@ -1243,6 +1435,16 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             multiple
             className="hidden"
             onChange={(e) => { if (e.target.files) handleUpload(e.target.files); e.target.value = '' }}
+          />
+          <input
+            ref={folderUploadInputRef}
+            type="file"
+            /* @ts-expect-error webkitdirectory is a non-standard but widely supported attribute */
+            webkitdirectory=""
+            directory=""
+            multiple
+            className="hidden"
+            onChange={handleFolderUpload}
           />
           <input
             ref={folderFileInputRef}
@@ -1290,6 +1492,37 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
               <span className="text-[11px] mt-1 text-center" style={{ color: 'var(--color-text-tertiary)' }}>
                 Files will be saved in Google Drive
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Folder upload progress ── */}
+        {uploadingFolder && folderUploadProgress && (
+          <div
+            className="mx-2 px-4 py-3 rounded-lg border flex items-center gap-4"
+            style={{ background: 'var(--color-accent-bg)', borderColor: 'var(--color-accent)', borderWidth: '1px' }}
+          >
+            <LoadingSpinner size="sm" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                Uploading folder…
+              </p>
+              <p className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
+                {folderUploadProgress.foldersCreated > 0 && (
+                  <>{folderUploadProgress.foldersCreated} folder{folderUploadProgress.foldersCreated !== 1 ? 's' : ''} created · </>
+                )}
+                {folderUploadProgress.filesUploaded} / {folderUploadProgress.totalFiles} files
+              </p>
+            </div>
+            {/* Progress bar */}
+            <div className="w-32 h-1.5 rounded-full overflow-hidden flex-shrink-0" style={{ background: 'var(--color-surface-2)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  background: 'var(--color-accent)',
+                  width: `${Math.round((folderUploadProgress.filesUploaded / folderUploadProgress.totalFiles) * 100)}%`,
+                }}
+              />
             </div>
           </div>
         )}
@@ -2082,6 +2315,27 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             <Button variant="destructive" onClick={confirmDeleteSelected} disabled={deletingSelected} className="text-[11px] h-8 bg-[var(--color-danger-solid)] border-none text-[var(--color-text-inverse)] hover:opacity-90">
               {deletingSelected ? <LoadingSpinner size="sm" /> : <Trash2 size={12} />}
               Move to Trash
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Deal Room confirmation ──────────────────────────────── */}
+      <Dialog open={showDeleteRoomConfirm} onOpenChange={(open) => { if (!open) setShowDeleteRoomConfirm(false) }}>
+        <DialogContent className="sm:max-w-[400px]" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--color-text-primary)' }} className="text-sm font-semibold">
+              Delete Deal Room?
+            </DialogTitle>
+            <DialogDescription style={{ color: 'var(--color-text-secondary)' }} className="text-[11px]">
+              This will move the Google Drive folder for &quot;{dealName}&quot; to trash. Files can be recovered from Google Drive trash within 30 days.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteRoomConfirm(false)} disabled={deletingFolder} className="text-[11px] h-8 border-[var(--color-surface-3)]">Cancel</Button>
+            <Button variant="destructive" onClick={deleteDealFolder} disabled={deletingFolder} className="text-[11px] h-8 bg-[var(--color-danger-solid)] border-none text-[var(--color-text-inverse)] hover:opacity-90">
+              {deletingFolder ? <LoadingSpinner size="sm" /> : <Trash2 size={12} />}
+              Delete Deal Room
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -33,45 +33,45 @@ interface Props {
 
 export function UnderwritingSummary({ dealId, unitCount }: Props) {
   const queryClient = useQueryClient()
-  const [data, setData] = useState<UnderwritingData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
 
-  const { data: deal } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
+  const { data: deal, isLoading } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
 
-  useEffect(() => {
-    if (!deal) return
-    const t = setTimeout(() => {
-      setData(deal.underwriting ?? {})
-      setLoading(false)
-    }, 0)
-    return () => clearTimeout(t)
-  }, [deal])
+  // ── Local form state (initialized from deal cache, editable) ────────────
+  const [formData, setFormData] = useState<UnderwritingData | null>(null)
+  const [formDealId, setFormDealId] = useState<string | null>(null)
+
+  // Initialize form data from deal cache (render-phase, no useEffect needed)
+  if (deal && formDealId !== dealId) {
+    setFormData((deal.underwriting ?? {}) as UnderwritingData)
+    setFormDealId(dealId)
+    setDirty(false)
+  }
 
   const update = useCallback((field: string, value: string | number | boolean | null) => {
-    setData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)
+    setFormData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)
     setDirty(true)
   }, [])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!data) throw new Error('No data')
+      if (!formData) throw new Error('No data')
       const res = await fetch('/api/underwriting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deal_id: dealId,
-          purchase_price: data.purchase_price,
-          purchase_price_per_unit: data.purchase_price_per_unit,
-          capex: data.capex,
-          capex_per_unit: data.capex_per_unit,
-          occupancy_pct: data.occupancy_pct,
-          irr_pct: data.irr_pct,
-          equity_multiple: data.equity_multiple,
-          cash_on_cash_pct: data.cash_on_cash_pct,
-          profit: data.profit,
-          proceed_with_loi: data.proceed_with_loi,
-          uw_notes: data.uw_notes,
+          purchase_price: formData.purchase_price,
+          purchase_price_per_unit: formData.purchase_price_per_unit,
+          capex: formData.capex,
+          capex_per_unit: formData.capex_per_unit,
+          occupancy_pct: formData.occupancy_pct,
+          irr_pct: formData.irr_pct,
+          equity_multiple: formData.equity_multiple,
+          cash_on_cash_pct: formData.cash_on_cash_pct,
+          profit: formData.profit,
+          proceed_with_loi: formData.proceed_with_loi,
+          uw_notes: formData.uw_notes,
         }),
       })
       if (!res.ok) {
@@ -87,12 +87,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save underwriting'),
   })
 
-  const save = useCallback(() => {
-    if (!data) return
-    saveMutation.mutate()
-  }, [data, saveMutation])
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <LoadingSpinner size="md" />
@@ -105,7 +100,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
   const fmtCurrency = (v: number | null | undefined) => v != null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v) : '—'
 
   function numberField(label: string, field: keyof UnderwritingData, options?: { readOnly?: boolean; suffix?: string; format?: (v: number | null | undefined) => string }) {
-    const val = data?.[field]
+    const val = formData?.[field]
     const isReadOnly = options?.readOnly
     return (
       <div className="space-y-1">
@@ -145,7 +140,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           </p>
         </div>
         {dirty && (
-          <Button size="sm" onClick={save} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
+          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
             <Save size={13} />
             {saveMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
@@ -182,22 +177,22 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           <button
             onClick={() => update('proceed_with_loi', true)}
             className={`h-8 px-4 text-[13px] font-medium rounded-md border transition-colors ${
-              data?.proceed_with_loi === true
+              formData?.proceed_with_loi === true
                 ? 'bg-[var(--color-success-bg)] border-[var(--color-success-border)] text-[var(--color-success-text)]'
                 : 'bg-[var(--color-surface-1)] border-[var(--color-surface-3)]'
             }`}
-            style={{ color: data?.proceed_with_loi === true ? 'var(--color-success-text)' : 'var(--color-text-secondary)' }}
+            style={{ color: formData?.proceed_with_loi === true ? 'var(--color-success-text)' : 'var(--color-text-secondary)' }}
           >
             Yes, Proceed
           </button>
           <button
             onClick={() => update('proceed_with_loi', false)}
             className={`h-8 px-4 text-[13px] font-medium rounded-md border transition-colors ${
-              data?.proceed_with_loi === false
+              formData?.proceed_with_loi === false
                 ? 'bg-[var(--color-danger-bg)] border-[var(--color-danger-border)] text-[var(--color-danger-text)]'
                 : 'bg-[var(--color-surface-1)] border-[var(--color-surface-3)]'
             }`}
-            style={{ color: data?.proceed_with_loi === false ? 'var(--color-danger-text)' : 'var(--color-text-secondary)' }}
+            style={{ color: formData?.proceed_with_loi === false ? 'var(--color-danger-text)' : 'var(--color-text-secondary)' }}
           >
             No, Hold
           </button>
@@ -209,7 +204,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           UW Notes
         </label>
         <textarea
-          value={data?.uw_notes ?? ''}
+          value={formData?.uw_notes ?? ''}
           onChange={(e) => update('uw_notes', e.target.value)}
           placeholder="Underwriting notes, assumptions, or key findings..."
           rows={3}

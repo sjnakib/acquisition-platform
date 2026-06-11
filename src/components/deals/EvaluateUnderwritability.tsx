@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -38,46 +38,46 @@ const STATUS_OPTIONS = [
 
 export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
   const queryClient = useQueryClient()
-  const [data, setData] = useState<UnderwritingData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [dirty, setDirty] = useState(false)
 
-  const { data: deal } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
+  const { data: deal, isLoading } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
 
-  useEffect(() => {
-    if (!deal) return
-    const t = setTimeout(() => {
-      setData(deal.underwriting ?? {})
-      setLoading(false)
-    }, 0)
-    return () => clearTimeout(t)
-  }, [deal])
+  // ── Local form state (initialized from deal cache, editable) ────────────
+  const [formData, setFormData] = useState<UnderwritingData | null>(null)
+  const [formDealId, setFormDealId] = useState<string | null>(null)
+
+  // Initialize form data from deal cache (render-phase, no useEffect needed)
+  if (deal && formDealId !== dealId) {
+    setFormData((deal.underwriting ?? {}) as UnderwritingData)
+    setFormDealId(dealId)
+    setDirty(false)
+  }
 
   const update = useCallback((field: string, value: string | number | null) => {
-    setData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)
+    setFormData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)
     setDirty(true)
   }, [])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!data) throw new Error('No data')
+      if (!formData) throw new Error('No data')
       const res = await fetch('/api/underwriting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deal_id: dealId,
-          underwritability_status: data.underwritability_status,
-          asking_price: data.asking_price,
-          price_per_unit: data.price_per_unit,
-          population_1mi: data.population_1mi,
-          population_growth_pct: data.population_growth_pct,
-          rent_growth_12mo_pct: data.rent_growth_12mo_pct,
-          rent_growth_forecast_pct: data.rent_growth_forecast_pct,
-          vacancy_rate_pct: data.vacancy_rate_pct,
-          market_price_per_unit: data.market_price_per_unit,
-          delta_pct: data.delta_pct,
-          cap_rate: data.cap_rate,
-          sale_rent_comps: data.sale_rent_comps,
+          underwritability_status: formData.underwritability_status,
+          asking_price: formData.asking_price,
+          price_per_unit: formData.price_per_unit,
+          population_1mi: formData.population_1mi,
+          population_growth_pct: formData.population_growth_pct,
+          rent_growth_12mo_pct: formData.rent_growth_12mo_pct,
+          rent_growth_forecast_pct: formData.rent_growth_forecast_pct,
+          vacancy_rate_pct: formData.vacancy_rate_pct,
+          market_price_per_unit: formData.market_price_per_unit,
+          delta_pct: formData.delta_pct,
+          cap_rate: formData.cap_rate,
+          sale_rent_comps: formData.sale_rent_comps,
         }),
       })
       if (!res.ok) {
@@ -93,18 +93,13 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save evaluation'),
   })
 
-  const save = useCallback(() => {
-    if (!data) return
-    saveMutation.mutate()
-  }, [data, saveMutation])
-
   const autoComputePricePerUnit = useCallback((askingPrice: number) => {
     if (unitCount && unitCount > 0) {
-      setData((prev) => prev ? { ...prev, price_per_unit: Math.round(askingPrice / unitCount) } : prev)
+      setFormData((prev) => prev ? { ...prev, price_per_unit: Math.round(askingPrice / unitCount) } : prev)
     }
   }, [unitCount])
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <LoadingSpinner size="md" />
@@ -113,7 +108,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
   }
 
   function numberField(label: string, field: keyof UnderwritingData, suffix?: string) {
-    const val = data?.[field]
+    const val = formData?.[field]
     return (
       <div className="space-y-1">
         <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -149,7 +144,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
           </p>
         </div>
         {dirty && (
-          <Button size="sm" onClick={save} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
+          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
             <Save size={13} />
             {saveMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
@@ -174,7 +169,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
           Underwritable?
         </label>
         <select
-          value={data?.underwritability_status ?? ''}
+          value={formData?.underwritability_status ?? ''}
           onChange={(e) => { update('underwritability_status', e.target.value || null); setDirty(true) }}
           className="h-8 text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-md px-2 w-full focus:border-[var(--color-accent)] outline-none"
           style={{ color: 'var(--color-text-primary)' }}
@@ -190,7 +185,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
           Sale & Rent Comps
         </label>
         <textarea
-          value={data?.sale_rent_comps ?? ''}
+          value={formData?.sale_rent_comps ?? ''}
           onChange={(e) => { update('sale_rent_comps', e.target.value); setDirty(true) }}
           placeholder="Notes on sale and rent comparables..."
           rows={3}

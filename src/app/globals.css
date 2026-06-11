@@ -545,6 +545,22 @@ body {
   animation: tab-line-entrance 200ms var(--ease-premium) forwards;
 }
 
+/* ─── Email Thread Entrance ───────────────────────────────────────────────── */
+@keyframes thread-entrance {
+  from {
+    opacity: 0.98;
+    transform: scale(0.999);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-thread-entrance {
+  animation: thread-entrance 180ms var(--ease-premium) forwards;
+}
+
 /* ─── Tooltip ─────────────────────────────────────────────────────────────── */
 
 /*

@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useCallback, Suspense } from 'react'
+import { use, useCallback, Suspense, lazy } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -10,17 +10,30 @@ import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealStageBar } from '@/components/deals/DealStageBar'
 import { DealFieldsEditor } from '@/components/deals/DealFieldsEditor'
 import { DealEmailView } from '@/components/deals/DealEmailView'
-import { DriveFileManager } from '@/components/deals/DriveFileManager'
-import { EvaluateUnderwritability } from '@/components/deals/EvaluateUnderwritability'
-import { UnderwritingSummary } from '@/components/deals/UnderwritingSummary'
-import { LOIDetail } from '@/components/deals/LOIDetail'
-import { CallBriefTab } from '@/components/deals/CallBriefTab'
 import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useDeal } from '@/lib/hooks/useDeal'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+
+// ── Lazy-loaded tab components (non-default tabs) ──────────────────────────
+
+const LazyDriveFileManager = lazy(() =>
+  import('@/components/deals/DriveFileManager').then(m => ({ default: m.DriveFileManager }))
+)
+const LazyEvaluateUnderwritability = lazy(() =>
+  import('@/components/deals/EvaluateUnderwritability').then(m => ({ default: m.EvaluateUnderwritability }))
+)
+const LazyUnderwritingSummary = lazy(() =>
+  import('@/components/deals/UnderwritingSummary').then(m => ({ default: m.UnderwritingSummary }))
+)
+const LazyLOIDetail = lazy(() =>
+  import('@/components/deals/LOIDetail').then(m => ({ default: m.LOIDetail }))
+)
+const LazyCallBriefTab = lazy(() =>
+  import('@/components/deals/CallBriefTab').then(m => ({ default: m.CallBriefTab }))
+)
 
 interface DealHeader {
   id: string
@@ -34,7 +47,7 @@ interface DealHeader {
 const TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'emails', label: 'Emails' },
-  { key: 'documents', label: 'Documents' },
+  { key: 'documents', label: 'Deal Room' },
   { key: 'underwriting', label: 'Underwriting' },
   { key: 'loi', label: 'LOI' },
   { key: 'calls', label: 'Follow-up Calls' },
@@ -230,32 +243,40 @@ function DealDetailContent({ projectId, dealId }: { projectId: string; dealId: s
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="documents">
-            <div className="space-y-6">
-              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                <DriveFileManager dealId={dealId} dealName={dealName} />
+            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+              <div className="space-y-6">
+                <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                  <LazyDriveFileManager dealId={dealId} dealName={dealName} />
+                </div>
+                <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                  <LazyEvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
+                </div>
               </div>
-              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                <EvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
-              </div>
-            </div>
+            </Suspense>
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="underwriting">
-            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-              <UnderwritingSummary dealId={dealId} unitCount={unitCount} />
-            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                <LazyUnderwritingSummary dealId={dealId} unitCount={unitCount} />
+              </div>
+            </Suspense>
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="loi">
-            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-              <LOIDetail dealId={dealId} />
-            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                <LazyLOIDetail dealId={dealId} />
+              </div>
+            </Suspense>
           </TabsContent>
 
           <TabsContent className="overflow-y-auto" value="calls">
-            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-              <CallBriefTab dealId={dealId} />
-            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                <LazyCallBriefTab dealId={dealId} />
+              </div>
+            </Suspense>
           </TabsContent>
         </div>
       </Tabs>

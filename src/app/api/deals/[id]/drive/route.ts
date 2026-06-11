@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createDealFolder } from '@/lib/google/drive'
+import { createDealFolder, deleteDriveFile } from '@/lib/google/drive'
 
 export async function POST(
   req: NextRequest,
@@ -66,6 +66,64 @@ export async function POST(
     return NextResponse.json(updated)
   } catch (err: unknown) {
     console.error('Drive folder error:', err)
+    if (err instanceof Error && err.message?.includes('not connected')) {
+      return NextResponse.json({ error: err.message }, { status: 400 })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
+      return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
+    }
+
+    const { id } = await params
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    // Get deal's drive folder ID
+    const { data: deal } = await supabase
+      .from('deals')
+      .select('drive_folder_id, project_id')
+      .eq('id', id)
+      .single()
+
+    if (!deal?.drive_folder_id) {
+      return NextResponse.json({ error: 'No deal room to delete' }, { status: 404 })
+    }
+
+    // Get project's Google connection for auth
+    const { data: project } = await supabase
+      .from('projects')
+      .select('google_connection_id')
+      .eq('id', deal.project_id)
+      .single()
+
+    if (!project?.google_connection_id) {
+      return NextResponse.json(
+        { error: 'Project not connected to Google Drive' },
+        { status: 400 },
+      )
+    }
+
+    // Trash the folder in Google Drive
+    await deleteDriveFile(project.google_connection_id, deal.drive_folder_id)
+
+    // Clear the deal's folder references
+    await supabase
+      .from('deals')
+      .update({ drive_folder_id: null, drive_folder_url: null })
+      .eq('id', id)
+
+    return NextResponse.json({ success: true })
+  } catch (err: unknown) {
+    console.error('Delete deal room error:', err)
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }

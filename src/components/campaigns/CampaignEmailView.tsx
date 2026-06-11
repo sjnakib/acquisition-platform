@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, ExternalLink, Mail } from 'lucide-react'
-import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { EmailThreadList, type EmailThread } from '@/components/shared/EmailThreadList'
+import { EmailThreadList, type EmailThread, type EmailThreadListHandle } from '@/components/shared/EmailThreadList'
 import { EmailMessagePanel, type EmailMessage } from '@/components/shared/EmailMessagePanel'
 
 interface CampaignEmailViewProps {
@@ -18,9 +17,10 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
 
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
+  const threadListRef = useRef<EmailThreadListHandle>(null)
 
-  const { data: messages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
-    queryKey: ['emails', 'messages', selectedThread?.dealId, selectedThread?.threadId],
+  const { data: messages = [] } = useQuery<EmailMessage[]>({
+    queryKey: ['email-messages', selectedThread?.dealId, selectedThread?.threadId],
     queryFn: async () => {
       if (!selectedThread) return []
       const res = await fetch(
@@ -31,6 +31,8 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
       return data.messages ?? []
     },
     enabled: !!selectedThread,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   })
 
   useEffect(() => {
@@ -41,6 +43,10 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
 
   const handleThreadClick = useCallback((thread: EmailThread) => {
     setSelectedThread(thread)
+    // Mark as read (Gmail convention: opening a thread clears the unread label)
+    if (thread.isUnread) {
+      threadListRef.current?.handleThreadAction([thread.threadId], 'markRead')
+    }
   }, [])
 
   // ── Message expand/collapse ─────────────────────────────────────────────
@@ -75,6 +81,7 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
           style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-0)' }}
         >
           <EmailThreadList
+            ref={threadListRef}
             apiBase={`/api/campaigns/${encodeURIComponent(campaignId)}/emails`}
             projectId={projectId}
             onThreadClick={handleThreadClick}
@@ -107,10 +114,6 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
                   Emails are tracked across all deals in this campaign.
                 </p>
               </div>
-            </div>
-          ) : messagesLoading ? (
-            <div className="flex-1 flex items-center justify-center">
-              <LoadingSpinner size="md" />
             </div>
           ) : (
             <EmailMessagePanel

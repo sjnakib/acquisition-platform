@@ -51,7 +51,7 @@ export async function POST(
 
     const parentId = parentFolderId ?? deal.drive_folder_id
     if (!parentId) {
-      return NextResponse.json({ error: 'Deal folder has not been created yet' }, { status: 400 })
+      return NextResponse.json({ error: 'Deal room has not been created yet' }, { status: 400 })
     }
 
     const folder = await createDriveFolder(project.google_connection_id, parentId, name.trim())

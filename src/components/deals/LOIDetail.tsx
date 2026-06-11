@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDeal } from '@/lib/hooks/useDeal'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Badge } from '@/components/ui/badge'
-import { FileSignature, Plus, Check, X, DollarSign, Calendar, User, FileText } from 'lucide-react'
+import { FileSignature, Plus, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 
@@ -42,6 +43,10 @@ interface Props {
   dealId: string
 }
 
+interface DealWithLOI {
+  loi_records?: LOIRecord
+}
+
 const OUTCOME_OPTIONS = [
   { value: 'in_progress', label: 'In Progress' },
   { value: 'deal_reached', label: 'Deal Reached' },
@@ -55,40 +60,51 @@ const OUTCOME_VARIANTS: Record<string, 'info' | 'success' | 'neutral'> = {
 }
 
 export function LOIDetail({ dealId }: Props) {
+  const queryClient = useQueryClient()
+
+  // ── Deal data (TanStack Query, shared cache) ───────────────────────────
+  const { data: deal, isLoading: dealLoading } = useDeal<DealWithLOI>(dealId)
+
+  // ── Local form state (unsaved edits) ────────────────────────────────────
   const [loi, setLoi] = useState<LOIRecord | null>(null)
-  const [rounds, setRounds] = useState<LOIRound[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [initialized, setInitialized] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [showRoundForm, setShowRoundForm] = useState(false)
   const [newRound, setNewRound] = useState({ price: '', party: 'buyer', round_date: new Date().toISOString().split('T')[0]!, notes: '' })
 
-  const { data: deal } = useDeal<{ loi_records?: LOIRecord }>(dealId)
+  // Initialize local state from deal data (once)
+  if (deal?.loi_records && !initialized) {
+    setLoi(deal.loi_records)
+    setInitialized(true)
+  }
 
-  useEffect(() => {
-    if (!deal) return
-    const t = setTimeout(() => {
-      if (deal.loi_records) {
-        setLoi(deal.loi_records)
-        fetch(`/api/loi/${deal.loi_records.id}/rounds`)
-          .then((r) => r.json())
-          .then((data) => setRounds(Array.isArray(data) ? data : []))
-          .catch(() => {})
-      }
-      setLoading(false)
-    }, 0)
-    return () => clearTimeout(t)
-  }, [deal])
+  // Reset when deal changes (e.g., tab switch, refetch)
+  if (deal?.loi_records && initialized && deal.loi_records.id !== (loi?.id ?? '')) {
+    setLoi(deal.loi_records)
+    setDirty(false)
+  }
 
-  const updateLoi = useCallback((field: string, value: unknown) => {
-    setLoi((prev) => prev ? { ...prev, [field]: value } : prev)
-    setDirty(true)
-  }, [])
+  const loiId = deal?.loi_records?.id
 
-  const saveLoi = useCallback(async () => {
-    if (!loi) return
-    setSaving(true)
-    try {
+  // ── TanStack Query: LOI rounds ─────────────────────────────────────────
+
+  const { data: rounds = [], isLoading: roundsLoading } = useQuery<LOIRound[]>({
+    queryKey: ['loi-rounds', loiId],
+    queryFn: async () => {
+      const res = await fetch(`/api/loi/${loiId}/rounds`)
+      if (!res.ok) throw new Error('Failed to load rounds')
+      const data = await res.json()
+      return Array.isArray(data) ? data : []
+    },
+    enabled: !!loiId,
+    staleTime: 60_000,
+  })
+
+  // ── TanStack Query: update LOI ─────────────────────────────────────────
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!loi) return
       const res = await fetch(`/api/loi/${loi.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -104,25 +120,28 @@ export function LOIDetail({ dealId }: Props) {
           offered_price: loi.offered_price,
         }),
       })
-      if (res.ok) {
-        const updated = await res.json()
-        setLoi((prev) => prev ? { ...prev, ...updated } : prev)
-        setDirty(false)
-        toast.success('LOI saved')
-      } else {
+      if (!res.ok) {
         const json = await res.json()
-        toast.error(json.error ?? 'Failed to save')
+        throw new Error(json.error ?? 'Failed to save')
       }
-    } catch {
-      toast.error('Failed to save LOI')
-    } finally {
-      setSaving(false)
-    }
-  }, [loi])
+      return res.json()
+    },
+    onSuccess: (updated) => {
+      if (updated) {
+        setLoi((prev) => prev ? { ...prev, ...updated } : prev)
+      }
+      setDirty(false)
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      toast.success('LOI saved')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save LOI'),
+  })
 
-  const createRound = useCallback(async () => {
-    if (!loi) return
-    try {
+  // ── TanStack Query: create round ───────────────────────────────────────
+
+  const createRoundMutation = useMutation({
+    mutationFn: async () => {
+      if (!loi) return
       const res = await fetch(`/api/loi/${loi.id}/rounds`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -133,23 +152,25 @@ export function LOIDetail({ dealId }: Props) {
           notes: newRound.notes || null,
         }),
       })
-      if (res.ok) {
-        const created = await res.json()
-        setRounds((prev) => [...prev, created])
-        setShowRoundForm(false)
-        setNewRound({ price: '', party: 'buyer', round_date: new Date().toISOString().split('T')[0]!, notes: '' })
-        toast.success('Round added')
-      } else {
+      if (!res.ok) {
         const json = await res.json()
-        toast.error(json.error ?? 'Failed to add round')
+        throw new Error(json.error ?? 'Failed to add round')
       }
-    } catch {
-      toast.error('Failed to add round')
-    }
-  }, [loi, newRound])
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loi-rounds', loiId] })
+      setShowRoundForm(false)
+      setNewRound({ price: '', party: 'buyer', round_date: new Date().toISOString().split('T')[0]!, notes: '' })
+      toast.success('Round added')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to add round'),
+  })
 
-  const createLOI = useCallback(async () => {
-    try {
+  // ── TanStack Query: create LOI ─────────────────────────────────────────
+
+  const createLOIMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch('/api/loi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -159,20 +180,31 @@ export function LOIDetail({ dealId }: Props) {
           offered_price: 0,
         }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        setLoi(data)
-        toast.success('LOI created')
-      } else {
+      if (!res.ok) {
         const json = await res.json()
-        toast.error(json.error ?? 'Failed to create LOI')
+        throw new Error(json.error ?? 'Failed to create LOI')
       }
-    } catch {
-      toast.error('Failed to create LOI')
-    }
-  }, [dealId])
+      return res.json()
+    },
+    onSuccess: (data) => {
+      setLoi(data)
+      setInitialized(true)
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      toast.success('LOI created')
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create LOI'),
+  })
 
-  if (loading) {
+  // ── Form update ────────────────────────────────────────────────────────
+
+  const updateLoi = useCallback((field: string, value: unknown) => {
+    setLoi((prev) => prev ? { ...prev, [field]: value } : prev)
+    setDirty(true)
+  }, [])
+
+  // ── Loading state ──────────────────────────────────────────────────────
+
+  if (dealLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <LoadingSpinner size="md" />
@@ -180,16 +212,23 @@ export function LOIDetail({ dealId }: Props) {
     )
   }
 
+  // ── Empty state (no LOI yet) ───────────────────────────────────────────
+
   if (!loi) {
     return (
       <EmptyState
         icon={FileSignature}
         title="No LOI Submitted"
         description="Create a Letter of Intent record for this deal."
-        action={{ label: 'Create LOI', onClick: createLOI }}
+        action={{
+          label: createLOIMutation.isPending ? 'Creating…' : 'Create LOI',
+          onClick: () => createLOIMutation.mutate(),
+        }}
       />
     )
   }
+
+  // ── Main render ────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -208,8 +247,8 @@ export function LOIDetail({ dealId }: Props) {
             {(loi.outcome ?? 'in_progress').replace(/_/g, ' ')}
           </Badge>
           {dirty && (
-            <Button size="sm" onClick={saveLoi} disabled={saving} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
-              {saving ? 'Saving...' : 'Save'}
+            <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
+              {saveMutation.isPending ? 'Saving…' : 'Save'}
             </Button>
           )}
         </div>
@@ -390,7 +429,7 @@ export function LOIDetail({ dealId }: Props) {
               />
             </div>
             <div className="flex items-end gap-1">
-              <Button size="sm" onClick={createRound} className="h-7 text-[11px] bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)]">
+              <Button size="sm" onClick={() => createRoundMutation.mutate()} disabled={createRoundMutation.isPending} className="h-7 text-[11px] bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)]">
                 <Check size={12} /> Add
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowRoundForm(false)} className="h-7 text-[11px]">
@@ -400,32 +439,39 @@ export function LOIDetail({ dealId }: Props) {
           </div>
         )}
 
-        {rounds.length === 0 ? (
-          <p className="text-[12px] py-2" style={{ color: 'var(--color-text-tertiary)' }}>No negotiation rounds yet.</p>
+        {/* Rounds table */}
+        {roundsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <LoadingSpinner size="sm" />
+          </div>
+        ) : rounds.length === 0 ? (
+          <p className="text-[12px] py-4" style={{ color: 'var(--color-text-tertiary)' }}>No negotiation rounds yet.</p>
         ) : (
-          <div className="border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="border rounded-md overflow-hidden" style={{ borderColor: 'var(--color-surface-2)' }}>
             <table className="w-full text-[12px]">
-              <thead style={{ background: 'var(--color-surface-1)' }}>
-                <tr>
-                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Round</th>
-                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Party</th>
-                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Price</th>
-                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Date</th>
-                  <th className="text-left px-3 py-2 text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Notes</th>
+              <thead>
+                <tr style={{ background: 'var(--color-surface-1)' }}>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Round</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Party</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Price</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Date</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>Notes</th>
                 </tr>
               </thead>
               <tbody>
-                {rounds.map((r) => (
-                  <tr key={r.id} className="border-t" style={{ borderColor: 'var(--color-surface-2)' }}>
-                    <td className="px-3 py-2 font-medium" style={{ color: 'var(--color-text-primary)' }}>#{r.round_num}</td>
-                    <td className="px-3 py-2" style={{ color: 'var(--color-text-primary)' }}>
-                      <Badge variant={r.party === 'buyer' ? 'info' : 'neutral'} size="sm">{r.party ?? '—'}</Badge>
-                    </td>
+                {rounds.map((round) => (
+                  <tr key={round.id} className="border-t" style={{ borderColor: 'var(--color-surface-2)' }}>
+                    <td className="px-3 py-2 font-mono" style={{ color: 'var(--color-text-secondary)' }}>#{round.round_num}</td>
+                    <td className="px-3 py-2 capitalize" style={{ color: 'var(--color-text-primary)' }}>{round.party}</td>
                     <td className="px-3 py-2 font-mono" style={{ color: 'var(--color-text-primary)' }}>
-                      {r.price ? `$${r.price.toLocaleString()}` : '—'}
+                      {round.price != null ? `$${round.price.toLocaleString()}` : '—'}
                     </td>
-                    <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{r.round_date ?? '—'}</td>
-                    <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>{r.notes ?? '—'}</td>
+                    <td className="px-3 py-2" style={{ color: 'var(--color-text-secondary)' }}>
+                      {round.round_date ? formatDate(round.round_date) : '—'}
+                    </td>
+                    <td className="px-3 py-2 truncate max-w-[200px]" style={{ color: 'var(--color-text-secondary)' }}>
+                      {round.notes || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

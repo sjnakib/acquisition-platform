@@ -129,7 +129,7 @@ export async function POST(
     // Ensure deal folder exists
     const uploadTargetId = targetFolderId ?? deal.drive_folder_id
     if (!uploadTargetId) {
-      return NextResponse.json({ error: 'Deal folder has not been created yet. Click "Create Deal Folder" first.' }, { status: 400 })
+      return NextResponse.json({ error: 'Deal room has not been created yet. Click "Create Deal Room" first.' }, { status: 400 })
     }
 
     const bytes = Buffer.from(await file.arrayBuffer())
