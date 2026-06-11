@@ -114,6 +114,68 @@ export async function createDriveFolder(
   return { folderId, folderUrl }
 }
 
+/**
+ * Create multiple folders in a single connection session.
+ * Folders are created in depth order: same-depth siblings run in parallel,
+ * parent→child chains run sequentially.
+ *
+ * Does NOT set public permissions (subfolders inherit parent visibility).
+ */
+export async function batchCreateDriveFolders(
+  connectionId: string,
+  parentFolderId: string,
+  folders: { name: string; parentPath: string }[],
+): Promise<Record<string, string>> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const drive = google.drive({ version: 'v3', auth })
+
+  // Sort by depth so parents exist before children
+  const sorted = [...folders].sort(
+    (a, b) => a.parentPath.split('/').filter(Boolean).length - b.parentPath.split('/').filter(Boolean).length,
+  )
+
+  const pathToId = new Map<string, string>()
+  const result: Record<string, string> = {}
+
+  // Group by depth for parallel creation of siblings
+  const byDepth = new Map<number, typeof folders>()
+  for (const f of sorted) {
+    const d = f.parentPath ? f.parentPath.split('/').filter(Boolean).length : 0
+    if (!byDepth.has(d)) byDepth.set(d, [])
+    byDepth.get(d)!.push(f)
+  }
+
+  const depths = [...byDepth.keys()].sort((a, b) => a - b)
+
+  for (const depth of depths) {
+    const batch = byDepth.get(depth)!
+    const created = await Promise.all(
+      batch.map(async (f) => {
+        const parentPath = f.parentPath || ''
+        const resolvedParentId = parentPath ? pathToId.get(parentPath)! : parentFolderId
+
+        const folder = await drive.files.create({
+          requestBody: {
+            name: f.name,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [resolvedParentId],
+          },
+          fields: 'id',
+        })
+
+        return { path: f.parentPath ? `${f.parentPath}/${f.name}` : f.name, folderId: folder.data.id! }
+      }),
+    )
+
+    for (const { path, folderId } of created) {
+      pathToId.set(path, folderId)
+      result[path] = folderId
+    }
+  }
+
+  return result
+}
+
 export async function createDealFolder(
   connectionId: string,
   dealName: string,
@@ -160,6 +222,40 @@ export async function uploadFileToDrive(
     media: {
       mimeType,
       body: bufferToStream(fileBuffer),
+    },
+    fields: 'id, webViewLink',
+  })
+
+  return {
+    fileId: res.data.id!,
+    webViewLink: res.data.webViewLink!,
+  }
+}
+
+/**
+ * Upload a file to Drive using a Web Streams ReadableStream.
+ * Avoids double-buffering by streaming directly from the browser request body.
+ */
+export async function uploadFileToDriveStream(
+  connectionId: string,
+  parentFolderId: string,
+  stream: ReadableStream,
+  fileName: string,
+  mimeType: string,
+): Promise<{ fileId: string; webViewLink: string }> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const drive = google.drive({ version: 'v3', auth })
+
+  const body = Readable.fromWeb(stream as import('stream/web').ReadableStream)
+
+  const res = await drive.files.create({
+    requestBody: {
+      name: fileName,
+      parents: [parentFolderId],
+    },
+    media: {
+      mimeType,
+      body,
     },
     fields: 'id, webViewLink',
   })
@@ -233,6 +329,31 @@ export async function renameDriveFile(
   })
 
   return mapDriveFile(res.data)
+}
+
+/**
+ * Get the connected Google account's Drive storage quota.
+ * Returns byte counts as strings (Google API convention).
+ */
+export async function getDriveStorageQuota(
+  connectionId: string,
+): Promise<{
+  limit: string
+  usage: string
+  usageInDrive: string
+  usageInDriveTrash: string
+}> {
+  const auth = await getAuthedClientByConnection(connectionId)
+  const drive = google.drive({ version: 'v3', auth })
+
+  const res = await drive.about.get({ fields: 'storageQuota' })
+
+  return {
+    limit: res.data.storageQuota?.limit ?? '0',
+    usage: res.data.storageQuota?.usage ?? '0',
+    usageInDrive: res.data.storageQuota?.usageInDrive ?? '0',
+    usageInDriveTrash: res.data.storageQuota?.usageInDriveTrash ?? '0',
+  }
 }
 
 function bufferToStream(buffer: Buffer): Readable {

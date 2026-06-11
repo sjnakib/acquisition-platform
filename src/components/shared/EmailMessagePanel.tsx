@@ -587,11 +587,33 @@ const MessageItem = memo(function MessageItem({
     (prev.activeMenuMsgId === prev.msg.id) === (next.activeMenuMsgId === next.msg.id)
 })
 
+// ── Skeleton Loader Component ────────────────────────────────────────────────
+
+function MessageSkeleton() {
+  return (
+    <div className="border-b animate-pulse" style={{ borderColor: 'var(--color-surface-2)' }}>
+      <div className="flex items-start gap-3 px-6 py-4">
+        {/* Avatar placeholder */}
+        <div className="h-10 w-10 rounded-full flex-shrink-0" style={{ background: 'var(--color-surface-2)' }} />
+        {/* Content placeholder */}
+        <div className="flex-1 min-w-0 space-y-2.5 mt-1">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-32 rounded" style={{ background: 'var(--color-surface-2)' }} />
+            <div className="h-3.5 w-16 rounded" style={{ background: 'var(--color-surface-2)' }} />
+          </div>
+          <div className="h-3 w-3/4 rounded" style={{ background: 'var(--color-surface-2)' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function EmailMessagePanel({
   thread,
   messages,
+  loading,
   expandedMessages,
   onToggleMessage,
   onExpandAll,
@@ -614,11 +636,9 @@ export function EmailMessagePanel({
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevThreadIdRef = useRef<string | null>(null)
-  const [animKey, setAnimKey] = useState(0)
 
   useEffect(() => {
     if (prevThreadIdRef.current !== null && prevThreadIdRef.current !== threadId) {
-      setAnimKey((k) => k + 1)
       scrollRef.current?.scrollTo({ top: 0 })
     }
     prevThreadIdRef.current = threadId
@@ -674,49 +694,86 @@ export function EmailMessagePanel({
       </div>
 
       {/* ── Messages + inline reply ─────────────────────────────────────────── */}
-      <div ref={scrollRef} key={animKey} className="flex-1 overflow-y-auto animate-thread-entrance">
-        {/* Subject header */}
-        <div
-          className="px-6 pt-5 pb-3 flex flex-col gap-1"
-          style={{ borderBottom: `1px solid var(--color-surface-2)` }}
-        >
-          <h2
-            className="text-[22px] font-normal leading-snug"
-            style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}
-          >
-            {thread.subject ?? '(no subject)'}
-          </h2>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[13px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-              {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
-            </span>
-            {renderThreadMeta?.()}
-            {thread.dealName && !renderThreadMeta && (
-              <span className="text-[12px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                · {thread.dealName}
-              </span>
-            )}
-          </div>
-        </div>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div key={`loading-${threadId}`} className="animate-message-fade-in">
+            {/* Subject header */}
+            <div
+              className="px-6 pt-5 pb-3 flex flex-col gap-1"
+              style={{ borderBottom: `1px solid var(--color-surface-2)` }}
+            >
+              <h2
+                className="text-[22px] font-normal leading-snug"
+                style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}
+              >
+                {thread.subject ?? '(no subject)'}
+              </h2>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[13px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
+                </span>
+                {renderThreadMeta?.()}
+                {thread.dealName && !renderThreadMeta && (
+                  <span className="text-[12px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    · {thread.dealName}
+                  </span>
+                )}
+              </div>
+            </div>
 
-        {/* Messages */}
-        {messages.map((msg, idx) => (
-          <MessageItem
-            key={msg.id}
-            msg={msg}
-            isExpanded={expandedMessages.has(msg.id)}
-            isLast={idx === messages.length - 1}
-            activeMenuMsgId={activeMenuMsgId}
-            attachmentDealId={attachmentDealId}
-            showMessageMenu={showMessageMenu}
-            onToggle={onToggleMessage}
-            onSetActiveMenuMsgId={(id) => onSetActiveMenuMsgId?.(id)}
-            renderMessageMenu={renderMessageMenu}
-            renderMessageActions={renderMessageActions}
-            renderInlineReply={renderInlineReply}
-            lastMessage={lastMessage}
-          />
-        ))}
+            {/* Skeleton Messages */}
+            <div className="py-2">
+              <MessageSkeleton />
+              <MessageSkeleton />
+              <MessageSkeleton />
+            </div>
+          </div>
+        ) : (
+          <div key={threadId} className="animate-message-fade-in">
+            {/* Subject header */}
+            <div
+              className="px-6 pt-5 pb-3 flex flex-col gap-1"
+              style={{ borderBottom: `1px solid var(--color-surface-2)` }}
+            >
+              <h2
+                className="text-[22px] font-normal leading-snug"
+                style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}
+              >
+                {thread.subject ?? '(no subject)'}
+              </h2>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[13px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
+                </span>
+                {renderThreadMeta?.()}
+                {thread.dealName && !renderThreadMeta && (
+                  <span className="text-[12px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    · {thread.dealName}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Messages */}
+            {messages.map((msg, idx) => (
+              <MessageItem
+                key={msg.id}
+                msg={msg}
+                isExpanded={expandedMessages.has(msg.id)}
+                isLast={idx === messages.length - 1}
+                activeMenuMsgId={activeMenuMsgId}
+                attachmentDealId={attachmentDealId}
+                showMessageMenu={showMessageMenu}
+                onToggle={onToggleMessage}
+                onSetActiveMenuMsgId={(id) => onSetActiveMenuMsgId?.(id)}
+                renderMessageMenu={renderMessageMenu}
+                renderMessageActions={renderMessageActions}
+                renderInlineReply={renderInlineReply}
+                lastMessage={lastMessage}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

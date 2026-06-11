@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useCallback, Suspense, lazy } from 'react'
+import { use, useCallback, Suspense, lazy, useState, useEffect } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -10,7 +10,6 @@ import { useProjectContext } from '@/components/shared/ProjectContext'
 import { DealStageBar } from '@/components/deals/DealStageBar'
 import { DealFieldsEditor } from '@/components/deals/DealFieldsEditor'
 import { DealEmailView } from '@/components/deals/DealEmailView'
-import { ActivityTimeline, type Activity } from '@/components/deals/ActivityTimeline'
 import { toast } from 'sonner'
 import { formatDate } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -69,31 +68,21 @@ function DealDetailContent({ projectId, dealId }: { projectId: string; dealId: s
     router.replace(`${pathname}?${params.toString()}`, { scroll: false })
   }, [searchParams, router, pathname])
 
-  const { data: activities = [], isLoading: activitiesLoading } = useQuery<Activity[]>({
-    queryKey: ['deal-activity', dealId],
-    queryFn: async () => {
-      const res = await fetch(`/api/deals/${dealId}/activity`)
-      if (!res.ok) return []
-      const data = await res.json()
-      return Array.isArray(data) ? data : []
-    },
-    enabled: !!dealId,
-  })
+  // Track which tabs have been visited so lazy components only load on first activation
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(
+    new Set([activeTab])
+  )
 
-  async function handleAddActivity(data: { type: string; summary: string }) {
-    const res = await fetch(`/api/deals/${dealId}/activity`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev
+      const next = new Set(prev)
+      next.add(activeTab)
+      return next
     })
-    if (res.ok) {
-      await queryClient.invalidateQueries({ queryKey: ['deal-activity', dealId] })
-      toast.success('Activity added')
-    } else {
-      const json = await res.json()
-      toast.error(json.error ?? 'Failed to add activity')
-    }
-  }
+  }, [activeTab])
+
+
 
   if (loading) {
     return (
@@ -180,103 +169,135 @@ function DealDetailContent({ projectId, dealId }: { projectId: string; dealId: s
         </TabsList>
 
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <TabsContent className="overflow-y-auto" value="overview">
-            <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-              <div className="space-y-8">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+          <TabsContent className="overflow-y-auto" value="overview" keepMounted>
+            <div className="space-y-6">
+              {/* KPI highlight cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(30,91,63,0.08)] border border-[rgba(30,91,63,0.15)] text-[var(--color-accent)] flex-shrink-0">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
                   <div>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
                       Created
                     </span>
-                    <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                    <p className="text-[13px] font-bold mt-0.5 font-mono text-[var(--color-text-primary)]">
                       {formatDate(deal.created_at)}
                     </p>
                   </div>
+                </div>
+
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--color-info-bg)] border border-[var(--color-info-border)] text-[var(--color-info-text)] flex-shrink-0">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h2a2 2 0 002-2zm12-3a2 2 0 00-2-2h-2a2 2 0 00-2 2v3a2 2 0 002 2h2a2 2 0 002-2v-3zm0 0V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v14a2 2 0 002 2h2a2 2 0 002-2V5z" />
+                    </svg>
+                  </div>
                   <div>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
                       Stage
                     </span>
-                    <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                    <p className="text-[13px] font-bold mt-0.5 capitalize text-[var(--color-text-primary)]">
                       {deal.stage.replace(/_/g, ' ')}
                     </p>
                   </div>
+                </div>
+
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-[var(--color-warning-text)] flex-shrink-0">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.907c.961 0 1.399 1.163.633 1.761l-3.971 2.89a1 1 0 00-.364 1.118l1.52 4.674c.3.922-.755 1.688-1.538 1.118l-3.971-2.89a1 1 0 00-1.175 0l-3.97 2.89c-.783.57-1.838-.197-1.538-1.118l1.52-4.674a1 1 0 00-.364-1.118L2.98 8.72c-.766-.598-.328-1.761.633-1.761h4.907a1 1 0 00.95-.69l1.519-4.674z" />
+                    </svg>
+                  </div>
                   <div>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
                       Score
                     </span>
-                    <p className="text-[13px] font-medium mt-0.5 capitalize" style={{ color: 'var(--color-text-primary)' }}>
+                    <p className="text-[13px] font-bold mt-0.5 capitalize text-[var(--color-text-primary)]">
                       {deal.score?.replace(/_/g, ' ') ?? '—'}
                     </p>
                   </div>
+                </div>
+
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(124,58,237,0.08)] border border-[rgba(124,58,237,0.15)] text-[rgb(124,58,237)] flex-shrink-0">
+                    <Building2 className="h-5 w-5" />
+                  </div>
                   <div>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
                       Units
                     </span>
-                    <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--color-text-primary)' }}>
+                    <p className="text-[13px] font-bold mt-0.5 font-mono text-[var(--color-text-primary)]">
                       {unitCount ?? '—'}
                     </p>
                   </div>
                 </div>
+              </div>
 
-                <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                      Imported Fields
-                    </h3>
-                  </div>
-                  <DealFieldsEditor dealId={dealId} />
+              {/* Property Fields card - expanded full width */}
+              <div className="rounded-xl border p-6 shadow-xs bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                <div className="mb-4 pb-3 border-b border-[var(--color-surface-2)]">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    Property Fields
+                  </h3>
+                  <p className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                    Imported parameters and metadata spec sheets.
+                  </p>
                 </div>
-
-                <div className="border-t pt-6" style={{ borderColor: 'var(--color-surface-2)' }}>
-                  <ActivityTimeline
-                    activities={activities}
-                    isLoading={activitiesLoading}
-                    onAddActivity={handleAddActivity}
-                  />
-                </div>
+                <DealFieldsEditor dealId={dealId} />
               </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="emails" className="flex-1 min-h-0 flex flex-col">
+          <TabsContent value="emails" keepMounted className="flex-1 min-h-0 flex flex-col">
             <DealEmailView dealId={dealId} dealName={dealName} projectId={projectId} />
           </TabsContent>
 
-          <TabsContent className="overflow-y-auto" value="documents">
-            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
-              <div className="space-y-6">
-                <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                  <LazyDriveFileManager dealId={dealId} dealName={dealName} />
+          <TabsContent className="overflow-y-auto" value="documents" keepMounted>
+            {visitedTabs.has('documents') ? (
+              <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+                <div className="space-y-6">
+                  <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                    <LazyDriveFileManager dealId={dealId} dealName={dealName} />
+                  </div>
+                  <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                    <LazyEvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
+                  </div>
                 </div>
+              </Suspense>
+            ) : null}
+          </TabsContent>
+
+          <TabsContent className="overflow-y-auto" value="underwriting" keepMounted>
+            {visitedTabs.has('underwriting') ? (
+              <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
                 <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                  <LazyEvaluateUnderwritability dealId={dealId} unitCount={unitCount} />
+                  <LazyUnderwritingSummary dealId={dealId} unitCount={unitCount} />
                 </div>
-              </div>
-            </Suspense>
+              </Suspense>
+            ) : null}
           </TabsContent>
 
-          <TabsContent className="overflow-y-auto" value="underwriting">
-            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
-              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                <LazyUnderwritingSummary dealId={dealId} unitCount={unitCount} />
-              </div>
-            </Suspense>
+          <TabsContent className="overflow-y-auto" value="loi" keepMounted>
+            {visitedTabs.has('loi') ? (
+              <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+                <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                  <LazyLOIDetail dealId={dealId} />
+                </div>
+              </Suspense>
+            ) : null}
           </TabsContent>
 
-          <TabsContent className="overflow-y-auto" value="loi">
-            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
-              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                <LazyLOIDetail dealId={dealId} />
-              </div>
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent className="overflow-y-auto" value="calls">
-            <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
-              <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
-                <LazyCallBriefTab dealId={dealId} />
-              </div>
-            </Suspense>
+          <TabsContent className="overflow-y-auto" value="calls" keepMounted>
+            {visitedTabs.has('calls') ? (
+              <Suspense fallback={<div className="flex items-center justify-center py-10"><LoadingSpinner size="md" /></div>}>
+                <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}>
+                  <LazyCallBriefTab dealId={dealId} />
+                </div>
+              </Suspense>
+            ) : null}
           </TabsContent>
         </div>
       </Tabs>

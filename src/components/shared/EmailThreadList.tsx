@@ -60,11 +60,14 @@ export interface EmailThreadListProps {
   /** Optional className for the root element. */
   className?: string
   /** Called when threads load, passing connection-level meta. */
-  onLoad?: (data: { googleEmail: string | null }) => void
+  onLoad?: (data: { googleEmail: string | null; gmailConnected: boolean }) => void
   /** Optional: return a URL to prefetch messages for a thread on hover. */
   prefetchMessageUrl?: (thread: EmailThread) => string | null
   /** Optional: return queryKey + queryFn for prefetching messages on hover. */
   prefetchMessageConfig?: (thread: EmailThread) => { queryKey: unknown[]; url: string } | null
+  /** When false, disables the thread list query. Default true. Use for gating
+   *  data fetching on tab visibility with keepMounted tabs. */
+  enabled?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -371,6 +374,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
     className,
     onLoad,
     prefetchMessageConfig,
+    enabled = true,
   }, ref) {
     const patchUrl = actionApiBase ?? apiBase
     const queryClient = useQueryClient()
@@ -410,6 +414,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       },
       staleTime: 30_000,
       refetchOnWindowFocus: false,
+      enabled: enabled !== false,
     })
 
     const threads = useMemo(() => queryResult?.threads ?? [], [queryResult?.threads])
@@ -422,12 +427,18 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       onLoadRef.current = onLoad
     }, [onLoad])
     const prevGoogleEmailRef = useRef<string | null | undefined>(undefined)
+    const prevGmailConnectedRef = useRef<boolean | undefined>(undefined)
 
     useEffect(() => {
       const googleEmail = queryResult?.googleEmail ?? null
-      if (googleEmail !== prevGoogleEmailRef.current) {
+      const gmailConnected = queryResult?.gmailConnected ?? false
+      if (
+        googleEmail !== prevGoogleEmailRef.current ||
+        gmailConnected !== prevGmailConnectedRef.current
+      ) {
         prevGoogleEmailRef.current = googleEmail
-        onLoadRef.current?.({ googleEmail })
+        prevGmailConnectedRef.current = gmailConnected
+        onLoadRef.current?.({ googleEmail, gmailConnected })
       }
     }, [queryResult])
 
@@ -693,21 +704,14 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
     // Gmail not connected state
     if (!gmailConnected && !isLoading) {
       return (
-        <div className={`flex flex-col items-center justify-center py-16 px-4 text-center ${className ?? ''}`}>
-          <Mail size={32} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, marginBottom: 16 }} />
-          <p className="text-[14px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
+        <div
+          className={`flex flex-col h-full rounded-lg border overflow-hidden justify-center items-center py-16 px-4 text-center ${className ?? ''}`}
+          style={{ borderColor: 'var(--color-surface-2)', background: 'var(--color-surface-0)' }}
+        >
+          <Mail size={24} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, marginBottom: 12 }} />
+          <p className="text-[13px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
             Gmail not connected
           </p>
-          <p className="text-[12px] mt-1 mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
-            Connect a Gmail account in project settings to track email threads.
-          </p>
-          <a
-            href={`/projects/${projectId}/settings`}
-            className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline"
-            style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
-          >
-            Connect Gmail
-          </a>
         </div>
       )
     }

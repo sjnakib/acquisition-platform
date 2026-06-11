@@ -1,6 +1,7 @@
 import { google } from 'googleapis'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCachedClient, setCachedClient, invalidateCachedClient } from './auth-cache'
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
@@ -57,6 +58,10 @@ export async function getAuthedClientByConnection(
   connectionId: string,
   options?: { useAdminClient?: boolean }
 ) {
+  // Check in-memory cache first (avoids Supabase query on every Drive API call)
+  const cached = getCachedClient(connectionId)
+  if (cached) return cached
+
   const supabase = options?.useAdminClient
     ? createAdminClient()
     : await createClient()
@@ -91,10 +96,15 @@ export async function getAuthedClientByConnection(
           : tokenRow.expiry,
         updated_at: new Date().toISOString(),
       }).eq('id', connectionId)
+      // Invalidate cache so next fetch gets the refreshed tokens
+      invalidateCachedClient(connectionId)
     } catch (err) {
       console.error('Failed to persist refreshed Google tokens:', err)
     }
   })
+
+  // Cache the configured client
+  setCachedClient(connectionId, oauthClient)
 
   return oauthClient
 }

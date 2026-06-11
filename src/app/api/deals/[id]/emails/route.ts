@@ -168,25 +168,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const trackedEmails = contacts?.flatMap((c) => c.email ?? []).filter((e) => e.length > 0) ?? []
 
     // Resolve Google connection from the deal's project
-    let connectionId: string | null = null
+    const { data: project } = await supabase
+      .from('projects')
+      .select('google_connection_id')
+      .eq('id', deal.project_id)
+      .single()
+
+    const connectionId = project?.google_connection_id ?? null
     let googleEmail: string | null = null
-    if (trackedEmails.length > 0) {
-      const { data: project } = await supabase
-        .from('projects')
-        .select('google_connection_id')
-        .eq('id', deal.project_id)
+
+    if (connectionId) {
+      const { data: conn } = await supabase
+        .from('google_connections')
+        .select('google_email')
+        .eq('id', connectionId)
         .single()
-
-      connectionId = project?.google_connection_id ?? null
-
-      if (connectionId) {
-        const { data: conn } = await supabase
-          .from('google_connections')
-          .select('google_email')
-          .eq('id', connectionId)
-          .single()
-        googleEmail = conn?.google_email ?? null
-      }
+      googleEmail = conn?.google_email ?? null
     }
 
     const threads: Record<string, {

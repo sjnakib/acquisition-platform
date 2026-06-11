@@ -18,7 +18,7 @@ export default function ClientCallsPage({ params }: { params: Promise<{ id: stri
         { label: projectName },
         { label: 'Call Queue' },
       ]}
-      onRowClick={(row) => router.push(`/projects/${projectId}/calls/${row.deal_id}`)}
+      onRowClick={(row) => router.push(`/projects/${projectId}/calls/${row.deal_id}?callId=${row.id}`)}
     />
   )
 }

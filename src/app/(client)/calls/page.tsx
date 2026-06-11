@@ -11,7 +11,7 @@ export default function ClientCallsPage() {
       onRowClick={(row) => {
         const dealProjectId = row.deals?.project_id
         if (dealProjectId) {
-          router.push(`/projects/${dealProjectId}/calls/${row.deal_id}`)
+          router.push(`/projects/${dealProjectId}/calls/${row.deal_id}?callId=${row.id}`)
         }
       }}
     />

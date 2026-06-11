@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import {
   listDriveFiles,
-  uploadFileToDrive,
+  uploadFileToDriveStream,
   deleteDriveFile,
   renameDriveFile,
   untrashDriveFile,
@@ -132,11 +132,10 @@ export async function POST(
       return NextResponse.json({ error: 'Deal room has not been created yet. Click "Create Deal Room" first.' }, { status: 400 })
     }
 
-    const bytes = Buffer.from(await file.arrayBuffer())
-    const result = await uploadFileToDrive(
+    const result = await uploadFileToDriveStream(
       project.google_connection_id,
       uploadTargetId,
-      bytes,
+      file.stream(),
       file.name,
       file.type || 'application/octet-stream',
     )

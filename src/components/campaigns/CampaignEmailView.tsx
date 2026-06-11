@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Building2, ExternalLink, Mail } from 'lucide-react'
 import { EmailThreadList, type EmailThread, type EmailThreadListHandle } from '@/components/shared/EmailThreadList'
 import { EmailMessagePanel, type EmailMessage } from '@/components/shared/EmailMessagePanel'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 
 interface CampaignEmailViewProps {
   campaignId: string
@@ -17,9 +18,10 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
 
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null)
   const threadListRef = useRef<EmailThreadListHandle>(null)
 
-  const { data: messages = [] } = useQuery<EmailMessage[]>({
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
     queryKey: ['email-messages', selectedThread?.dealId, selectedThread?.threadId],
     queryFn: async () => {
       if (!selectedThread) return []
@@ -32,7 +34,6 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
     },
     enabled: !!selectedThread,
     staleTime: 60_000,
-    placeholderData: (prev) => prev,
   })
 
   useEffect(() => {
@@ -85,6 +86,11 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
             apiBase={`/api/campaigns/${encodeURIComponent(campaignId)}/emails`}
             projectId={projectId}
             onThreadClick={handleThreadClick}
+            onLoad={({ gmailConnected }) => setGmailConnected(gmailConnected)}
+            prefetchMessageConfig={(thread) => ({
+              queryKey: ['email-messages', thread.dealId, thread.threadId],
+              url: `/api/deals/${thread.dealId}/emails/threads?threadId=${thread.threadId}&dealId=${thread.dealId}`,
+            })}
             renderMetaRow={(thread) => (
               <button
                 onClick={(e) => navigateToDeal(e, thread.dealId)}
@@ -103,10 +109,36 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
 
         {/* ═══ Right Panel: Message detail ══════════════════════════════════ */}
         <div className="flex-1 flex flex-col min-w-0" style={{ background: 'var(--color-surface-0)' }}>
-          {!selectedThread ? (
+          {gmailConnected === null ? (
+            // Loading connection status
             <div className="flex-1 flex items-center justify-center">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : !gmailConnected ? (
+            // Gmail disconnected state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
+              <div className="text-center space-y-3 px-6 max-w-md">
+                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, margin: '0 auto' }} />
+                <h3 className="text-[14px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  Gmail Connection Required
+                </h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Connect your Gmail account in project settings to compose emails, view conversations, and track interactions.
+                </p>
+                <a
+                  href={`/projects/${projectId}/settings`}
+                  className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline mt-2"
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+                >
+                  Go to Settings
+                </a>
+              </div>
+            </div>
+          ) : !selectedThread ? (
+            // Empty state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
               <div className="text-center space-y-3">
-                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4 }} />
+                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, margin: '0 auto' }} />
                 <p className="text-[13px]" style={{ color: 'var(--color-text-tertiary)' }}>
                   Select a conversation to view emails
                 </p>
@@ -119,6 +151,7 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
             <EmailMessagePanel
               thread={selectedThread}
               messages={messages}
+              loading={messagesLoading}
               expandedMessages={expandedMessages}
               onToggleMessage={toggleMessage}
               onExpandAll={expandAllMessages}

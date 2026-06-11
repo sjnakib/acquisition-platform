@@ -10,6 +10,19 @@ interface TabsContextValue {
 
 const TabsContext = React.createContext<TabsContextValue | null>(null)
 
+// ── Tab Active Context (for keepMounted tabs) ────────────────────────────
+
+const TabActiveContext = React.createContext<boolean>(true)
+
+/**
+ * Hook for child components rendered inside a <TabsContent>.
+ * Returns `true` when the parent tab is currently active.
+ * Useful for gating data fetching / subscriptions when tabs use `keepMounted`.
+ */
+export function useIsTabActive(): boolean {
+  return React.useContext(TabActiveContext)
+}
+
 export interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   defaultValue: string
   value?: string
@@ -167,10 +180,15 @@ export function TabsTrigger({
 
 export interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
   value: string
+  /** When true, inactive tabs are hidden with CSS instead of being unmounted.
+   *  Preserves component state, TanStack Query caches, and local UI state
+   *  across tab switches. Default: false (original unmount behavior). */
+  keepMounted?: boolean
 }
 
 export function TabsContent({
   value,
+  keepMounted,
   className,
   children,
   ...props
@@ -182,14 +200,30 @@ export function TabsContent({
 
   const isActive = context.value === value
 
-  if (!isActive) return null
+  // Track first activation so entrance animation only plays once
+  const wasActiveRef = React.useRef(false)
+  const shouldAnimate = isActive && !wasActiveRef.current
+
+  React.useEffect(() => {
+    wasActiveRef.current = isActive
+  }, [isActive])
+
+  // Original behavior: unmount when inactive (keepMounted not set)
+  if (!isActive && !keepMounted) return null
 
   return (
-    <div
-      className={cn('w-full h-full animate-tab-entrance', className)}
-      {...props}
-    >
-      {children}
-    </div>
+    <TabActiveContext.Provider value={isActive}>
+      <div
+        className={cn(
+          'w-full h-full',
+          !isActive && 'hidden',
+          shouldAnimate && 'animate-tab-entrance',
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </div>
+    </TabActiveContext.Provider>
   )
 }

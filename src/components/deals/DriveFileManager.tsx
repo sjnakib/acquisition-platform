@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import {
   Folder, FolderOpen, File, FileText, Image, Table2,
-  MoreHorizontal, Upload, FolderPlus, RotateCw, Check, X,
+  MoreHorizontal, Upload, FolderPlus, RefreshCw, Check, X,
   Trash2, Pencil, ExternalLink, LayoutList, LayoutGrid,
-  ChevronDown, ChevronRight, ChevronUp, FolderUp,
+  ChevronDown, ChevronRight, ChevronUp, FolderUp, Plus, Link, Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,8 +16,11 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { useIsTabActive } from '@/components/ui/tabs'
 import { DriveBreadcrumb, type BreadcrumbSegment } from './DriveBreadcrumb'
 import { formatDate } from '@/lib/utils'
+import { traverseDirectory, supportsDirectoryDrop, type TraversedFile } from '@/lib/directory-traversal'
+import { UploadPanel, type UploadItem } from '@/components/shared/UploadPanel'
 
 // ── Types ──
 
@@ -28,16 +32,6 @@ interface DriveFileItem {
   size: string | null
   modifiedTime: string | null
   isFolder: boolean
-  isUploading?: boolean
-  progress?: number
-  status?: 'uploading' | 'completed' | 'error'
-}
-
-interface UploadEntry {
-  name: string
-  progress: number // 0–100
-  status: 'uploading' | 'completed' | 'error'
-  targetFolderId?: string
 }
 
 type ViewMode = 'list' | 'grid'
@@ -53,15 +47,20 @@ function formatFileSize(size: string | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function formatStorageSize(bytes: number): string {
+  if (bytes <= 0) return '0 GB'
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`
+  const gb = bytes / (1024 * 1024 * 1024)
+  return gb >= 10 ? `${gb.toFixed(0)} GB` : `${gb.toFixed(1)} GB`
+}
+
 function formatFileFolderCount(filesCount: number, foldersCount: number): string {
   const parts: string[] = []
-  if (filesCount > 0 || foldersCount === 0) {
-    parts.push(`${filesCount} file${filesCount !== 1 ? 's' : ''}`)
-  }
+  parts.push(`${filesCount} file${filesCount !== 1 ? 's' : ''}`)
   if (foldersCount > 0) {
     parts.push(`${foldersCount} folder${foldersCount !== 1 ? 's' : ''}`)
   }
-  return parts.join(' / ')
+  return parts.join(' · ')
 }
 
 // Format relative time with custom styling
@@ -72,6 +71,15 @@ function relativeTime(dateStr: string | null): string {
   } catch {
     return formatDate(dateStr)
   }
+}
+
+/** Sort: folders first, then alphabetically by name (case-insensitive). */
+function sortFoldersFirst(items: DriveFileItem[]): DriveFileItem[] {
+  return [...items].sort((a, b) => {
+    if (a.isFolder && !b.isFolder) return -1
+    if (!a.isFolder && b.isFolder) return 1
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  })
 }
 
 function getFileIcon(mimeType: string, isFolder: boolean) {
@@ -112,6 +120,8 @@ function SkeletonRow() {
 // ── Component ──
 
 export function DriveFileManager({ dealId, dealName }: { dealId: string; dealName: string }) {
+  const isActive = useIsTabActive()
+
   // Data state
   const [files, setFiles] = useState<DriveFileItem[]>([])
   const [refreshing, setRefreshing] = useState(false)
@@ -122,8 +132,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
   // Folder upload (webkitdirectory)
   const folderUploadInputRef = useRef<HTMLInputElement>(null)
-  const [uploadingFolder, setUploadingFolder] = useState(false)
-  const [folderUploadProgress, setFolderUploadProgress] = useState<{ foldersCreated: number; filesUploaded: number; totalFiles: number } | null>(null)
 
   // Navigation
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
@@ -145,9 +153,10 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   const [showDeleteSelected, setShowDeleteSelected] = useState(false)
   const deletedSelectedItemsRef = useRef<DriveFileItem[]>([])
 
-  // Upload
-  const [uploads, setUploads] = useState<UploadEntry[]>([])
-  const [uploading, setUploading] = useState(false)
+  // Upload — managed by UploadPanel
+  const [uploadPanelItems, setUploadPanelItems] = useState<UploadItem[]>([])
+  const activeXhrMapRef = useRef<Map<string, XMLHttpRequest>>(new Map())
+  const parentFolderMapRef = useRef<Map<string, string>>(new Map()) // itemId → parentFolderId for retry
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderFileInputRef = useRef<HTMLInputElement>(null)
   const activeUploadFolderIdRef = useRef<string | null>(null)
@@ -171,14 +180,23 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<DriveFileItem | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deletingItemIds, setDeletingItemIds] = useState<Set<string>>(new Set())
   const deletedRef = useRef<DriveFileItem | null>(null) // for undo
 
   // Menu
   const [menuFile, setMenuFile] = useState<DriveFileItem | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const menuAnchorRef = useRef<DOMRect | null>(null)
 
-  // View mode
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
+  // View mode (list view only)
+  const viewMode: ViewMode = 'list'
+
+  // Google Drive style "+ New" menu
+  const [isNewMenuOpen, setIsNewMenuOpen] = useState(false)
+  const newMenuRef = useRef<HTMLDivElement>(null)
+
+  // Highlight newly added items
+  const [newlyAddedIds, setNewlyAddedIds] = useState<Set<string>>(new Set())
 
   // Focus for keyboard
   const [focusIdx, setFocusIdx] = useState(-1)
@@ -195,7 +213,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       const res = await fetch(`/api/deals/${dealId}/drive/files?${params}`)
       if (res.ok) {
         const data = await res.json()
-        const children = data.files ?? []
+        const children = sortFoldersFirst(data.files ?? [])
         setFolderContents((prev) => ({ ...prev, [folderId]: children }))
 
         // Recursively trigger background fetches for any discovered subfolders that aren't cached
@@ -305,7 +323,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     }
   }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches])
 
-  const { data: dealData } = useQuery<{ drive_folder_id?: string | null }>({
+  const { data: dealData } = useQuery<{ drive_folder_id?: string | null; project_id?: string }>({
     queryKey: ['deal', dealId, 'drive', 'folder'],
     queryFn: async () => {
       const res = await fetch(`/api/deals/${dealId}`)
@@ -315,11 +333,29 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     enabled: !!dealId,
   })
 
+  // ── Storage quota ──
+  const { data: storageQuota } = useQuery<{
+    limit: string; usage: string; usageInDrive: string; usageInDriveTrash: string
+  }>({
+    queryKey: ['drive', 'storage', dealData?.project_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${dealData!.project_id}/drive/storage`)
+      if (!res.ok) throw new Error('Failed to fetch storage quota')
+      return res.json()
+    },
+    enabled: !!dealData?.project_id && !!dealData?.drive_folder_id,
+    refetchInterval: isActive ? 60_000 : false, // only poll when tab is visible
+  })
+
   const loading = dealData === undefined
 
+  // Track initial fetch so it only runs once (preserved across tab switches via keepMounted)
+  const initialFetchDoneRef = useRef(false)
+
   useEffect(() => {
-    if (!dealData) return
+    if (!dealData || !isActive || initialFetchDoneRef.current) return
     if (dealData.drive_folder_id) {
+      initialFetchDoneRef.current = true
       setDealFolderId(dealData.drive_folder_id)
       if (!currentFolderId) setCurrentFolderId(dealData.drive_folder_id!)
       loadedFolderIdsRef.current.clear()
@@ -342,7 +378,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       setFiles([])
       setDealFolderId(null)
     }
-  }, [dealData, dealId, triggerBackgroundFolderFetches])
+  }, [dealData, dealId, isActive, triggerBackgroundFolderFetches])
 
   // Selection helpers moved below computed list rows to avoid TDZ issues
 
@@ -392,145 +428,389 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     }
   }
 
-  // ── Folder upload (webkitdirectory) ──────────────────────────────────────
+  // ── Retry a single file upload (used by cancel/retry callbacks) ──────────
 
-  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files
-    if (!fileList || fileList.length === 0) return
+  const retrySingleFile = useCallback(
+    (file: File, itemId: string, parentFolderId: string | null) => {
+      const targetFolderId = parentFolderId ?? currentFolderId ?? dealFolderId
+      if (!targetFolderId) {
+        setUploadPanelItems((prev) =>
+          prev.map((item) =>
+            item.id === itemId
+              ? { ...item, status: 'error', errorMessage: 'No target folder' }
+              : item,
+          ),
+        )
+        return
+      }
 
-    const targetFolderId = currentFolderId ?? dealFolderId
-    if (!targetFolderId) {
-      toast.error('No deal room. Create one first.')
-      return
-    }
+      const markItem = (update: Partial<UploadItem>) => {
+        setUploadPanelItems((prev) =>
+          prev.map((item) => (item.id === itemId ? { ...item, ...update } : item)),
+        )
+      }
 
-    setUploadingFolder(true)
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folderId', targetFolderId)
 
-    try {
-      const allFiles = Array.from(fileList)
+      const xhr = new XMLHttpRequest()
+      activeXhrMapRef.current.set(itemId, xhr)
+      xhr.open('POST', `/api/deals/${dealId}/drive/files`)
 
-      // ── Parse folder structure from webkitRelativePath ──────────────────
-      const folderPaths = new Set<string>()
-      for (const file of allFiles) {
-        const parts = file.webkitRelativePath.split('/')
-        for (let i = 0; i < parts.length - 1; i++) {
-          folderPaths.add(parts.slice(0, i + 1).join('/'))
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          markItem({ progress: Math.round((event.loaded / event.total) * 100) })
         }
       }
 
-      // Sort by depth so parents are created before children
-      const sortedFolders = [...folderPaths].sort(
-        (a, b) => a.split('/').length - b.split('/').length
+      xhr.onload = () => {
+        activeXhrMapRef.current.delete(itemId)
+        if (xhr.status >= 200 && xhr.status < 300) {
+          markItem({ progress: 100, status: 'completed' })
+        } else {
+          let errorMsg = 'Upload failed'
+          try {
+            const d = JSON.parse(xhr.responseText)
+            errorMsg = d.error ?? errorMsg
+          } catch {}
+          markItem({ status: 'error', errorMessage: errorMsg })
+        }
+      }
+
+      xhr.onerror = () => {
+        activeXhrMapRef.current.delete(itemId)
+        markItem({ status: 'error', errorMessage: 'Network error' })
+      }
+
+      xhr.send(formData)
+    },
+    [dealId, currentFolderId, dealFolderId],
+  )
+
+  // ── Shared folder-upload pipeline (webkitdirectory + drag-drop) ──────────
+
+  const processFolderStructure = async (
+    filesWithPaths: TraversedFile[],
+    emptyFolderPaths: string[],
+    rootFolderId: string,
+  ) => {
+    // ── Parse folder structure from relative paths ────────────────────────
+    const folderPaths = new Set<string>()
+
+    for (const f of filesWithPaths) {
+      const parts = f.relativePath.split('/')
+      for (let i = 0; i < parts.length - 1; i++) {
+        folderPaths.add(parts.slice(0, i + 1).join('/'))
+      }
+    }
+
+    // Merge explicitly-empty folders (from drag-drop traversal)
+    for (const emptyPath of emptyFolderPaths) {
+      folderPaths.add(emptyPath)
+    }
+
+    const sortedFolders = [...folderPaths].sort(
+      (a, b) => a.split('/').length - b.split('/').length,
+    )
+
+    // ── Build UploadPanel items for folder creation ───────────────────────
+    const folderItems: UploadItem[] = sortedFolders.map((path, i) => ({
+      id: `folder-${Date.now()}-${i}`,
+      name: path.split('/').pop()!,
+      relativePath: path,
+      progress: 0,
+      status: 'uploading' as const,
+      isFolderCreation: true,
+    }))
+
+    const fileItems: UploadItem[] = filesWithPaths.map((f, i) => ({
+      id: `file-${Date.now()}-${i}`,
+      name: f.file.name,
+      relativePath: f.relativePath,
+      size: f.file.size,
+      file: f.file,
+      progress: 0,
+      status: 'uploading' as const,
+    }))
+
+    setUploadPanelItems((prev) => [...prev, ...folderItems, ...fileItems])
+
+    const markItem = (id: string, update: Partial<UploadItem>) => {
+      setUploadPanelItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...update } : item)),
       )
+    }
 
-      // ── Create folders in Drive ─────────────────────────────────────────
+    try {
+      // ── Batch-create all folders (single round-trip) ────────────────────
       const folderIdMap = new Map<string, string>()
-      let foldersCreated = 0
 
-      for (const folderPath of sortedFolders) {
-        const parts = folderPath.split('/')
-        const folderName = parts[parts.length - 1]!
-        const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
-        const parentId = parentPath ? folderIdMap.get(parentPath)! : targetFolderId
+      if (sortedFolders.length > 0) {
+        const foldersPayload = sortedFolders.map((path) => {
+          const parts = path.split('/')
+          const name = parts[parts.length - 1]!
+          const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : ''
+          return { name, parentPath }
+        })
 
-        const res = await fetch(`/api/deals/${dealId}/drive/folders`, {
+        const res = await fetch(`/api/deals/${dealId}/drive/folders/batch`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: folderName, parentFolderId: parentId }),
+          body: JSON.stringify({ folders: foldersPayload, parentFolderId: rootFolderId }),
         })
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
-          throw new Error(data.error ?? `Failed to create folder "${folderName}"`)
+          throw new Error(data.error ?? 'Batch folder creation failed')
         }
 
-        const data = await res.json()
-        folderIdMap.set(folderPath, data.folderId)
-        foldersCreated++
-        setFolderUploadProgress({ foldersCreated, filesUploaded: 0, totalFiles: allFiles.length })
+        const data = await res.json() as { folders: Record<string, string> }
+        for (const [path, folderId] of Object.entries(data.folders)) {
+          folderIdMap.set(path, folderId)
+          setNewlyAddedIds((prev) => {
+            const next = new Set(prev)
+            next.add(folderId)
+            return next
+          })
+          setTimeout(() => {
+            setNewlyAddedIds((prev) => {
+              const next = new Set(prev)
+              next.delete(folderId)
+              return next
+            })
+          }, 4000)
+        }
+
+        // Mark all folder items as completed
+        for (const item of folderItems) {
+          markItem(item.id, { progress: 100, status: 'completed' })
+        }
       }
 
-      // ── Group files by their parent folder ──────────────────────────────
+      // ── Group files by their parent folder ────────────────────────────────
       const filesByParent = new Map<string, File[]>()
-      for (const file of allFiles) {
-        const parts = file.webkitRelativePath.split('/')
+
+      for (const f of filesWithPaths) {
+        const parts = f.relativePath.split('/')
         const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
-        const parentId = folderPath ? folderIdMap.get(folderPath)! : targetFolderId
+        const parentId = folderPath ? folderIdMap.get(folderPath)! : rootFolderId
 
         const batch = filesByParent.get(parentId)
         if (batch) {
-          batch.push(file)
+          batch.push(f.file)
         } else {
-          filesByParent.set(parentId, [file])
+          filesByParent.set(parentId, [f.file])
         }
       }
 
-      // ── Upload each batch using existing XHR-based handleUpload ─────────
-      let uploadFailures = 0
-      let uploadedCount = 0
+      // ── Filter out files that already exist in their target folders ──────
+      const skippedNames: string[] = []
+      const filteredPaths: TraversedFile[] = []
+      const filteredFileItems: UploadItem[] = []
 
-      for (const [parentId, batchFiles] of filesByParent) {
-        const results = await uploadFilesBatch(batchFiles, parentId)
-        uploadedCount += results.success
-        uploadFailures += results.failures
-        setFolderUploadProgress({ foldersCreated, filesUploaded: uploadedCount, totalFiles: allFiles.length })
+      for (let i = 0; i < filesWithPaths.length; i++) {
+        const f = filesWithPaths[i]!
+        const parts = f.relativePath.split('/')
+        const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
+        const parentId = folderPath ? folderIdMap.get(folderPath)! : rootFolderId
+        const isRootFolder = parentId === rootFolderId
+        const targetContents = isRootFolder ? files : (folderContents[parentId] ?? [])
+        const alreadyExists = targetContents.some(
+          (existing) => existing.name.toLowerCase() === f.file.name.toLowerCase(),
+        )
+
+        if (alreadyExists) {
+          skippedNames.push(f.file.name)
+        } else {
+          filteredPaths.push(f)
+          filteredFileItems.push(fileItems[i]!)
+        }
       }
 
-      if (uploadFailures > 0) {
-        toast.warning(`Uploaded ${uploadedCount} / ${allFiles.length} files. ${uploadFailures} failed.`)
-      } else {
-        toast.success(`Uploaded ${allFiles.length} file${allFiles.length !== 1 ? 's' : ''} in ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`)
+      // Remove skipped items from the panel
+      if (skippedNames.length > 0) {
+        const skippedSet = new Set(skippedNames.map((n) => n.toLowerCase()))
+        setUploadPanelItems((prev) =>
+          prev.filter(
+            (item) =>
+              !(item.status === 'uploading' && skippedSet.has(item.name.toLowerCase())),
+          ),
+        )
+        toast.warning(
+          skippedNames.length === 1
+            ? `"${skippedNames[0]}" already exists — skipped`
+            : `${skippedNames.length} file(s) already exist — skipped`,
+        )
+      }
+      if (filteredPaths.length === 0) {
+        setUploadPanelItems((prev) =>
+          prev.filter((item) => !(item.status === 'uploading' && item.isFolderCreation)),
+        )
+        fetchFiles()
+        return
+      }
+
+      // ── Upload all files with global concurrency semaphore ─────────────────
+      const CONCURRENCY = 6
+      const totalFiles = filteredPaths.length
+
+      // Build work queue by zipping filteredPaths with their pre-created UploadItems.
+      interface WorkItem {
+        file: File
+        parentId: string
+        itemId: string
+      }
+      const queue: WorkItem[] = []
+      for (let i = 0; i < filteredPaths.length; i++) {
+        const f = filteredPaths[i]!
+        const item = filteredFileItems[i]!
+        if (!item) continue
+        const parts = f.relativePath.split('/')
+        const folderPath = parts.length > 1 ? parts.slice(0, -1).join('/') : null
+        const parentId = folderPath ? folderIdMap.get(folderPath)! : rootFolderId
+        parentFolderMapRef.current.set(item.id, parentId)
+        queue.push({ file: f.file, parentId, itemId: item.id })
+      }
+
+      let inFlight = 0
+      let failures = 0
+
+      const uploadSingle = (work: WorkItem): Promise<boolean> => {
+        return new Promise((resolve) => {
+          const formData = new FormData()
+          formData.append('file', work.file)
+          formData.append('folderId', work.parentId)
+
+          const xhr = new XMLHttpRequest()
+          activeXhrMapRef.current.set(work.itemId, xhr)
+          xhr.open('POST', `/api/deals/${dealId}/drive/files`)
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const pct = Math.round((event.loaded / event.total) * 100)
+              markItem(work.itemId, { progress: pct })
+            }
+          }
+
+          xhr.onload = () => {
+            activeXhrMapRef.current.delete(work.itemId)
+            if (xhr.status >= 200 && xhr.status < 300) {
+              markItem(work.itemId, { progress: 100, status: 'completed' })
+              try {
+                const d = JSON.parse(xhr.responseText)
+                if (d.file?.id) {
+                  const fileId = d.file.id
+                  setNewlyAddedIds((prev) => {
+                    const next = new Set(prev)
+                    next.add(fileId)
+                    return next
+                  })
+                  setTimeout(() => {
+                    setNewlyAddedIds((prev) => {
+                      const next = new Set(prev)
+                      next.delete(fileId)
+                      return next
+                    })
+                  }, 4000)
+                }
+              } catch {}
+              resolve(true)
+            } else {
+              let errorMsg = 'Upload failed'
+              try {
+                const d = JSON.parse(xhr.responseText)
+                errorMsg = d.error ?? errorMsg
+              } catch {}
+              markItem(work.itemId, { status: 'error', errorMessage: errorMsg })
+              failures++
+              resolve(false)
+            }
+          }
+
+          xhr.onerror = () => {
+            activeXhrMapRef.current.delete(work.itemId)
+            markItem(work.itemId, { status: 'error', errorMessage: 'Network error' })
+            failures++
+            resolve(false)
+          }
+
+          xhr.send(formData)
+        })
+      }
+
+      await new Promise<void>((resolve) => {
+        const processNext = () => {
+          while (inFlight < CONCURRENCY && queue.length > 0) {
+            const work = queue.shift()!
+            inFlight++
+            uploadSingle(work).then(() => {
+              inFlight--
+              if (queue.length === 0 && inFlight === 0) {
+                resolve()
+              } else {
+                processNext()
+              }
+            })
+          }
+          if (queue.length === 0 && inFlight === 0) {
+            resolve()
+          }
+        }
+        processNext()
+      })
+
+      if (failures > 0) {
+        toast.warning(`Uploaded ${totalFiles - failures} / ${totalFiles} files. ${failures} failed.`)
+      } else if (totalFiles > 0) {
+        toast.success(
+          `Uploaded ${totalFiles} file${totalFiles !== 1 ? 's' : ''} in ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`,
+        )
+      } else if (sortedFolders.length > 0) {
+        toast.success(`Created ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`)
       }
       fetchFiles()
     } catch (err) {
+      // Mark all in-progress items as error
+      setUploadPanelItems((prev) =>
+        prev.map((item) =>
+          item.status === 'uploading'
+            ? { ...item, status: 'error' as const, errorMessage: err instanceof Error ? err.message : 'Failed' }
+            : item,
+        ),
+      )
       toast.error(err instanceof Error ? err.message : 'Folder upload failed')
-    } finally {
-      setUploadingFolder(false)
-      setFolderUploadProgress(null)
-      if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
     }
   }
 
-  // ── Batch file upload helper (XHR-based, per-folder) ────────────────────
+  // ── Folder upload (webkitdirectory) ──────────────────────────────────────
 
-  const uploadFilesBatch = async (files: File[], parentFolderId: string): Promise<{ success: number; failures: number }> => {
-    let success = 0
-    let failures = 0
-
-    const uploadSingle = (file: File): Promise<boolean> => {
-      return new Promise((resolve) => {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('folderId', parentFolderId)
-
-        const xhr = new XMLHttpRequest()
-        xhr.open('POST', `/api/deals/${dealId}/drive/files`)
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            success++
-            resolve(true)
-          } else {
-            failures++
-            let errorMsg = 'Upload failed'
-            try { const data = JSON.parse(xhr.responseText); errorMsg = data.error ?? errorMsg } catch {}
-            toast.error(`Failed to upload "${file.name}": ${errorMsg}`)
-            resolve(false)
-          }
-        }
-
-        xhr.onerror = () => {
-          failures++
-          toast.error(`Upload error on "${file.name}"`)
-          resolve(false)
-        }
-
-        xhr.send(formData)
-      })
+  const handleFolderUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) {
+      toast.error('No files found. To create an empty folder, use the New Folder button.', { duration: 5000 })
+      if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
+      return
     }
 
-    await Promise.all(files.map((f) => uploadSingle(f)))
-    return { success, failures }
+    const targetFolderId = currentFolderId ?? dealFolderId
+    if (!targetFolderId) {
+      toast.error('No deal room. Create one first.')
+      if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
+      return
+    }
+
+    const allFiles = Array.from(fileList)
+    const filesWithPaths: TraversedFile[] = allFiles.map((file) => ({
+      relativePath: file.webkitRelativePath,
+      file,
+    }))
+
+    // webkitdirectory only surfaces files — empty folders cannot be detected
+    const emptyFolderPaths: string[] = []
+
+    if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
+    await processFolderStructure(filesWithPaths, emptyFolderPaths, targetFolderId)
   }
 
   // ── Navigation (Soft Loader Enabled) ──
@@ -588,7 +868,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   // ── Internal File Moving (Drag & Drop) ──
 
   const handleDragStart = (e: React.DragEvent, item: DriveFileItem) => {
-    if (item.isUploading) { e.preventDefault(); return }
     draggedItemRef.current = item
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('application/x-internal-move', item.id)
@@ -601,11 +880,16 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   }
 
   const handleDragOverFolder = (e: React.DragEvent, folder: DriveFileItem) => {
-    if (!draggedItemRef.current) return
-    if (draggedItemRef.current.id === folder.id) return
+    const isInternal = e.dataTransfer.types.includes('application/x-internal-move')
+    const isExternal = e.dataTransfer.types.includes('Files')
+    if (!isInternal && !isExternal) return
+    if (isInternal && draggedItemRef.current?.id === folder.id) return
     
     e.preventDefault()
     e.stopPropagation()
+    if (isExternal) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
     if (activeDropFolderId !== folder.id) {
       setActiveDropFolderId(folder.id)
     }
@@ -623,70 +907,134 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     e.preventDefault()
     e.stopPropagation()
     setActiveDropFolderId(null)
+    // Reset drag overlay state — main onDrop is prevented by stopPropagation above
+    dragCounter.current = 0
+    setDragActive(false)
 
-    const draggedId = e.dataTransfer.getData('application/x-internal-move') || draggedItemRef.current?.id
-    if (!draggedId || draggedId === folder.id) return
+    const isInternal = e.dataTransfer.types.includes('application/x-internal-move')
+    if (isInternal) {
+      const draggedId = e.dataTransfer.getData('application/x-internal-move') || draggedItemRef.current?.id
+      if (!draggedId || draggedId === folder.id) return
 
-    const draggedItem = draggedItemRef.current
-    if (!draggedItem) return
+      const draggedItem = draggedItemRef.current
+      if (!draggedItem) return
 
-    const previousFiles = files
-    const previousContents = folderContents
-
-    // Optimistic UI updates
-    if (files.some((f) => f.id === draggedId)) {
-      setFiles((prev) => prev.filter((f) => f.id !== draggedId))
-      setFolderContents((prev) => {
-        const currentChildren = prev[folder.id] ?? []
-        if (currentChildren.some((c) => c.id === draggedId)) return prev
-        return {
-          ...prev,
-          [folder.id]: [...currentChildren, { ...draggedItem, isUploading: false }],
-        }
-      })
-    } else {
-      let oldParentId: string | undefined
-      Object.keys(folderContents).forEach((pId) => {
-        if (folderContents[pId]?.some((c) => c.id === draggedId)) {
-          oldParentId = pId
-        }
-      })
-
-      if (oldParentId && oldParentId !== folder.id) {
-        setFolderContents((prev) => {
-          const nextContents = { ...prev }
-          nextContents[oldParentId!] = nextContents[oldParentId!]?.filter((c) => c.id !== draggedId) ?? []
-          nextContents[folder.id] = [...(nextContents[folder.id] ?? []), { ...draggedItem, isUploading: false }]
-          return nextContents
-        })
+      // Check for name collision in the destination folder
+      const destContents = folderContents[folder.id] ?? []
+      const nameCollision = destContents.some(
+        (f) => f.name.toLowerCase() === draggedItem.name.toLowerCase(),
+      )
+      if (nameCollision) {
+        toast.warning(
+          `"${draggedItem.name}" already exists in "${folder.name}" — move cancelled`,
+        )
+        return
       }
-    }
 
-    const loadingToastId = toast.loading(`Moving "${draggedItem.name}" to "${folder.name}"...`)
+      const previousFiles = files
+      const previousContents = folderContents
 
-    try {
-      const res = await fetch(`/api/deals/${dealId}/drive/files`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId: draggedId, newParentFolderId: folder.id }),
-      })
-
-      toast.dismiss(loadingToastId)
-
-      if (res.ok) {
-        toast.success(`Moved "${draggedItem.name}" to "${folder.name}"`)
-        fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+      // Optimistic UI updates
+      if (files.some((f) => f.id === draggedId)) {
+        setFiles((prev) => prev.filter((f) => f.id !== draggedId))
+        setFolderContents((prev) => {
+          const currentChildren = prev[folder.id] ?? []
+          if (currentChildren.some((c) => c.id === draggedId)) return prev
+          return {
+            ...prev,
+            [folder.id]: [...currentChildren, draggedItem],
+          }
+        })
       } else {
+        let oldParentId: string | undefined
+        Object.keys(folderContents).forEach((pId) => {
+          if (folderContents[pId]?.some((c) => c.id === draggedId)) {
+            oldParentId = pId
+          }
+        })
+
+        if (oldParentId && oldParentId !== folder.id) {
+          setFolderContents((prev) => {
+            const nextContents = { ...prev }
+            nextContents[oldParentId!] = nextContents[oldParentId!]?.filter((c) => c.id !== draggedId) ?? []
+            nextContents[folder.id] = [...(nextContents[folder.id] ?? []), draggedItem]
+            return nextContents
+          })
+        }
+      }
+
+      const loadingToastId = toast.loading(`Moving "${draggedItem.name}" to "${folder.name}"...`)
+
+      try {
+        const res = await fetch(`/api/deals/${dealId}/drive/files`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId: draggedId, newParentFolderId: folder.id }),
+        })
+
+        toast.dismiss(loadingToastId)
+
+        if (res.ok) {
+          toast.success(`Moved "${draggedItem.name}" to "${folder.name}"`)
+          fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+        } else {
+          setFiles(previousFiles)
+          setFolderContents(previousContents)
+          const data = await res.json()
+          toast.error(data.error ?? 'Failed to move item')
+        }
+      } catch {
+        toast.dismiss(loadingToastId)
         setFiles(previousFiles)
         setFolderContents(previousContents)
-        const data = await res.json()
-        toast.error(data.error ?? 'Failed to move item')
+        toast.error('Failed to move item')
       }
-    } catch {
-      toast.dismiss(loadingToastId)
-      setFiles(previousFiles)
-      setFolderContents(previousContents)
-      toast.error('Failed to move item')
+    } else {
+      // External file dropped onto subfolder!
+      if (supportsDirectoryDrop() && e.dataTransfer.items.length > 0) {
+        let hasDirectory = false
+        const entries: { entry: FileSystemEntry; item: DataTransferItem }[] = []
+
+        for (let i = 0; i < e.dataTransfer.items.length; i++) {
+          const item = e.dataTransfer.items[i]!
+          const entry = item.webkitGetAsEntry()
+          if (entry) {
+            entries.push({ entry, item })
+            if (entry.isDirectory) hasDirectory = true
+          }
+        }
+
+        if (hasDirectory) {
+          const allFiles: TraversedFile[] = []
+          const allEmptyFolders: string[] = []
+
+          for (const { entry } of entries) {
+            if (entry.isDirectory) {
+              const result = await traverseDirectory(
+                entry as FileSystemDirectoryEntry,
+                entry.name,
+              )
+              allFiles.push(...result.files)
+              allEmptyFolders.push(...result.emptyFolderPaths)
+            } else if (entry.isFile) {
+              const fileEntry = entry as FileSystemFileEntry
+              const file = await new Promise<File>((resolve, reject) => {
+                fileEntry.file(resolve, reject)
+              })
+              allFiles.push({ relativePath: entry.name, file })
+            }
+          }
+
+          if (allFiles.length > 0 || allEmptyFolders.length > 0) {
+            await processFolderStructure(allFiles, allEmptyFolders, folder.id)
+          }
+          return
+        }
+      }
+
+      if (e.dataTransfer.files.length > 0) {
+        handleUpload(e.dataTransfer.files, folder.id)
+      }
     }
   }
 
@@ -696,68 +1044,115 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     const fileArr = Array.from(fileList)
     if (fileArr.length === 0) return
 
-    setUploading(true)
-    
     const targetFolderId = folderIdOverride ?? currentFolderId ?? dealFolderId
     if (!targetFolderId) {
       toast.error('No folder target resolved for upload')
-      setUploading(false)
       return
     }
 
-    // Initialize uploads state
-    const initialUploads: UploadEntry[] = fileArr.map((f) => ({
-      name: f.name,
-      progress: 0,
-      status: 'uploading',
-      targetFolderId,
-    }))
-    setUploads(initialUploads)
+    // Resolve existing names in the target folder
+    const isTargetCurrent = targetFolderId === (currentFolderId ?? dealFolderId)
+    const targetContents = isTargetCurrent ? files : (folderContents[targetFolderId] ?? [])
+    const existingNames = new Set(targetContents.map((f) => f.name.toLowerCase()))
 
-    // Function to handle XHR upload for a single file
-    const uploadSingleFile = (file: File, index: number): Promise<boolean> => {
+    // Filter out files that already exist in the target folder
+    const duplicates: string[] = []
+    const filteredFiles = fileArr.filter((f) => {
+      if (existingNames.has(f.name.toLowerCase())) {
+        duplicates.push(f.name)
+        return false
+      }
+      return true
+    })
+
+    if (duplicates.length > 0) {
+      toast.warning(
+        duplicates.length === 1
+          ? `"${duplicates[0]}" already exists in this folder — skipped`
+          : `${duplicates.length} file(s) already exist in this folder — skipped`,
+      )
+    }
+    if (filteredFiles.length === 0) return
+
+    // Register items in the UploadPanel
+    const newItems: UploadItem[] = filteredFiles.map((f, i) => ({
+      id: `flat-${Date.now()}-${i}`,
+      name: f.name,
+      size: f.size,
+      file: f,
+      progress: 0,
+      status: 'uploading' as const,
+    }))
+    setUploadPanelItems((prev) => [...prev, ...newItems])
+
+    const markItem = (id: string, update: Partial<UploadItem>) => {
+      setUploadPanelItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...update } : item)),
+      )
+    }
+
+    // Upload with concurrency-limited semaphore
+    const CONCURRENCY = 6
+    const queue = filteredFiles.map((file, i) => ({ file, itemId: newItems[i]!.id }))
+    let inFlight = 0
+    let failures = 0
+
+    const uploadSingle = (file: File, itemId: string): Promise<boolean> => {
       return new Promise((resolve) => {
         const formData = new FormData()
         formData.append('file', file)
         formData.append('folderId', targetFolderId)
 
         const xhr = new XMLHttpRequest()
+        activeXhrMapRef.current.set(itemId, xhr)
         xhr.open('POST', `/api/deals/${dealId}/drive/files`)
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100)
-            setUploads((prev) =>
-              prev.map((e, idx) => idx === index ? { ...e, progress: percent } : e)
-            )
+            const pct = Math.round((event.loaded / event.total) * 100)
+            markItem(itemId, { progress: pct })
           }
         }
 
         xhr.onload = () => {
+          activeXhrMapRef.current.delete(itemId)
           if (xhr.status >= 200 && xhr.status < 300) {
-            setUploads((prev) =>
-              prev.map((e, idx) => idx === index ? { ...e, progress: 100, status: 'completed' } : e)
-            )
+            markItem(itemId, { progress: 100, status: 'completed' })
+            try {
+              const d = JSON.parse(xhr.responseText)
+              if (d.file?.id) {
+                const fileId = d.file.id
+                setNewlyAddedIds((prev) => {
+                  const next = new Set(prev)
+                  next.add(fileId)
+                  return next
+                })
+                setTimeout(() => {
+                  setNewlyAddedIds((prev) => {
+                    const next = new Set(prev)
+                    next.delete(fileId)
+                    return next
+                  })
+                }, 4000)
+              }
+            } catch {}
             resolve(true)
           } else {
             let errorMsg = 'Upload failed'
             try {
-              const data = JSON.parse(xhr.responseText)
-              errorMsg = data.error ?? errorMsg
+              const d = JSON.parse(xhr.responseText)
+              errorMsg = d.error ?? errorMsg
             } catch {}
-            setUploads((prev) =>
-              prev.map((e, idx) => idx === index ? { ...e, status: 'error' } : e)
-            )
-            toast.error(`Failed to upload "${file.name}": ${errorMsg}`)
+            markItem(itemId, { status: 'error', errorMessage: errorMsg })
+            failures++
             resolve(false)
           }
         }
 
         xhr.onerror = () => {
-          setUploads((prev) =>
-            prev.map((e, idx) => idx === index ? { ...e, status: 'error' } : e)
-          )
-          toast.error(`Upload error on "${file.name}"`)
+          activeXhrMapRef.current.delete(itemId)
+          markItem(itemId, { status: 'error', errorMessage: 'Network error' })
+          failures++
           resolve(false)
         }
 
@@ -765,20 +1160,34 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       })
     }
 
-    // Trigger uploads in parallel
-    const results = await Promise.all(fileArr.map((f, i) => uploadSingleFile(f, i)))
-    const successCount = results.filter(Boolean).length
+    await new Promise<void>((resolve) => {
+      const processNext = () => {
+        while (inFlight < CONCURRENCY && queue.length > 0) {
+          const work = queue.shift()!
+          inFlight++
+          uploadSingle(work.file, work.itemId).then(() => {
+            inFlight--
+            if (queue.length === 0 && inFlight === 0) {
+              resolve()
+            } else {
+              processNext()
+            }
+          })
+        }
+        if (queue.length === 0 && inFlight === 0) {
+          resolve()
+        }
+      }
+      processNext()
+    })
 
-    // Refresh after showing completion status briefly
-    setTimeout(() => {
-      setUploads([])
-      setUploading(false)
-    }, 1200)
-
-    if (successCount > 0) {
+    const successCount = filteredFiles.length - failures
+    if (failures > 0) {
+      toast.warning(`${successCount} / ${filteredFiles.length} file(s) uploaded. ${failures} failed.`)
+    } else if (successCount > 0) {
       toast.success(`${successCount} file(s) uploaded successfully`)
     }
-    fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+    fetchFiles(currentFolderId ?? dealFolderId, true)
   }
 
   // Helper to trigger upload picker on a folder
@@ -838,11 +1247,67 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (dragCounter.current === 0) setDragActive(false)
   }, [])
 
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation()
     dragCounter.current = 0
     setDragActive(false)
-    if (e.dataTransfer.files.length > 0) handleUpload(e.dataTransfer.files)
+
+    // Ignore internal move drops (handled by per-item drop handlers)
+    if (e.dataTransfer.types.includes('application/x-internal-move')) return
+
+    const targetFolderId = currentFolderId ?? dealFolderId
+    if (!targetFolderId) {
+      toast.error('No deal room. Create one first.')
+      return
+    }
+
+    // Attempt directory-aware drop via webkitGetAsEntry
+    if (supportsDirectoryDrop() && e.dataTransfer.items.length > 0) {
+      let hasDirectory = false
+      const entries: { entry: FileSystemEntry; item: DataTransferItem }[] = []
+
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i]!
+        const entry = item.webkitGetAsEntry()
+        if (entry) {
+          entries.push({ entry, item })
+          if (entry.isDirectory) hasDirectory = true
+        }
+      }
+
+      if (hasDirectory) {
+        const allFiles: TraversedFile[] = []
+        const allEmptyFolders: string[] = []
+
+        for (const { entry } of entries) {
+          if (entry.isDirectory) {
+            const result = await traverseDirectory(
+              entry as FileSystemDirectoryEntry,
+              entry.name,
+            )
+            allFiles.push(...result.files)
+            allEmptyFolders.push(...result.emptyFolderPaths)
+          } else if (entry.isFile) {
+            // Standalone file in the drop — add relativePath = just the name
+            const fileEntry = entry as FileSystemFileEntry
+            const file = await new Promise<File>((resolve, reject) => {
+              fileEntry.file(resolve, reject)
+            })
+            allFiles.push({ relativePath: entry.name, file })
+          }
+        }
+
+        if (allFiles.length > 0 || allEmptyFolders.length > 0) {
+          await processFolderStructure(allFiles, allEmptyFolders, targetFolderId)
+        }
+        return
+      }
+    }
+
+    // Fallback: flat file upload (no directory entries found or API unavailable)
+    if (e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFolderId, dealFolderId, dealId])
 
@@ -859,6 +1324,18 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       return
     }
 
+    // Check for existing folder with the same name
+    const parentIsCurrent = parentFolderId === (currentFolderId ?? dealFolderId)
+    const siblings = parentIsCurrent ? files : (folderContents[parentFolderId] ?? [])
+    const nameExists = siblings.some(
+      (f) => f.isFolder && f.name.toLowerCase() === newFolderName.trim().toLowerCase(),
+    )
+    if (nameExists) {
+      toast.warning(`A folder named "${newFolderName.trim()}" already exists here`)
+      setCreatingSubfolder(false)
+      return
+    }
+
     try {
       const res = await fetch(`/api/deals/${dealId}/drive/folders`, {
         method: 'POST',
@@ -866,8 +1343,34 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         body: JSON.stringify({ name: newFolderName.trim(), parentFolderId }),
       })
       if (res.ok) {
+        const data = await res.json()
         toast.success(`Folder "${newFolderName.trim()}" created`)
         closeNewFolderDialog()
+        if (data.id) {
+          const folderId = data.id
+          setNewlyAddedIds((prev) => {
+            const next = new Set(prev)
+            next.add(folderId)
+            return next
+          })
+          setTimeout(() => {
+            setNewlyAddedIds((prev) => {
+              const next = new Set(prev)
+              next.delete(folderId)
+              return next
+            })
+          }, 4000)
+        }
+        // If parent folder differs from current view, invalidate its cached children
+        // so the tree view re-fetches when the user expands/navigates to it.
+        if (parentFolderId && parentFolderId !== (currentFolderId ?? dealFolderId)) {
+          loadedFolderIdsRef.current.delete(parentFolderId)
+          setFolderContents((prev) => {
+            const next = { ...prev }
+            delete next[parentFolderId]
+            return next
+          })
+        }
         fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
       } else {
         const data = await res.json()
@@ -892,6 +1395,22 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (!renameTarget) return
     const trimmed = renameValue.trim()
     if (!trimmed || trimmed === renameTarget.name) { setRenameTarget(null); return }
+
+    // Check for name collision in the same folder
+    const isInRoot = files.some((f) => f.id === renameTarget.id)
+    const siblings = isInRoot
+      ? files
+      : Object.values(folderContents).find((items) =>
+          items.some((c) => c.id === renameTarget.id),
+        ) ?? []
+    const nameCollision = siblings.some(
+      (f) => f.id !== renameTarget.id && f.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (nameCollision) {
+      toast.warning(`"${trimmed}" already exists in this folder — rename cancelled`)
+      setRenameTarget(null)
+      return
+    }
 
     // Optimistic update
     const previous = files
@@ -927,10 +1446,22 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (!deleteTarget) return
     const target = deleteTarget
     const previous = files
-    setFiles((prev) => prev.filter((f) => f.id !== target.id))
     setDeleteTarget(null)
     deletedRef.current = target
+
+    // Mark as animating out — add red flash + scale-down animation
+    setDeletingItemIds((prev) => new Set(prev).add(target.id))
     setDeleting(true)
+
+    // Wait for animation to play (350ms), then remove from state + call API
+    await new Promise((r) => setTimeout(r, 360))
+
+    setFiles((prev) => prev.filter((f) => f.id !== target.id))
+    setDeletingItemIds((prev) => {
+      const next = new Set(prev)
+      next.delete(target.id)
+      return next
+    })
 
     try {
       const res = await fetch(`/api/deals/${dealId}/drive/files?fileId=${target.id}`, { method: 'DELETE' })
@@ -941,7 +1472,9 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             onClick: () => undoDelete(),
           },
         })
-        fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+        // No soft refresh — optimistic removal is correct.
+        // Google Drive eventual consistency can briefly return trashed files
+        // in a listing, which would undo the optimistic removal.
       } else {
         setFiles(previous)
         const data = await res.json()
@@ -958,7 +1491,17 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   const undoDelete = async () => {
     if (!deletedRef.current) return
     const target = deletedRef.current
-    
+
+    // Check for name collision before restoring
+    const nameCollision = files.some(
+      (f) => f.id !== target.id && f.name.toLowerCase() === target.name.toLowerCase(),
+    )
+    if (nameCollision) {
+      toast.warning(`"${target.name}" already exists in this folder — cannot restore`)
+      deletedRef.current = null
+      return
+    }
+
     // Put back in files list optimistically
     setFiles((prev) => {
       const exists = prev.find((f) => f.id === target.id)
@@ -996,7 +1539,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   const confirmDeleteSelected = async () => {
     if (selectedFileIds.size === 0) return
     const idsToDelete = Array.from(selectedFileIds)
-    
+
     // Find files currently shown that are being deleted (for optimistic updates and undo)
     const targets = selectableItems.filter((f) => selectedFileIds.has(f.id))
     deletedSelectedItemsRef.current = targets
@@ -1004,22 +1547,37 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     const previousFiles = files
     const previousFolderContents = folderContents
 
-    // Optimistic UI updates
-    setFiles((prev) => prev.filter((f) => !selectedFileIds.has(f.id)))
+    // Mark all as animating out
+    setDeletingItemIds((prev) => {
+      const next = new Set(prev)
+      idsToDelete.forEach((id) => next.add(id))
+      return next
+    })
+    setSelectedFileIds(new Set())
+    setShowDeleteSelected(false)
+    setDeletingSelected(true)
+
+    // Wait for animation to play
+    await new Promise((r) => setTimeout(r, 360))
+
+    // Remove from state after animation — use cached idsToDelete, not selectedFileIds (already cleared)
+    const deleteSet = new Set(idsToDelete)
+    setFiles((prev) => prev.filter((f) => !deleteSet.has(f.id)))
     setFolderContents((prev) => {
       const next = { ...prev }
       Object.keys(next).forEach((key) => {
         const val = next[key]
         if (val) {
-          next[key] = val.filter((f) => !selectedFileIds.has(f.id))
+          next[key] = val.filter((f) => !deleteSet.has(f.id))
         }
       })
       return next
     })
-
-    setSelectedFileIds(new Set())
-    setShowDeleteSelected(false)
-    setDeletingSelected(true)
+    setDeletingItemIds((prev) => {
+      const next = new Set(prev)
+      idsToDelete.forEach((id) => next.delete(id))
+      return next
+    })
 
     try {
       const res = await fetch(`/api/deals/${dealId}/drive/files?fileIds=${idsToDelete.join(',')}`, { method: 'DELETE' })
@@ -1030,7 +1588,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             onClick: () => undoDeleteSelected(),
           },
         })
-        fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+        // No soft refresh — optimistic removal is correct (see confirmDelete)
       } else {
         setFiles(previousFiles)
         setFolderContents(previousFolderContents)
@@ -1050,6 +1608,19 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     const targets = deletedSelectedItemsRef.current
     if (targets.length === 0) return
     const idsToRestore = targets.map((f) => f.id)
+
+    // Check for name collisions
+    const existingNames = new Set(files.map((f) => f.name.toLowerCase()))
+    const colliding = targets.filter((t) => existingNames.has(t.name.toLowerCase()))
+    if (colliding.length > 0) {
+      toast.warning(
+        colliding.length === 1
+          ? `"${colliding[0]!.name}" already exists — cannot restore`
+          : `${colliding.length} item(s) already exist — cannot restore`,
+      )
+      deletedSelectedItemsRef.current = []
+      return
+    }
 
     const loadingToastId = toast.loading(`Restoring ${targets.length} item(s)...`)
 
@@ -1078,7 +1649,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     }
   }
 
-  // ── Close menu on outside click ──
+  // ── Close menus on outside click ──
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -1089,6 +1660,42 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (menuFile) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [menuFile])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setIsNewMenuOpen(false)
+      }
+    }
+    if (isNewMenuOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [isNewMenuOpen])
+
+  const copyDealRoomLink = useCallback(() => {
+    if (!dealFolderId) {
+      toast.error('No deal room created yet')
+      return
+    }
+    const url = `https://drive.google.com/drive/folders/${dealFolderId}`
+    navigator.clipboard.writeText(url)
+      .then(() => toast.success('Deal room Google Drive link copied to clipboard'))
+      .catch(() => toast.error('Failed to copy link'))
+  }, [dealFolderId])
+
+  const expandAllFolders = useCallback(() => {
+    const allFolderIds = new Set<string>()
+    const collect = (items: DriveFileItem[]) => {
+      items.forEach(item => {
+        if (item.isFolder) {
+          allFolderIds.add(item.id)
+          const children = folderContents[item.id]
+          if (children) collect(children)
+        }
+      })
+    }
+    collect(files)
+    setExpandedFolders(allFolderIds)
+  }, [files, folderContents])
 
   // ── Keyboard ──
 
@@ -1101,12 +1708,10 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       const row = listRows[focusIdx]
       if (row) {
         const { item: f } = row
-        if (!f.isUploading) {
-          if (f.isFolder) {
-            toggleFolderExpanded(f.id, e as unknown as React.MouseEvent)
-          } else {
-            window.open(f.webViewLink ?? '#', '_blank')
-          }
+                if (f.isFolder) {
+          toggleFolderExpanded(f.id, e as unknown as React.MouseEvent)
+        } else {
+          window.open(f.webViewLink ?? '#', '_blank')
         }
       }
       return
@@ -1115,7 +1720,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       const row = listRows[focusIdx]
       if (row) {
         const { item: f } = row
-        if (!f.isUploading) setDeleteTarget(f)
+        setDeleteTarget(f)
       }
       return
     }
@@ -1124,34 +1729,38 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       const row = listRows[focusIdx]
       if (row) {
         const { item: f } = row
-        if (!f.isUploading) startRename(f)
+        startRename(f)
       }
     }
   }
 
   // ── Computed list rows (for flat tree mapping) ──
 
-  const folderCount = useMemo(() => files.filter((f) => f.isFolder).length, [files])
-  const fileCount = useMemo(() => files.filter((f) => !f.isFolder).length, [files])
+  const { folderCount, fileCount } = useMemo(() => {
+    let folders = 0
+    let filesCount = 0
+    const visited = new Set<string>()
 
-  // Combined root list
-  const renderedItems = useMemo(() => {
-    const uploadItems: DriveFileItem[] = uploads
-      .filter((u) => u.targetFolderId === (currentFolderId ?? dealFolderId))
-      .map((u, idx) => ({
-        id: `uploading-${idx}-${u.name}`,
-        name: u.name,
-        mimeType: '',
-        webViewLink: null,
-        size: null,
-        modifiedTime: null,
-        isFolder: false,
-        isUploading: true,
-        progress: u.progress,
-        status: u.status,
-      }))
-    return [...uploadItems, ...files]
-  }, [files, uploads, currentFolderId, dealFolderId])
+    const countRecursive = (items: DriveFileItem[]) => {
+      for (const item of items) {
+        if (visited.has(item.id)) continue
+        visited.add(item.id)
+        if (item.isFolder) {
+          folders++
+          const children = folderContents[item.id]
+          if (children) countRecursive(children)
+        } else {
+          filesCount++
+        }
+      }
+    }
+
+    countRecursive(files)
+    return { folderCount: folders, fileCount: filesCount }
+  }, [files, folderContents])
+
+  // Combined root list (no inline upload items — UploadPanel handles progress)
+  const renderedItems = useMemo(() => sortFoldersFirst(files), [files])
 
   // Flat tree rows for list view
   const listRows = useMemo(() => {
@@ -1180,33 +1789,15 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         })
 
         if (item.isFolder && expandedFolders.has(item.id)) {
-          // Render child uploads first
-          const childUploads = uploads
-            .filter((u) => u.targetFolderId === item.id)
-            .map((u, uIdx) => ({
-              id: `uploading-child-${uIdx}-${u.name}`,
-              name: u.name,
-              mimeType: '',
-              webViewLink: null,
-              size: null,
-              modifiedTime: null,
-              isFolder: false,
-              isUploading: true,
-              progress: u.progress,
-              status: u.status,
-            }))
-
           const children = folderContents[item.id] ?? []
-          const allChildren = [...childUploads, ...children]
-
-          traverse(allChildren, depth + 1, item.id, [...ancestorsIsLast, isLast])
+          traverse(children, depth + 1, item.id, [...ancestorsIsLast, isLast])
         }
       })
     }
 
     traverse(renderedItems, 0, undefined, [])
     return rows
-  }, [renderedItems, expandedFolders, folderContents, uploads])
+  }, [renderedItems, expandedFolders, folderContents])
 
   // ── Multi-Selection Helpers ──
 
@@ -1224,7 +1815,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
   const selectableItems = useMemo(() => {
     if (viewMode === 'list') {
-      return listRows.map((r) => r.item).filter((item) => !item.isUploading)
+      return listRows.map((r) => r.item)
     } else {
       const items: DriveFileItem[] = [...renderedItems]
       renderedItems.forEach((item) => {
@@ -1233,7 +1824,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           items.push(...children)
         }
       })
-      return items.filter((item) => !item.isUploading)
+      return items
     }
   }, [viewMode, listRows, renderedItems, expandedFolders, folderContents])
 
@@ -1293,142 +1884,171 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
   return (
     <div
       ref={containerRef}
-      className="space-y-3 outline-none"
+      className="space-y-4 outline-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
       {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b select-none" style={{ borderColor: 'var(--color-surface-2)' }}>
+        {/* Left Side: Navigation & Copy Link */}
+        <div className="flex items-center gap-2">
           <DriveBreadcrumb
             segments={breadcrumb}
             onNavigate={navigateBreadcrumb}
             dealFolderName={dealName}
+            dealFolderId={dealFolderId}
           />
+          {dealFolderId && (
+            <button
+              onClick={copyDealRoomLink}
+              className="flex items-center justify-center p-1.5 rounded hover:bg-[var(--color-surface-2)] text-[var(--color-text-secondary)] transition-colors cursor-pointer"
+              title="Copy Google Drive folder link"
+            >
+              <Link size={13} />
+            </button>
+          )}
           {(folderCount > 0 || fileCount > 0) && (
-            <span className="text-[11px] select-none font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+            <span className="text-[11px] select-none font-medium px-2 py-0.5 rounded-full bg-[var(--color-surface-1)] text-[var(--color-text-secondary)]">
               {formatFileFolderCount(fileCount, folderCount)}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
-          {/* View toggle */}
-          <div className="flex items-center rounded-md border p-0.5" style={{ borderColor: 'var(--color-surface-3)', background: 'var(--color-surface-1)' }}>
-            <button
-              onClick={() => setViewMode('list')}
-              className="h-6 w-6 flex items-center justify-center rounded transition-all duration-150"
-              style={{
-                color: viewMode === 'list' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                background: viewMode === 'list' ? 'var(--color-surface-0)' : 'transparent',
-                boxShadow: viewMode === 'list' ? 'var(--shadow-xs)' : 'none',
-              }}
-              title="List view"
-            >
-              <LayoutList size={13} />
-            </button>
-            <button
-              onClick={() => setViewMode('grid')}
-              className="h-6 w-6 flex items-center justify-center rounded transition-all duration-150"
-              style={{
-                color: viewMode === 'grid' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                background: viewMode === 'grid' ? 'var(--color-surface-0)' : 'transparent',
-                boxShadow: viewMode === 'grid' ? 'var(--shadow-xs)' : 'none',
-              }}
-              title="Grid view"
-            >
-              <LayoutGrid size={13} />
-            </button>
-          </div>
-
-          {/* Select All */}
-          {selectableItems.length > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded border h-7 select-none" style={{ borderColor: 'var(--color-surface-3)', background: 'var(--color-surface-0)' }}>
-              <Checkbox
-                id="select-all-checkbox"
-                checked={
-                  selectedFileIds.size > 0 && 
-                  selectableItems.every((item) => selectedFileIds.has(item.id))
-                }
-                onCheckedChange={(checked) => handleSelectAll(!!checked)}
-                className="border-[var(--color-surface-3)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)] h-3.5 w-3.5"
-              />
-              <label htmlFor="select-all-checkbox" className="text-[11px] font-medium cursor-pointer" style={{ color: 'var(--color-text-secondary)' }}>
-                Select All
-              </label>
-            </div>
-          )}
-
-          {/* Collapse All */}
-          {expandedFolders.size > 0 && (
-            <Button 
-              size="sm" 
-              variant="outline" 
-              onClick={() => setExpandedFolders(new Set())} 
-              className="h-7 text-[11px] gap-1.5 border-[var(--color-surface-3)] hover:bg-[var(--color-surface-1)]"
-              title="Collapse all folders"
-            >
-              <ChevronUp size={12} />
-              <span>Collapse All</span>
-            </Button>
-          )}
-
-          {/* Delete Selected */}
-          {selectedFileIds.size > 0 && (
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => setShowDeleteSelected(true)}
-              className="h-7 text-[11px] gap-1.5 bg-[var(--color-danger-solid)] border-none text-[var(--color-text-inverse)] hover:opacity-90 animate-in fade-in zoom-in-95 duration-100"
-            >
-              <Trash2 size={12} />
-              <span>Delete Selected ({selectedFileIds.size})</span>
-            </Button>
-          )}
-
-          <Button 
-            size="sm" 
-            variant="ghost" 
+        {/* Right Side: Action Clusters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Action 1: Refresh (leftmost on the right side) */}
+          <button 
             onClick={() => fetchFiles(currentFolderId ?? dealFolderId, true)} 
-            className="h-7 w-7 p-0 flex items-center justify-center hover:bg-[var(--color-surface-1)]" 
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors" 
+            style={{ color: 'var(--color-text-secondary)' }}
             title="Refresh"
             disabled={refreshing}
           >
-            <RotateCw size={13} className={refreshing ? 'animate-spin' : ''} style={{ color: 'var(--color-text-secondary)' }} />
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowNewFolder(true)} className="h-7 text-[11px] gap-1.5 border-[var(--color-surface-3)] hover:bg-[var(--color-surface-1)]">
-            <FolderPlus size={12} />
-            <span>New Folder</span>
-          </Button>
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+          </button>
+
+          {/* Divider */}
+          <div className="h-5 w-[1px] bg-[var(--color-surface-3)] hidden sm:block" />
+
+          {/* Action 2: Expand / Collapse All (only when folders exist) */}
+          {folderCount > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={expandedFolders.size > 0 ? () => setExpandedFolders(new Set()) : expandAllFolders}
+              className="h-8 w-8 p-0 flex items-center justify-center rounded-md border-[var(--color-surface-3)] hover:bg-[var(--color-surface-1)]"
+              title={expandedFolders.size > 0 ? "Collapse all folders" : "Expand all folders"}
+            >
+              {expandedFolders.size > 0 ? (
+                <FolderOpen size={14} style={{ color: 'var(--color-text-secondary)' }} />
+              ) : (
+                <Folder size={14} style={{ color: 'var(--color-text-secondary)' }} />
+              )}
+            </Button>
+          )}
+
+          {/* Divider — only when folders AND selections exist */}
+          {folderCount > 0 && <div className="h-5 w-[1px] bg-[var(--color-surface-3)] hidden sm:block" />}
+
+          {/* Action 3: Selection Group (Select All + Delete Selected) */}
+          <div className="flex items-center gap-1.5">
+            {selectableItems.length > 0 && (
+              <div className="flex items-center gap-1.5 px-2.5 rounded-md border h-8 select-none bg-[var(--color-surface-0)]" style={{ borderColor: 'var(--color-surface-3)' }}>
+                <Checkbox
+                  id="select-all-checkbox"
+                  checked={
+                    selectedFileIds.size > 0 && 
+                    selectableItems.every((item) => selectedFileIds.has(item.id))
+                  }
+                  onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                  className="border-[var(--color-surface-3)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)] h-3.5 w-3.5"
+                />
+                <label htmlFor="select-all-checkbox" className="text-[11px] font-semibold cursor-pointer select-none" style={{ color: 'var(--color-text-secondary)' }}>
+                  Select All
+                </label>
+              </div>
+            )}
+
+            {selectedFileIds.size > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setShowDeleteSelected(true)}
+                className="h-8 text-[11px] gap-1.5 bg-[var(--color-danger-solid)] border-none text-[var(--color-text-inverse)] hover:opacity-90 animate-in fade-in zoom-in-95 duration-100"
+              >
+                <Trash2 size={12} />
+                <span>Delete Selected ({selectedFileIds.size})</span>
+              </Button>
+            )}
+          </div>
+
+          {/* Divider — only when selectable items exist */}
+          {selectableItems.length > 0 && (
+            <div className="h-5 w-[1px] bg-[var(--color-surface-3)] hidden sm:block" />
+          )}
+
+          {/* Action 4: Google Drive Style "+ New" Dropdown */}
+          <div className="relative" ref={newMenuRef}>
+            <Button
+              onClick={() => setIsNewMenuOpen(!isNewMenuOpen)}
+              className="h-8 text-[11px] gap-1.5 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90 font-semibold shadow-sm active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              <span>New</span>
+              <ChevronDown size={11} className={`transition-transform duration-200 ${isNewMenuOpen ? 'rotate-180' : ''}`} />
+            </Button>
+            
+            {isNewMenuOpen && (
+              <div
+                className="absolute right-0 mt-1.5 z-50 w-44 rounded-md border py-1 shadow-lg bg-[var(--color-surface-0)] border-[var(--color-surface-2)] animate-in fade-in zoom-in-95 duration-100"
+              >
+                <button
+                  onClick={() => { setIsNewMenuOpen(false); setShowNewFolder(true) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-[var(--color-surface-1)] transition-colors text-left cursor-pointer"
+                  style={{ color: 'var(--color-text-primary)' }}
+                >
+                  <FolderPlus size={14} className="text-[var(--color-text-secondary)]" />
+                  <span>New Folder</span>
+                </button>
+                <button
+                  onClick={() => { setIsNewMenuOpen(false); fileInputRef.current?.click() }}
+                  disabled={uploadPanelItems.some((i) => i.status === 'uploading')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-[var(--color-surface-1)] disabled:opacity-50 transition-colors text-left cursor-pointer"
+                  style={{ color: 'var(--color-text-primary)' }}
+                >
+                  <Upload size={14} className="text-[var(--color-text-secondary)]" />
+                  <span>File Upload</span>
+                </button>
+                <button
+                  onClick={() => { setIsNewMenuOpen(false); folderUploadInputRef.current?.click() }}
+                  disabled={uploadPanelItems.some((i) => i.status === 'uploading')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] hover:bg-[var(--color-surface-1)] disabled:opacity-50 transition-colors text-left cursor-pointer"
+                  style={{ color: 'var(--color-text-primary)' }}
+                >
+                  <FolderUp size={14} className="text-[var(--color-text-secondary)]" />
+                  <span>Folder Upload</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="h-5 w-[1px] bg-[var(--color-surface-3)] hidden sm:block" />
+
+          {/* Action 5: Isolated Danger Zone */}
           <Button
             size="sm"
             variant="outline"
             onClick={() => setShowDeleteRoomConfirm(true)}
             disabled={deletingFolder}
-            className="h-7 text-[11px] gap-1.5 border-[var(--color-danger-border)] hover:bg-[var(--color-danger-bg)]"
+            className="h-8 text-[11px] gap-1.5 border-[var(--color-danger-border)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger-text)] active:scale-[0.98] transition-all font-medium"
             style={{ color: 'var(--color-danger-text)', borderColor: 'var(--color-danger-border)' }}
           >
             <Trash2 size={12} />
             Delete Deal Room
           </Button>
-          <Button
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || uploadingFolder}
-            className="h-7 text-[11px] gap-1.5 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90"
-          >
-            {uploading ? <LoadingSpinner size="sm" /> : <Upload size={12} />}
-            Upload
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => folderUploadInputRef.current?.click()}
-            disabled={uploading || uploadingFolder}
-            className="h-7 text-[11px] gap-1.5 bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] hover:opacity-90"
-          >
-            {uploadingFolder ? <LoadingSpinner size="sm" /> : <FolderUp size={12} />}
-            Upload Folder
-          </Button>
+
+          {/* Hidden inputs */}
           <input
             ref={fileInputRef}
             type="file"
@@ -1468,26 +2088,38 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
-        className="relative rounded-lg border transition-all duration-150 min-h-[160px]"
+        className="relative rounded-lg border transition-all duration-150 min-h-[160px] overflow-hidden"
         style={{
           borderColor: dragActive ? 'var(--color-accent)' : 'var(--color-surface-2)',
           background: 'transparent',
         }}
       >
-        {/* ── Drag overlay (Desktop Upload) ── */}
-        {dragActive && (
+        {/* CSS highlight & zoom transitions */}
+        <style>{`
+          @keyframes highlight-flash {
+            0% { background-color: var(--color-success-bg); border-color: var(--color-success-border); transform: scale(1.01); }
+            15% { background-color: var(--color-success-bg); border-color: var(--color-success-border); transform: scale(1.01); }
+            100% { background-color: var(--color-surface-0); border-color: var(--color-surface-3); transform: scale(1); }
+          }
+          .animate-highlight-flash {
+            animation: highlight-flash 3.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
+        `}</style>
+
+        {/* ── Drag overlay (Desktop Upload) — only shown when folder is empty ── */}
+        {dragActive && files.length === 0 && (
           <div 
             className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed transition-all duration-150 pointer-events-none"
             style={{
               background: 'rgba(30, 91, 63, 0.08)',
-              backdropFilter: 'blur(3px)',
+              backdropFilter: 'blur(2px)',
               borderColor: 'var(--color-accent)',
             }}
           >
             <div className="flex flex-col items-center justify-center p-6 rounded-xl border bg-[var(--color-surface-0)] shadow-lg max-w-[280px]" style={{ borderColor: 'var(--color-surface-3)' }}>
               <Upload className="animate-bounce" size={32} style={{ color: 'var(--color-accent)' }} />
               <span className="text-[13px] font-semibold mt-3 text-center" style={{ color: 'var(--color-text-primary)' }}>
-                Drop files here to upload
+                Drop files or folders here to upload
               </span>
               <span className="text-[11px] mt-1 text-center" style={{ color: 'var(--color-text-tertiary)' }}>
                 Files will be saved in Google Drive
@@ -1496,40 +2128,9 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           </div>
         )}
 
-        {/* ── Folder upload progress ── */}
-        {uploadingFolder && folderUploadProgress && (
-          <div
-            className="mx-2 px-4 py-3 rounded-lg border flex items-center gap-4"
-            style={{ background: 'var(--color-accent-bg)', borderColor: 'var(--color-accent)', borderWidth: '1px' }}
-          >
-            <LoadingSpinner size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                Uploading folder…
-              </p>
-              <p className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
-                {folderUploadProgress.foldersCreated > 0 && (
-                  <>{folderUploadProgress.foldersCreated} folder{folderUploadProgress.foldersCreated !== 1 ? 's' : ''} created · </>
-                )}
-                {folderUploadProgress.filesUploaded} / {folderUploadProgress.totalFiles} files
-              </p>
-            </div>
-            {/* Progress bar */}
-            <div className="w-32 h-1.5 rounded-full overflow-hidden flex-shrink-0" style={{ background: 'var(--color-surface-2)' }}>
-              <div
-                className="h-full rounded-full transition-all duration-300"
-                style={{
-                  background: 'var(--color-accent)',
-                  width: `${Math.round((folderUploadProgress.filesUploaded / folderUploadProgress.totalFiles) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
-        )}
-
         {/* ── Empty folder ── */}
-        {!dragActive && listRows.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 gap-3">
+        {listRows.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 select-none">
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center"
               style={{ background: 'var(--color-surface-1)' }}
@@ -1541,428 +2142,36 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
                 Drag & Drop files here, or click upload
               </p>
               <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
-                Any document format up to 20MB
+                Files are stored directly in your Google Drive
               </p>
             </div>
           </div>
         )}
 
-        {/* ── Grid view (Double-click enters, Single-click expands, Drag & Drop to Move) ── */}
-        {!dragActive && renderedItems.length > 0 && viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3 items-start">
-            {renderedItems.map((file, idx) => {
-              const { Icon, color } = getFileIcon(file.mimeType, file.isFolder)
-              const isFocused = focusIdx === idx
-              const isUploading = !!file.isUploading
-              const progress = file.progress ?? 0
-              const status = file.status ?? 'uploading'
-              
-              const isExpanded = expandedFolders.has(file.id)
-              const isLoadingCount = loadingFolderCounts.has(file.id)
-              
-              const children = folderContents[file.id] ?? []
-              const childFoldersCount = children.filter((c) => c.isFolder).length
-              const childFilesCount = children.filter((c) => !c.isFolder).length
-              const isCollected = childFilesCount > 0
-              
-              const isTargetFolderActive = activeDropFolderId === file.id
-
-              if (isUploading) {
-                return (
-                  <div
-                    key={file.id}
-                    className="flex flex-col items-center gap-2.5 p-3 rounded-lg border select-none transition-all duration-200"
-                    style={{
-                      borderColor: 'var(--color-surface-2)',
-                      background: 'var(--color-surface-1)',
-                      opacity: 0.85,
-                    }}
-                  >
-                    <div className="w-[32px] h-[32px] flex items-center justify-center relative">
-                      <LoadingSpinner size="sm" />
-                      <span className="absolute text-[8px] font-semibold font-mono" style={{ color: 'var(--color-text-secondary)' }}>
-                        {progress}%
-                      </span>
-                    </div>
-                    <div className="text-center w-full min-w-0">
-                      <p className="text-[11px] font-medium leading-tight truncate" style={{ color: 'var(--color-text-secondary)' }}>
-                        {file.name}
-                      </p>
-                      <div className="w-full mt-2.5 h-1 rounded-full overflow-hidden bg-[var(--color-surface-2)]">
-                        <div
-                          className="h-full rounded-full transition-all duration-300"
-                          style={{
-                            width: `${progress}%`,
-                            background: status === 'error' ? 'var(--color-danger-solid)' : 'var(--color-accent)',
-                          }}
-                        />
-                      </div>
-                      <p className="text-[9px] mt-1 text-center font-medium" style={{ color: status === 'error' ? 'var(--color-danger-text)' : 'var(--color-text-tertiary)' }}>
-                        {status === 'completed' ? 'Completed' : status === 'error' ? 'Failed' : `Uploading...`}
-                      </p>
-                    </div>
-                  </div>
-                )
-              }
-
-              return (
-                <div
-                  key={file.id}
-                  draggable={!file.isUploading}
-                  onDragStart={(e) => handleDragStart(e, file)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={(e) => { if (file.isFolder) handleDragOverFolder(e, file) }}
-                  onDragLeave={(e) => { if (file.isFolder) handleDragLeaveFolder(e, file) }}
-                  onDrop={(e) => { if (file.isFolder) handleDropOnFolder(e, file) }}
-                  className="group flex flex-col items-center gap-2 p-3 rounded-lg border transition-all duration-200 cursor-pointer relative shadow-xs"
-                  style={{
-                    borderColor: isFocused || isTargetFolderActive 
-                      ? 'var(--color-accent)' 
-                      : 'var(--color-surface-3)',
-                    background: isFocused || isTargetFolderActive 
-                      ? 'var(--color-accent-bg)' 
-                      : 'var(--color-surface-0)',
-                  }}
-                  onClick={(e) => {
-                    if (file.isFolder) {
-                      toggleFolderExpanded(file.id, e)
-                    } else {
-                      window.open(file.webViewLink ?? '#', '_blank')
-                    }
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation()
-                    if (file.isFolder) {
-                      navigateTo(file.id, file.name)
-                    }
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isFocused && !isTargetFolderActive) {
-                      e.currentTarget.style.borderColor = 'var(--color-accent)'
-                      e.currentTarget.style.background = 'var(--color-accent-bg)'
-                      e.currentTarget.style.transform = 'translateY(-1px)'
-                      e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isFocused && !isTargetFolderActive) {
-                      e.currentTarget.style.borderColor = 'var(--color-surface-3)'
-                      e.currentTarget.style.background = 'var(--color-surface-0)'
-                      e.currentTarget.style.transform = 'none'
-                      e.currentTarget.style.boxShadow = 'var(--shadow-xs)'
-                    }
-                  }}
-                  onContextMenu={(e) => { e.preventDefault(); setMenuFile(file) }}
-                >
-                  {/* Tree chevron for expansion (top right inside card) */}
-                  {file.isFolder && (
-                    <button
-                      onClick={(e) => toggleFolderExpanded(file.id, e)}
-                      className="absolute right-1 top-7 h-5 w-5 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                    </button>
-                  )}
-
-                  <Icon size={28} style={{ color }} />
-                  
-                  <div className="text-center w-full min-w-0">
-                    <p className="text-[12px] font-medium leading-tight line-clamp-2 break-words" style={{ color: 'var(--color-text-primary)' }}>
-                      {file.name}
-                    </p>
-                    
-                    {file.isFolder ? (
-                      <p className="text-[10px] mt-0.5 select-none" style={{ color: isCollected ? 'var(--color-success-text)' : 'var(--color-text-tertiary)' }}>
-                        {isLoadingCount ? 'loading...' : formatFileFolderCount(childFilesCount, childFoldersCount)}
-                      </p>
-                    ) : (
-                      file.modifiedTime && (
-                        <p className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
-                          {relativeTime(file.modifiedTime)}
-                        </p>
-                      )
-                    )}
-                  </div>
-                  
-                  {/* Checkbox overlay in top-left */}
-                  <div 
-                    className={`absolute left-1.5 top-1.5 z-10 transition-opacity duration-150 ${
-                      selectedFileIds.has(file.id) 
-                        ? 'opacity-100 pointer-events-auto' 
-                        : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'
-                    }`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Checkbox
-                      checked={selectedFileIds.has(file.id)}
-                      onCheckedChange={(checked) => handleToggleSelect(file.id, !!checked)}
-                      className="border-[var(--color-surface-3)] bg-[var(--color-surface-0)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)] h-4 w-4 shadow-sm"
-                    />
-                  </div>
-
-                  {/* Folder checklist indicator on card */}
-                  {file.isFolder && (
-                    <div 
-                      className={`absolute left-1.5 top-1.5 transition-opacity duration-150 ${
-                        selectedFileIds.has(file.id) 
-                          ? 'opacity-0 pointer-events-none' 
-                          : 'opacity-100 group-hover:opacity-0'
-                      }`}
-                      onClick={(e) => toggleFolderExpanded(file.id, e)}
-                    >
-                      {isLoadingCount ? (
-                        <LoadingSpinner size="sm" />
-                      ) : isCollected ? (
-                        <div className="w-4.5 h-4.5 rounded-full flex items-center justify-center bg-[var(--color-success)] text-[var(--color-text-inverse)] shadow-xs">
-                          <Check size={9} strokeWidth={3} />
-                        </div>
-                      ) : (
-                        <div className="w-4.5 h-4.5 rounded-full border border-[var(--color-surface-3)] bg-transparent" />
-                      )}
-                    </div>
-                  )}
-
-                  <div className="absolute right-1 top-1">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuFile(menuFile?.id === file.id ? null : file) }}
-                      className="h-6 w-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--color-surface-1)]"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                    >
-                      <MoreHorizontal size={13} />
-                    </button>
-                    {menuFile?.id === file.id && (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-7 z-20 w-36 rounded-md border py-1 shadow-lg animate-in fade-in zoom-in-95 duration-100"
-                        style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}
-                      >
-                        <button
-                          onClick={(e) => { e.stopPropagation(); startRename(file) }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors"
-                          style={{ color: 'var(--color-text-primary)' }}
-                        >
-                          <Pencil size={11} /> Rename
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(file); setMenuFile(null) }}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors"
-                          style={{ color: 'var(--color-danger-text)' }}
-                        >
-                          <Trash2 size={11} /> Delete
-                        </button>
-                        {file.isFolder && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); triggerCreateSubfolder(file.id, e); setMenuFile(null) }}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors"
-                            style={{ color: 'var(--color-text-primary)' }}
-                          >
-                            <FolderPlus size={11} /> Add Subfolder
-                          </button>
-                        )}
-                        {!file.isFolder && file.webViewLink && (
-                          <a
-                            href={file.webViewLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors block"
-                            style={{ color: 'var(--color-text-primary)' }}
-                          >
-                            <ExternalLink size={11} /> Open Drive
-                          </a>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Expanded child files nested directly inside folder card in Grid View */}
-                  {file.isFolder && isExpanded && (
-                    <div 
-                      className="w-full border-t mt-3 pt-2.5 space-y-1 text-left animate-in fade-in slide-in-from-top-1 duration-150" 
-                      style={{ borderColor: 'var(--color-surface-2)' }}
-                      onClick={(e) => e.stopPropagation()} // prevent clicks from toggling card
-                    >
-                      {isLoadingCount ? (
-                        <div className="flex items-center justify-center py-2">
-                          <LoadingSpinner size="sm" />
-                        </div>
-                      ) : (childFilesCount === 0 && childFoldersCount === 0) ? (
-                        <p className="text-[10px] text-center py-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                          No files uploaded
-                        </p>
-                      ) : (
-                        <div className="space-y-0.5 max-h-[160px] overflow-y-auto pr-1">
-                          {(folderContents[file.id] ?? []).map((child) => {
-                            const childIconInfo = getFileIcon(child.mimeType, child.isFolder)
-                            return (
-                              <div
-                                key={child.id}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, child)}
-                                onDragEnd={handleDragEnd}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  window.open(child.webViewLink ?? '#', '_blank')
-                                }}
-                                className="group/child flex items-center gap-2 px-2 py-1 rounded border border-transparent transition-all duration-150 cursor-pointer hover:bg-[var(--color-surface-1)] hover:border-[var(--color-surface-3)] relative"
-                              >
-                                {/* Nested item checkbox */}
-                                <div 
-                                  className={`flex-shrink-0 transition-opacity duration-150 mr-1.5 ${
-                                    selectedFileIds.has(child.id) 
-                                      ? 'opacity-100 pointer-events-auto' 
-                                      : 'opacity-0 pointer-events-none group-hover/child:opacity-100 group-hover/child:pointer-events-auto'
-                                  }`}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Checkbox
-                                    checked={selectedFileIds.has(child.id)}
-                                    onCheckedChange={(checked) => handleToggleSelect(child.id, !!checked)}
-                                    className="border-[var(--color-surface-3)] bg-[var(--color-surface-0)] data-[state=checked]:bg-[var(--color-accent)] data-[state=checked]:border-[var(--color-accent)] h-3 w-3"
-                                  />
-                                </div>
-
-                                <childIconInfo.Icon size={12} style={{ color: childIconInfo.color }} />
-                                <span className="text-[11px] font-medium truncate flex-1" style={{ color: 'var(--color-text-primary)' }}>
-                                  {child.name}
-                                </span>
-                                
-                                <div className="flex items-center gap-1 opacity-0 group-hover/child:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={() => startRename(child)}
-                                    className="p-0.5 rounded hover:bg-[var(--color-surface-2)]"
-                                    style={{ color: 'var(--color-text-secondary)' }}
-                                  >
-                                    <Pencil size={9} />
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteTarget(child)}
-                                    className="p-0.5 rounded hover:bg-[var(--color-surface-2)]"
-                                    style={{ color: 'var(--color-danger-text)' }}
-                                  >
-                                    <Trash2 size={9} />
-                                  </button>
-                                </div>
-                                
-                                {child.size && (
-                                  <span className="text-[9px] font-mono select-none group-hover/child:hidden" style={{ color: 'var(--color-text-tertiary)' }}>
-                                    {formatFileSize(child.size)}
-                                  </span>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
         {/* ── List view (Tree View with Inline Expand/Collapse, Guide Lines, Checklists & Outlines) ── */}
-        {!dragActive && listRows.length > 0 && viewMode === 'list' && (
-          <div className="space-y-1.5 p-2" style={{ borderColor: 'var(--color-surface-2)' }}>
+        {listRows.length > 0 && (
+          <div className="space-y-1.5 p-2 animate-in fade-in duration-200" style={{ borderColor: 'var(--color-surface-2)' }}>
             {listRows.map(({ item: file, depth, parentFolderId, isLastChild, ancestorsIsLast }, idx) => {
               const { Icon, color } = getFileIcon(file.mimeType, file.isFolder)
               const isFocused = focusIdx === idx
-              const isUploading = !!file.isUploading
-              const progress = file.progress ?? 0
-              const status = file.status ?? 'uploading'
-              
               const isExpanded = expandedFolders.has(file.id)
               const isLoadingCount = loadingFolderCounts.has(file.id)
               
               const children = folderContents[file.id] ?? []
               const childFoldersCount = children.filter((c) => c.isFolder).length
               const childFilesCount = children.filter((c) => !c.isFolder).length
-              const isCollected = childFilesCount > 0
+              const isCollected = children.length > 0
 
-              const isFolderChecklist = file.isFolder && depth === 0
+              const isFolderChecklist = file.isFolder
               const isTargetFolderActive = activeDropFolderId === file.id
+              const isNewlyAdded = newlyAddedIds.has(file.id)
 
-              if (isUploading) {
-                return (
-                  <div
-                    key={file.id}
-                    className="flex items-center"
-                  >
-                    {/* Tree branch line connector */}
-                    {depth > 0 && (
-                      <div className="flex self-stretch select-none pointer-events-none mr-1.5">
-                        {Array.from({ length: depth }).map((_, d) => {
-                          const isLastConnector = d === depth - 1
-                          const ancestorLast = ancestorsIsLast?.[d] ?? false
-
-                          if (isLastConnector) {
-                            return (
-                              <div key={d} className="relative w-6 self-stretch">
-                                <div 
-                                  className="absolute left-3 w-[1px] bg-[var(--color-surface-3)]" 
-                                  style={{
-                                    top: '0px',
-                                    bottom: isLastChild ? '50%' : '0px',
-                                  }}
-                                />
-                                <div className="absolute top-1/2 left-3 w-3.5 h-[1px] bg-[var(--color-surface-3)]" />
-                              </div>
-                            )
-                          }
-
-                          return (
-                            <div key={d} className="relative w-6 self-stretch">
-                              {!ancestorLast && (
-                                <div className="absolute left-3 top-0 bottom-0 w-[1px] bg-[var(--color-surface-3)]" />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-
-                    <div
-                      className="flex-1 flex items-center gap-3 px-3 py-2 rounded-lg border select-none transition-all duration-200"
-                      style={{
-                        borderColor: 'var(--color-surface-2)',
-                        background: 'var(--color-surface-1)',
-                        opacity: 0.85,
-                      }}
-                    >
-                      <div className="flex-shrink-0 w-[26px] h-[26px] flex items-center justify-center">
-                        <LoadingSpinner size="sm" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium truncate" style={{ color: 'var(--color-text-secondary)' }}>
-                          {file.name}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1.5 max-w-[200px]">
-                          <div className="flex-1 h-1 rounded-full overflow-hidden bg-[var(--color-surface-2)]">
-                            <div
-                              className="h-full rounded-full transition-all duration-300"
-                              style={{
-                                width: `${progress}%`,
-                                background: status === 'error' ? 'var(--color-danger-solid)' : 'var(--color-accent)',
-                              }}
-                            />
-                          </div>
-                          <span className="text-[9px] font-mono select-none" style={{ color: status === 'error' ? 'var(--color-danger-text)' : 'var(--color-text-tertiary)' }}>
-                            {progress}%
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-medium mr-4" style={{ color: status === 'error' ? 'var(--color-danger-text)' : 'var(--color-text-tertiary)' }}>
-                        {status === 'completed' ? 'Completed' : status === 'error' ? 'Error' : 'Uploading...'}
-                      </span>
-                    </div>
-                  </div>
-                )
-              }
+              const isDeleting = deletingItemIds.has(file.id)
 
               return (
                 <div
                   key={file.id}
-                  className="flex items-center"
+                  className={`flex items-center ${isDeleting ? 'animate-item-delete' : 'animate-in fade-in slide-in-from-top-1 duration-200 ease-out'}`}
                 >
                   {/* Tree branch line connector */}
                   {depth > 0 && (
@@ -1999,43 +2208,28 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
                   {/* Card item container */}
                   <div
-                    draggable={!file.isUploading}
+                    draggable
                     onDragStart={(e) => handleDragStart(e, file)}
                     onDragEnd={handleDragEnd}
                     onDragOver={(e) => { if (file.isFolder) handleDragOverFolder(e, file) }}
                     onDragLeave={(e) => { if (file.isFolder) handleDragLeaveFolder(e, file) }}
                     onDrop={(e) => { if (file.isFolder) handleDropOnFolder(e, file) }}
-                    className="group flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-150 cursor-pointer relative shadow-xs"
-                    style={{
-                      borderColor: isFocused || isTargetFolderActive
-                        ? 'var(--color-accent)' 
-                        : 'var(--color-surface-3)',
-                      background: isFocused || isTargetFolderActive
-                        ? 'var(--color-accent-bg)' 
-                        : 'var(--color-surface-0)',
-                    }}
+                    className={`group flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-150 cursor-pointer relative shadow-xs
+                      ${isNewlyAdded
+                        ? 'animate-highlight-flash z-10'
+                        : isTargetFolderActive 
+                          ? 'border-[var(--color-accent)] bg-[var(--color-accent-bg)] scale-[1.015] shadow-sm z-10' 
+                          : isFocused
+                            ? 'border-[var(--color-accent)] bg-[var(--color-accent-bg)] scale-[1.005]' 
+                            : 'border-[var(--color-surface-3)] bg-[var(--color-surface-0)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-bg)] hover:-translate-y-0.5 hover:shadow-sm'
+                      }
+                    `}
                     onClick={(e) => {
                       if (renameTarget?.id === file.id) return
                       if (file.isFolder) {
                         toggleFolderExpanded(file.id, e)
                       } else {
                         window.open(file.webViewLink ?? '#', '_blank')
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isFocused && !isTargetFolderActive) {
-                        e.currentTarget.style.borderColor = 'var(--color-accent)'
-                        e.currentTarget.style.background = 'var(--color-accent-bg)'
-                        e.currentTarget.style.transform = 'translateY(-0.5px)'
-                        e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isFocused && !isTargetFolderActive) {
-                        e.currentTarget.style.borderColor = 'var(--color-surface-3)'
-                        e.currentTarget.style.background = 'var(--color-surface-0)'
-                        e.currentTarget.style.transform = 'none'
-                        e.currentTarget.style.boxShadow = 'var(--shadow-xs)'
                       }
                     }}
                     onContextMenu={(e) => { e.preventDefault(); setMenuFile(file) }}
@@ -2061,16 +2255,27 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
                     {file.isFolder ? (
                       <button
                         onClick={(e) => toggleFolderExpanded(file.id, e)}
-                        className="w-4.5 h-4.5 flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors"
+                        className="w-[18px] h-[18px] flex items-center justify-center rounded hover:bg-[var(--color-surface-2)] transition-colors text-[var(--color-text-secondary)]"
                       >
                         {isExpanded ? (
-                          <ChevronDown size={13} style={{ color: 'var(--color-text-secondary)' }} />
+                          <ChevronDown size={13} />
                         ) : (
-                          <ChevronRight size={13} style={{ color: 'var(--color-text-secondary)' }} />
+                          <ChevronRight size={13} />
                         )}
                       </button>
                     ) : (
-                      <div className="w-4.5" /> // spacer
+                      <div className="w-[18px] h-[18px] flex items-center justify-center flex-shrink-0">
+                        {deletingItemIds.has(file.id) ? (
+                          <Loader2 size={13} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+                        ) : (
+                          <div
+                            className="w-[16px] h-[16px] rounded-full border flex items-center justify-center"
+                            style={{ borderColor: 'var(--color-text-tertiary)' }}
+                          >
+                            <Check size={9} strokeWidth={2.5} style={{ color: 'var(--color-text-tertiary)' }} />
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* Checklist checkbox indicator for folders */}
@@ -2079,11 +2284,11 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
                         {isLoadingCount ? (
                           <LoadingSpinner size="sm" />
                         ) : isCollected ? (
-                          <div className="w-4.5 h-4.5 rounded-full flex items-center justify-center bg-[var(--color-success)] text-[var(--color-text-inverse)] shadow-xs mr-0.5">
+                          <div className="w-[18px] h-[18px] rounded-full flex items-center justify-center bg-[var(--color-success)] text-[var(--color-text-inverse)] shadow-xs mr-0.5">
                             <Check size={10} strokeWidth={3} />
                           </div>
                         ) : (
-                          <div className="w-4.5 h-4.5 rounded-full border border-[var(--color-surface-3)] bg-transparent hover:border-[var(--color-accent)] mr-0.5" />
+                          <div className="w-[18px] h-[18px] rounded-full border border-[var(--color-surface-3)] bg-transparent hover:border-[var(--color-accent)] mr-0.5" />
                         )}
                       </div>
                     )}
@@ -2139,18 +2344,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
                       )}
                     </div>
 
-                    {/* Size column (desktop, file only) */}
-                    {!file.isFolder && file.size && (
-                      <span className="hidden md:block w-[70px] text-right text-[11px] font-mono select-none" style={{ color: 'var(--color-text-tertiary)' }}>
-                        {formatFileSize(file.size)}
-                      </span>
-                    )}
-                    {/* Modified column (desktop, file only) */}
-                    {!file.isFolder && file.modifiedTime && (
-                      <span className="hidden lg:block w-[110px] text-right text-[11px] font-mono select-none" style={{ color: 'var(--color-text-tertiary)' }}>
-                        {relativeTime(file.modifiedTime)}
-                      </span>
-                    )}
 
                     {/* Actions */}
                     <div className="flex-shrink-0 relative w-20 flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
@@ -2199,46 +2392,57 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
                           <button
                             className="h-6 w-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--color-surface-2)]"
                             style={{ color: 'var(--color-text-secondary)' }}
-                            onClick={() => setMenuFile(menuFile?.id === file.id ? null : file)}
+                            onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              menuAnchorRef.current = rect
+                              setMenuFile(menuFile?.id === file.id ? null : file)
+                            }}
                           >
                             <MoreHorizontal size={13} />
                           </button>
                         </>
                       )}
-                      {/* Dropdown */}
-                      {menuFile?.id === file.id && (
-                        <div
-                          ref={menuRef}
-                          className="absolute right-0 top-7 z-20 w-36 rounded-md border py-1 shadow-lg animate-in fade-in zoom-in-95 duration-100"
-                          style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}
-                        >
-                          <button
-                            onClick={() => startRename(file)}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors"
-                            style={{ color: 'var(--color-text-primary)' }}
+                      {/* Dropdown — portaled to body to avoid overflow clipping */}
+                      {menuFile?.id === file.id && typeof document !== 'undefined' &&
+                        createPortal(
+                          <div
+                            ref={menuRef}
+                            className="fixed z-50 w-36 rounded-md border py-1 shadow-lg animate-in fade-in zoom-in-95 duration-100"
+                            style={{
+                              background: 'var(--color-surface-0)',
+                              borderColor: 'var(--color-surface-2)',
+                              top: menuAnchorRef.current?.bottom ?? 0,
+                              left: menuAnchorRef.current?.right ? menuAnchorRef.current.right - 144 : 0,
+                            }}
                           >
-                            <Pencil size={11} /> Rename
-                          </button>
-                          <button
-                            onClick={() => { setDeleteTarget(file); setMenuFile(null) }}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-danger-text)] transition-colors"
-                            style={{ color: 'var(--color-danger-text)' }}
-                          >
-                            <Trash2 size={11} /> Delete
-                          </button>
-                          {!file.isFolder && file.webViewLink && (
-                            <a
-                              href={file.webViewLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors block"
+                            <button
+                              onClick={() => startRename(file)}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors"
                               style={{ color: 'var(--color-text-primary)' }}
                             >
-                              <ExternalLink size={11} /> Open Drive
-                            </a>
-                          )}
-                        </div>
-                      )}
+                              <Pencil size={11} /> Rename
+                            </button>
+                            <button
+                              onClick={() => { setDeleteTarget(file); setMenuFile(null) }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-danger-bg)] transition-colors"
+                              style={{ color: 'var(--color-danger-text)' }}
+                            >
+                              <Trash2 size={11} /> Delete
+                            </button>
+                            {!file.isFolder && file.webViewLink && (
+                              <a
+                                href={file.webViewLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-[var(--color-surface-1)] transition-colors block"
+                                style={{ color: 'var(--color-text-primary)' }}
+                              >
+                                <ExternalLink size={11} /> Open Drive
+                              </a>
+                            )}
+                          </div>,
+                          document.body,
+                        )}
                     </div>
                   </div>
                 </div>
@@ -2247,6 +2451,61 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           </div>
         )}
       </div>
+
+      {/* ── Storage usage bar ── */}
+      {dealFolderId && storageQuota && (() => {
+        const limit = parseInt(storageQuota.limit, 10) || 0
+        const driveUsage = parseInt(storageQuota.usageInDrive, 10) || 0
+        const trashUsage = parseInt(storageQuota.usageInDriveTrash, 10) || 0
+        const pct = limit > 0 ? Math.min((driveUsage / limit) * 100, 100) : 0
+        const fillColor =
+          pct > 90 ? 'var(--color-danger-solid)' :
+          pct > 75 ? 'var(--color-warning-solid)' :
+          'var(--color-accent)'
+
+        return (
+          <div
+            className="group relative flex items-center gap-3 px-1 pb-1"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
+            {/* Thin progress track + fill */}
+            <div
+              className="h-[3px] rounded-full flex-1 overflow-hidden"
+              style={{ background: 'var(--color-surface-1)' }}
+            >
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${pct}%`,
+                  background: fillColor,
+                  transitionDuration: '600ms',
+                  transitionTimingFunction: 'var(--ease-fluid)',
+                }}
+              />
+            </div>
+
+            {/* Label */}
+            <span className="text-[10px] font-medium shrink-0 select-none">
+              {formatStorageSize(driveUsage)} of {formatStorageSize(limit)} used
+            </span>
+
+            {/* Tooltip on hover */}
+            <div
+              className="absolute bottom-full right-0 mb-2 hidden group-hover:block z-40 px-3 py-2 rounded-md text-[10px] leading-relaxed whitespace-nowrap"
+              style={{
+                background: 'var(--color-surface-0)',
+                border: '1px solid var(--color-surface-2)',
+                boxShadow: 'var(--shadow-md)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              <div>Drive: {formatStorageSize(driveUsage)}</div>
+              {trashUsage > 0 && <div>Trash: {formatStorageSize(trashUsage)}</div>}
+              <div>Free: {formatStorageSize(Math.max(0, limit - driveUsage))}</div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── New Folder Dialog ── */}
       <Dialog open={showNewFolder} onOpenChange={(open) => { if (!open) closeNewFolderDialog() }}>
@@ -2340,6 +2599,61 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Upload progress panel (portal to body — avoids scroll/transform containment) ── */}
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <UploadPanel
+            items={uploadPanelItems}
+            onDismiss={(id) => {
+              activeXhrMapRef.current.delete(id)
+              parentFolderMapRef.current.delete(id)
+              setUploadPanelItems((prev) => prev.filter((item) => item.id !== id))
+            }}
+            onDismissAll={() => {
+              activeXhrMapRef.current.clear()
+              parentFolderMapRef.current.clear()
+              setUploadPanelItems([])
+            }}
+            onCancel={(id) => {
+              const xhr = activeXhrMapRef.current.get(id)
+              if (xhr) {
+                xhr.abort()
+                activeXhrMapRef.current.delete(id)
+              }
+              parentFolderMapRef.current.delete(id)
+              setUploadPanelItems((prev) => prev.filter((item) => item.id !== id))
+            }}
+            onRetry={(id) => {
+              setUploadPanelItems((prev) =>
+                prev.map((item) =>
+                  item.id === id
+                    ? { ...item, progress: 0, status: 'uploading' as const, errorMessage: undefined }
+                    : item,
+                ),
+              )
+              // Re-upload the single file
+              const item = uploadPanelItems.find((i) => i.id === id)
+              if (item?.file) {
+                retrySingleFile(item.file, item.id, parentFolderMapRef.current.get(id) ?? null)
+              }
+            }}
+            onRetryAll={() => {
+              const errored = uploadPanelItems.filter((i) => i.status === 'error' && i.file)
+              setUploadPanelItems((prev) =>
+                prev.map((item) =>
+                  item.status === 'error' && item.file
+                    ? { ...item, progress: 0, status: 'uploading' as const, errorMessage: undefined }
+                    : item,
+                ),
+              )
+              for (const item of errored) {
+                retrySingleFile(item.file!, item.id, parentFolderMapRef.current.get(item.id) ?? null)
+              }
+            }}
+          />,
+          document.body,
+        )}
     </div>
   )
 }

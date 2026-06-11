@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { useIsTabActive } from '@/components/ui/tabs'
 import {
   Mail,
   Reply,
@@ -62,13 +63,14 @@ interface DealEmailViewProps {
 
 export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProps) {
   const queryClient = useQueryClient()
+  const isActive = useIsTabActive()
 
   // ── Selected thread ────────────────────────────────────────────────────
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
 
   // ── Messages — TanStack Query ──────────────────────────────────────────
 
-  const { data: messages = [] } = useQuery<EmailMessage[]>({
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<EmailMessage[]>({
     queryKey: ['email-messages', dealId, selectedThread?.threadId],
     queryFn: async () => {
       if (!selectedThread) return []
@@ -79,9 +81,8 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
       const data = await res.json()
       return data.messages ?? []
     },
-    enabled: !!selectedThread,
+    enabled: isActive && !!selectedThread,
     staleTime: 60_000,
-    placeholderData: (prev) => prev,
   })
 
   // ── Expanded messages UI state ─────────────────────────────────────────
@@ -116,6 +117,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
   // ── Connected Google Account Email ─────────────────────────────────────
 
   const [googleEmail, setGoogleEmail] = useState<string | null>(null)
+  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null)
 
   // ── Inline reply state ─────────────────────────────────────────────────
 
@@ -294,6 +296,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
   // ── Floating compose (new message only) ────────────────────────────────
 
   const handleContactEmailClick = useCallback((_email: string, _contactId: string) => {
+    if (!gmailConnected) return
     setComposeMinimized(false)
     setComposeFullscreen(false)
     setComposeOpen(true)
@@ -301,9 +304,10 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
     setTimeout(() => {
       emailComposerRef.current?.clear()
     }, 50)
-  }, [])
+  }, [gmailConnected])
 
   const openCompose = useCallback(() => {
+    if (!gmailConnected) return
     setComposeTo('')
     setComposeCc('')
     setComposeBcc('')
@@ -318,7 +322,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
     setComposeOpen(true)
     setAttachments([])
     emailComposerRef.current?.clear()
-  }, [])
+  }, [gmailConnected])
 
   const dismissCompose = useCallback(() => {
     setComposeOpen(false)
@@ -485,10 +489,14 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
         >
           <EmailThreadList
             ref={threadListRef}
+            enabled={isActive}
             apiBase={`/api/deals/${dealId}/emails`}
             actionApiBase={`/api/deals/${dealId}/emails/threads`}
             projectId={projectId ?? ''}
-            onLoad={({ googleEmail }) => setGoogleEmail(googleEmail)}
+            onLoad={({ googleEmail, gmailConnected }) => {
+              setGoogleEmail(googleEmail)
+              setGmailConnected(gmailConnected)
+            }}
             onThreadClick={handleThreadClick}
             selectedThreadId={selectedThread?.threadId ?? null}
             prefetchMessageConfig={(thread) => ({
@@ -542,11 +550,36 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
 
         {/* ═══ Right Panel: Message detail ══════════════════════════════════ */}
         <div className="flex-1 flex flex-col min-w-0" style={{ background: 'var(--color-surface-0)' }}>
-          {!selectedThread ? (
-            // Empty state
+          {gmailConnected === null ? (
+            // Loading connection status
             <div className="flex-1 flex items-center justify-center">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : !gmailConnected ? (
+            // Gmail disconnected state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
+              <div className="text-center space-y-3 px-6 max-w-md">
+                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, margin: '0 auto' }} />
+                <h3 className="text-[14px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  Gmail Connection Required
+                </h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Connect your Gmail account in project settings to compose emails, view conversations, and track interactions.
+                </p>
+                <a
+                  href={`/projects/${projectId}/settings`}
+                  className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline mt-2"
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+                >
+                  Go to Settings
+                </a>
+              </div>
+            </div>
+          ) : !selectedThread ? (
+            // Empty state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
               <div className="text-center space-y-3">
-                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4 }} />
+                <Mail size={36} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, margin: '0 auto' }} />
                 <p className="text-[13px]" style={{ color: 'var(--color-text-tertiary)' }}>
                   Select a conversation to view emails
                 </p>
@@ -568,6 +601,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
               <LazyEmailMessagePanel
                 thread={selectedThread}
                 messages={messages}
+                loading={messagesLoading}
                 expandedMessages={expandedMessages}
                 onToggleMessage={toggleMessage}
                 onExpandAll={expandAllMessages}
