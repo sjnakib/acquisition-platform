@@ -15,7 +15,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .select(`
         *,
         campaigns(*),
-        portfolios(id, name),
+        portfolios!deals_portfolio_id_fkey(id, name),
+        portfolio_details:portfolios!portfolio_deal_id(id, name, description),
         contacts(*),
         underwriting(*),
         call_briefs(*),

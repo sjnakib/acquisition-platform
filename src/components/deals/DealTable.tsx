@@ -117,6 +117,8 @@ interface DealTableProps {
   onRowClick?: (row: Deal) => void
   /** When false, all columns are non-editable. Default true. */
   editable?: boolean
+  /** Column keys to exclude from the grid. E.g. ['portfolio'] for portfolio views. */
+  excludeColumns?: string[]
 }
 
 const stageBadgeVariant: Record<string, 'neutral' | 'info' | 'warning' | 'accent' | 'success'> = {
@@ -187,6 +189,7 @@ export function DealTable({
   activeFilterCount, onClearFilters, allRowsSelected, onSelectAll,
   serverSide, serverSortKey, serverSortDir, onSortChange,
   columnOrderStorageKey, onRowClick, editable = true,
+  excludeColumns,
 }: DealTableProps) {
   const router = useRouter()
 
@@ -203,10 +206,12 @@ export function DealTable({
       'outreach_emails',
     ])
 
+    const excludeSet = new Set(excludeColumns ?? [])
+
     // ── Dynamic columns from field_definitions (left of Stage) ────
     if (fieldDefs) {
       for (const fd of fieldDefs) {
-        if (!fd.show_in_grid || fixedSystemKeys.has(fd.key)) continue
+        if (!fd.show_in_grid || fixedSystemKeys.has(fd.key) || excludeSet.has(fd.key)) continue
         cols.push({
           key: fd.key,
           header: fd.label,
@@ -434,8 +439,13 @@ export function DealTable({
       for (const c of loiCols) cols.push(c)
     }
 
+    // Filter out excluded columns (e.g. 'portfolio' in portfolio views)
+    if (excludeSet.size > 0) {
+      return cols.filter(c => !excludeSet.has(c.key))
+    }
+
     return cols
-  }, [fieldDefs, getFieldValue, view, portfolios])
+  }, [fieldDefs, getFieldValue, view, portfolios, excludeColumns])
 
   const fixedSystemKeys = new Set([
     'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score',

@@ -27,7 +27,7 @@ export default function ProjectsPage() {
     queryKey: ['auth', 'role'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      return (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
+      return (user?.app_metadata?.role as 'internal' | 'client' | 'admin') ?? 'internal'
     },
     staleTime: Infinity,
   })

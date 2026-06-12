@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { duplicateProjectSchema } from '@/lib/validations/project.schema'
 
 export async function POST(
@@ -13,6 +14,31 @@ export async function POST(
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const role = user.app_metadata?.role
+  if (role !== 'internal' && role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Detect stale JWT
+  let canonicalRole = role
+  try {
+    const adminClient = createAdminClient()
+    const { data: profile } = await adminClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    if (profile && profile.role !== role) {
+      canonicalRole = profile.role
+    }
+  } catch { /* non-critical */ }
+
+  if (canonicalRole !== role) {
+    return NextResponse.json({
+      error: `Your session is out of date. Your role was changed to "${canonicalRole}". Please sign out and sign back in.`,
+    }, { status: 403 })
+  }
 
   const { id: sourceProjectId } = await params
   const body = await req.json()
@@ -81,6 +107,13 @@ export async function POST(
       portfolios.map((p) => ({ ...p, project_id: newProject.id }))
     )
   }
+
+  // Add creator to project_members
+  await supabase.from('project_members').insert({
+    project_id: newProject.id,
+    user_id: user.id,
+    assigned_by: user.id,
+  })
 
   return NextResponse.json(newProject, { status: 201 })
 }

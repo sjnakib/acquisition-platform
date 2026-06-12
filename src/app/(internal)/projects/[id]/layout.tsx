@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
-import { internalNavItems, clientNavItems } from '@/lib/navigation'
+import { internalNavItems, clientNavItems, adminNavItems } from '@/lib/navigation'
 import { ArrowRight, FolderKanban } from 'lucide-react'
 import { PageTransition } from '@/components/shared/PageTransition'
 import { useSidebarCollapsed } from '@/lib/hooks/useSidebarCollapsed'
@@ -85,6 +85,7 @@ export default function ProjectLayout({
   }
 
   const isClient = profileData?.role === 'client'
+  const isAdmin = profileData?.role === 'admin'
 
   const navItems = isClient ? clientNavItems(projectId) : internalNavItems(projectId)
 
@@ -96,6 +97,10 @@ export default function ProjectLayout({
 
   const otherProjects = projects.filter((p) => p.id !== projectId)
 
+  const adminSection = isAdmin
+    ? [{ label: 'Admin', items: adminNavItems() }]
+    : []
+
   const navSections = [
     {
       label: 'Global',
@@ -103,6 +108,7 @@ export default function ProjectLayout({
         { label: 'Projects Hub', icon: FolderKanban, href: '/projects' },
       ],
     },
+    ...adminSection,
     {
       label: projectName,
       items: navItems,
@@ -137,7 +143,7 @@ export default function ProjectLayout({
           avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
           avatarUrl: profileData?.avatar_url,
           name: profileData?.full_name ?? 'User',
-          subtitle: isClient ? 'Sponsor' : (profileData?.role ?? 'Team'),
+          subtitle: isClient ? 'Sponsor' : isAdmin ? 'Admin' : (profileData?.role ?? 'Team'),
         }}
         collapsed={collapsed}
         onToggleCollapse={toggleCollapsed}

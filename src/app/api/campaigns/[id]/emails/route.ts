@@ -47,8 +47,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const role = user.app_metadata?.role
-    if (role !== 'internal') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    if (role !== 'internal' && role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const folder = req.nextUrl.searchParams.get('folder') ?? 'inbox'
@@ -347,8 +347,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const role = user.app_metadata?.role
-    if (role !== 'internal') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    if (role !== 'internal' && role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await req.json()

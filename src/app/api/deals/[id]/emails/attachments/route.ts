@@ -12,8 +12,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Check user role
     const role = user.app_metadata?.role
-    if (role !== 'internal') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    if (role !== 'internal' && role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const messageId = req.nextUrl.searchParams.get('messageId')

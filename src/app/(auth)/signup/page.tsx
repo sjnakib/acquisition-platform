@@ -49,7 +49,7 @@ export default function SignupPage() {
       setIsExiting(true)
       setTimeout(() => {
         queryClient.clear()
-        router.push(data.role === 'client' ? '/overview' : '/dashboard')
+        router.push(data.role === 'client' ? '/overview' : '/projects')
       }, 130)
     } catch { 
       setError('An error occurred. Please try again.') 

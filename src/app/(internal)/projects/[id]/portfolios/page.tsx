@@ -1,24 +1,17 @@
 'use client'
 
-import { useState, use } from 'react'
+import { useState, use, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { PageHeader } from '@/components/shared/PageHeader'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { EmptyState } from '@/components/shared/EmptyState'
-import { PortfolioCard } from '@/components/portfolios/PortfolioCard'
-import { usePortfolios, useCreatePortfolio } from '@/lib/hooks/usePortfolios'
-import { useProjectContext } from '@/components/shared/ProjectContext'
+import { useCreatePortfolio } from '@/lib/hooks/usePortfolios'
+import { DealsPageView, type Deal } from '@/components/deals/DealsPageView'
 import { pageHeadings } from '@/lib/page-headings'
 
-export default function PortfoliosPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: projectId } = use(params)
-  const { projectName } = useProjectContext()
+function PortfoliosContent({ projectId }: { projectId: string }) {
   const router = useRouter()
-  const { data: portfolios, isLoading } = usePortfolios(projectId)
   const createPortfolio = useCreatePortfolio()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
@@ -35,6 +28,7 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
       setDialogOpen(false)
       setName('')
       setDescription('')
+      // Navigate to the new portfolio detail page
       router.push(`/projects/${projectId}/portfolios/${result.id}`)
     } catch {
       // toast handled by mutation
@@ -42,55 +36,32 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div>
-      <PageHeader
+    <>
+      <DealsPageView
+        projectId={projectId}
+        portfolioView
+        columnOrderStorageKey={`portfolios-${projectId}`}
+        onRowClick={(deal: Deal) => {
+          // For portfolio-linked deals, navigate to the portfolio detail page.
+          // The DealTable row has the deal ID — we redirect to the portfolio
+          // that links to this deal. We use a small helper: the portfolios
+          // API includes portfolio_deal_id, but the DealTable uses deals.
+          // Instead, navigate directly to a resolver URL that looks up
+          // the portfolio from the linked deal ID.
+          router.push(`/projects/${projectId}/portfolios/by-deal/${deal.id}`)
+        }}
         title={pageHeadings.portfolios.title}
         description={pageHeadings.portfolios.description}
-        breadcrumb={[
-          { label: 'Projects', href: '/projects' },
-          { label: projectName, href: `/projects/${projectId}/portfolios` },
-          { label: 'Portfolios' },
-        ]}
-        actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
-            <Plus className="h-4 w-4 mr-1" /> New Portfolio
-          </Button>
-        }
+        onAdd={() => setDialogOpen(true)}
       />
-
-      {isLoading ? (
-        <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>
-      ) : !portfolios?.length ? (
-        <EmptyState
-          title="No portfolios yet"
-          description="Group deals into portfolios to track them together."
-          action={{ label: 'Create Portfolio', onClick: () => setDialogOpen(true) }}
-        />
-      ) : (
-        <div className="space-y-3 mt-6">
-          {portfolios.map((p: { id: string; name: string; description: string | null; created_at: string; deals?: { id: string }[] }, idx: number) => (
-            <div
-              key={p.id}
-              className="animate-item-entrance"
-              style={{ animationDelay: `${idx * 40}ms` }}
-            >
-              <PortfolioCard
-                id={p.id}
-                name={p.name}
-                description={p.description}
-                dealCount={(p.deals as { id: string }[] | undefined)?.length ?? 0}
-                createdAt={p.created_at}
-                projectId={projectId}
-              />
-            </div>
-          ))}
-        </div>
-      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
           <DialogHeader>
             <DialogTitle style={{ color: 'var(--color-text-primary)' }}>New Portfolio</DialogTitle>
+            <DialogDescription style={{ color: 'var(--color-text-secondary)' }}>
+              Create a new portfolio to bundle multiple properties together.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="flex flex-col gap-1">
@@ -110,6 +81,15 @@ export default function PortfoliosPage({ params }: { params: Promise<{ id: strin
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
+  )
+}
+
+export default function PortfoliosPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = use(params)
+  return (
+    <Suspense fallback={<div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>}>
+      <PortfoliosContent projectId={projectId} />
+    </Suspense>
   )
 }

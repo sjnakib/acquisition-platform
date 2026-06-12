@@ -12,14 +12,21 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('campaigns')
-      .select('*')
+      .select('*, deals(count)')
       .order('created_at', { ascending: false })
 
     if (projectId) query = query.eq('project_id', projectId)
 
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json(data)
+
+    // Flatten the deals count: each row gets a deal_count field
+    const flattened = (data ?? []).map((c) => {
+      const { deals, ...rest } = c as { deals: { count: number }[]; [key: string]: unknown }
+      return { ...rest, deal_count: deals?.[0]?.count ?? 0 }
+    })
+
+    return NextResponse.json(flattened)
   } catch (err) {
     console.error('Campaigns list error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

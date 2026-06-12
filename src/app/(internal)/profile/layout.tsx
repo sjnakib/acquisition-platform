@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { PageTransition } from '@/components/shared/PageTransition'
 import { useSidebarCollapsed } from '@/lib/hooks/useSidebarCollapsed'
+import { adminNavItems } from '@/lib/navigation'
 
 interface ProfileData {
   full_name: string | null
@@ -27,7 +28,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
     queryKey: ['auth', 'role'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      return (user?.app_metadata?.role as 'internal' | 'client') ?? 'internal'
+      return (user?.app_metadata?.role as 'internal' | 'client' | 'admin') ?? 'internal'
     },
     staleTime: Infinity,
   })
@@ -51,7 +52,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
       const data = await res.json()
       return Array.isArray(data) ? data : []
     },
-    enabled: role === 'internal',
+    enabled: role === 'internal' || role === 'admin',
   })
 
   async function handleLogout() {
@@ -72,6 +73,10 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   }
 
   const isClient = role === 'client'
+  const isAdmin = role === 'admin'
+  const adminSection = isAdmin
+    ? [{ label: 'Admin', items: adminNavItems() }]
+    : []
   const navSections = [
     {
       label: 'Global',
@@ -79,6 +84,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
         { label: 'Projects Hub', icon: FolderKanban, href: '/projects' },
       ],
     },
+    ...adminSection,
     ...(!isClient && projects.length > 0
       ? [
           {
@@ -106,7 +112,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
           avatar: (profileData?.full_name ?? 'U').charAt(0).toUpperCase(),
           avatarUrl: profileData?.avatar_url,
           name: profileData?.full_name ?? 'User',
-          subtitle: isClient ? 'Sponsor' : (profileData?.role ?? 'Team'),
+          subtitle: isClient ? 'Sponsor' : isAdmin ? 'Admin' : (profileData?.role ?? 'Team'),
         }}
         collapsed={collapsed}
         onToggleCollapse={toggleCollapsed}

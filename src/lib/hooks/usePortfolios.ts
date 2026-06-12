@@ -7,7 +7,10 @@ export const usePortfolios = (projectId?: string) => {
   return useQuery({
     queryKey: ['portfolios', projectId],
     queryFn: async () => {
-      let query = supabase.from('portfolios').select('*, deals(id)').order('created_at', { ascending: false })
+      let query = supabase
+        .from('portfolios')
+        .select('*, deals!deals_portfolio_id_fkey(id), portfolio_deal_id')
+        .order('created_at', { ascending: false })
       if (projectId) query = query.eq('project_id', projectId)
       const { data, error } = await query
       if (error) throw error
@@ -23,7 +26,7 @@ export const usePortfolio = (id: string) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('portfolios')
-        .select('*, deals(*, deal_fields(value, field_definitions(key, label, data_type)))')
+        .select('*, deals!deals_portfolio_id_fkey(*, deal_fields(value, field_definitions(key, label, data_type)))')
         .eq('id', id)
         .single()
       if (error) throw error
@@ -45,7 +48,11 @@ export const useCreatePortfolio = () => {
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['portfolios'] }) },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      // Also invalidate deals queries since portfolio creation creates a linked deal
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
+    },
   })
 }
 
@@ -61,6 +68,9 @@ export const useDeletePortfolio = () => {
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['portfolios'] }) },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
+    },
   })
 }

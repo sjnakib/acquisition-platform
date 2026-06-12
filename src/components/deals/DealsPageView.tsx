@@ -36,7 +36,9 @@ export interface DealsPageViewProps {
   editable?: boolean
   showToggle?: boolean
   showToolbar?: boolean
+  portfolioView?: boolean
   onRowClick?: (deal: Deal) => void
+  onAdd?: () => void
   columnOrderStorageKey: string
   breadcrumb?: BreadcrumbItem[]
   title?: string
@@ -50,7 +52,9 @@ export function DealsPageView({
   editable = true,
   showToggle = true,
   showToolbar = true,
+  portfolioView = false,
   onRowClick,
+  onAdd,
   columnOrderStorageKey,
   breadcrumb,
   title,
@@ -98,12 +102,13 @@ export function DealsPageView({
     params.set('sort', sortKey)
     params.set('order', sortDir)
     if (projectId) params.set('project_id', projectId)
+    params.set('is_portfolio', portfolioView ? 'true' : 'false')
     if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current)
     // Stage filter for all views (internal + client)
     const stages = view === 'leads' ? LEADS_STAGES : view === 'deals' ? DEALS_STAGES : ARCHIVED_STAGES
     for (const s of stages) params.append('stage', s)
     return `/api/deals?${params.toString()}`
-  }, [sortKey, sortDir, projectId, view, editable])
+  }, [sortKey, sortDir, projectId, view, editable, portfolioView])
 
   const fetchPage = useCallback(async (p: number, size: number) => {
     setError(null)
@@ -165,8 +170,11 @@ export function DealsPageView({
 
   // ── Derived values ─────────────────────────────────────────────────────────
 
-  const viewLabel = view === 'leads' ? 'leads' : view === 'deals' ? 'deals' : 'archived deals'
-  const descriptionText = description ?? (loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} ${viewLabel} in pipeline`)
+  const viewLabel = portfolioView
+    ? (total === 1 ? 'portfolio' : 'portfolios')
+    : (view === 'leads' ? 'leads' : view === 'deals' ? 'deals' : 'archived deals')
+  const descriptionText = description ?? (loading && total === 0 ? 'Loading...' : `${total.toLocaleString()} ${viewLabel}${portfolioView ? '' : ' in pipeline'}`)
+  const effectiveShowToggle = showToggle
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -203,7 +211,7 @@ export function DealsPageView({
         title={title ?? pageHeadings.deals.title}
         description={descriptionText}
         breadcrumb={breadcrumb}
-        actions={showToggle ? (
+        actions={effectiveShowToggle ? (
           <Tabs
             defaultValue="leads"
             value={view}
@@ -234,6 +242,7 @@ export function DealsPageView({
           view={view}
           editable={editable}
           fillHeight
+          excludeColumns={portfolioView ? ['portfolio'] : undefined}
           totalRows={filteredTotal}
           page={page}
           pageSize={pageSize}
@@ -249,8 +258,8 @@ export function DealsPageView({
           columnOrderStorageKey={columnOrderStorageKey}
           onRowClick={handleRowClick}
           topToolbar={showToolbar ? {
-            recordLabel: view === 'leads' ? 'lead' : 'deal',
-            onAdd: () => router.push(importPath),
+            recordLabel: portfolioView ? 'portfolio' : view === 'leads' ? 'lead' : 'deal',
+            onAdd: onAdd ?? (portfolioView ? undefined : (() => router.push(importPath))),
             onDelete: handleDelete,
             searchValue: search,
             onSearchChange: setSearch,

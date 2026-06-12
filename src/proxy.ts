@@ -4,7 +4,7 @@ import { User } from '@supabase/supabase-js';
 
 type UserWithRole = User & {
   app_metadata: {
-    role: 'internal' | 'client' | undefined;
+    role: 'internal' | 'client' | 'admin' | undefined;
   }
 }
 

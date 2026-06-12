@@ -156,9 +156,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Check role from JWT app_metadata
     const role = user.app_metadata?.role
-    if (role !== 'internal') {
-      console.error('[emails/threads] Unauthorized. User:', user.email, 'Role:', role)
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+    if (role !== 'internal' && role !== 'admin') {
+      console.error('[emails/threads] Forbidden. User:', user.email, 'Role:', role)
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await req.json()

@@ -81,8 +81,8 @@ export async function POST(
   )
 
   if (existing) {
-    if (existing.app_metadata?.role === 'internal') {
-      return NextResponse.json({ error: 'Internal users cannot be sponsors' }, { status: 400 })
+    if (existing.app_metadata?.role === 'internal' || existing.app_metadata?.role === 'admin') {
+      return NextResponse.json({ error: 'Staff users cannot be sponsors' }, { status: 400 })
     }
     sponsorUserId = existing.id
   } else {

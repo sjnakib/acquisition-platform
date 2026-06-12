@@ -9,7 +9,7 @@ const SORT_COLUMNS: Record<string, string> = {
   created_at: 'created_at',
   last_email_sent_on: 'last_email_sent_on',
   campaign: 'campaigns(name)',
-  portfolio: 'portfolios(name)',
+  portfolio: 'portfolios!deals_portfolio_id_fkey(name)',
 }
 
 export async function GET(req: NextRequest) {
@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams
     const projectId  = searchParams.get('project_id')
     const campaignId = searchParams.get('campaign_id')
+    const isPortfolio = searchParams.get('is_portfolio')
     const stage = searchParams.get('stage')
     const score = searchParams.get('score')
     const search = searchParams.get('search')
@@ -37,7 +38,9 @@ export async function GET(req: NextRequest) {
     const view = searchParams.get('view')
 
     // Dashboard / counts views: minimal select — only what's needed for aggregation
-    if (role === 'internal' && (view === 'dashboard' || view === 'counts')) {
+    const isStaff = role === 'internal' || role === 'admin'
+
+    if (isStaff && (view === 'dashboard' || view === 'counts')) {
       const selectFields = '*, campaigns(name, market), email_outreach(id, status, response_classification)'
       let query = supabase
         .from('deals')
@@ -47,6 +50,8 @@ export async function GET(req: NextRequest) {
 
       if (projectId) query = query.eq('project_id', projectId)
       if (campaignId) query = query.eq('campaign_id', campaignId)
+      if (isPortfolio === 'true') query = query.eq('is_portfolio', true)
+      else if (isPortfolio === 'false') query = query.eq('is_portfolio', false)
       if (stage) {
         const stages = searchParams.getAll('stage')
         if (stages.length > 1) query = query.in('stage', stages)
@@ -76,10 +81,10 @@ export async function GET(req: NextRequest) {
       ['lead', 'outreach', 'response', 'archived'].includes(s)
     )
     const internalLightSelect = onlyLeadStages
-      ? '*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)'
-      : '*, campaigns(name, market), portfolios(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)'
+      ? '*, campaigns(name, market), portfolios!deals_portfolio_id_fkey(id, name), deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)'
+      : '*, campaigns(name, market), portfolios!deals_portfolio_id_fkey(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)'
 
-    const selectFields = role === 'internal'
+    const selectFields = isStaff
       ? internalLightSelect
       : `*, deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)`
 
@@ -100,6 +105,8 @@ export async function GET(req: NextRequest) {
 
     if (campaignId) query = query.eq('campaign_id', campaignId)
     if (projectId)  query = query.eq('project_id', projectId)
+    if (isPortfolio === 'true') query = query.eq('is_portfolio', true)
+    else if (isPortfolio === 'false') query = query.eq('is_portfolio', false)
     if (stage) {
       const stages = searchParams.getAll('stage')
       if (stages.length > 1) query = query.in('stage', stages)
@@ -143,6 +150,7 @@ export async function DELETE(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams
     const projectId  = searchParams.get('project_id')
     const campaignId = searchParams.get('campaign_id')
+    const isPortfolio = searchParams.get('is_portfolio')
     const stage = searchParams.get('stage')
     const score = searchParams.get('score')
     const search = searchParams.get('search')
@@ -152,6 +160,8 @@ export async function DELETE(req: NextRequest) {
       let q = supabase.from('deals').select('id')
       if (projectId)  q = q.eq('project_id', projectId)
       if (campaignId) q = q.eq('campaign_id', campaignId)
+      if (isPortfolio === 'true') q = q.eq('is_portfolio', true)
+      else if (isPortfolio === 'false') q = q.eq('is_portfolio', false)
       if (stage) {
         const stages = searchParams.getAll('stage')
         if (stages.length > 1) q = q.in('stage', stages)

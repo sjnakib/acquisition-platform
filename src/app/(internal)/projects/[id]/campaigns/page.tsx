@@ -1,15 +1,14 @@
 'use client'
 
-import { useState, useMemo, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, use, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { CampaignCard } from '@/components/campaigns/CampaignCard'
 import { CreateCampaignDialog } from '@/components/campaigns/CreateCampaignDialog'
-import { DeleteCampaignDialog } from '@/components/campaigns/DeleteCampaignDialog'
 import { useProjectContext } from '@/components/shared/ProjectContext'
 import { pageHeadings } from '@/lib/page-headings'
 
@@ -19,15 +18,13 @@ interface Campaign {
   market: string
   listing_type: string | null
   is_active: boolean
+  created_at: string
+  deal_count: number
 }
 
-export default function CampaignsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: projectId } = use(params)
+function CampaignsContent({ projectId }: { projectId: string }) {
   const { projectName } = useProjectContext()
-  const router = useRouter()
   const [createOpen, setCreateOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string> | undefined>(undefined)
 
   const { data: campaigns = [], isLoading } = useQuery<Campaign[]>({
     queryKey: ['campaigns', projectId],
@@ -38,39 +35,8 @@ export default function CampaignsPage({ params }: { params: Promise<{ id: string
     },
   })
 
-  const selectedCampaigns = useMemo(() => {
-    if (!selectedIds || selectedIds.size === 0) return []
-    return campaigns.filter((c) => selectedIds.has(c.id))
-  }, [campaigns, selectedIds])
-
-  const clearSelection = () => setSelectedIds(undefined)
-
-  const columns: ColumnDef<Campaign>[] = [
-    {
-      key: 'name', header: 'Name', minWidth: 160, sortable: true,
-      render: (r) => <span className="font-medium" style={{ color: 'var(--color-text-primary)' }}>{r.name}</span>,
-    },
-    { key: 'market', header: 'Market', width: 120, sortable: true },
-    {
-      key: 'listing_type', header: 'Type', width: 120, sortable: true,
-      accessor: (r) => r.listing_type?.replace(/_/g, ' ') ?? '',
-      render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.listing_type?.replace(/_/g, ' ') ?? '—'}</span>,
-    },
-    {
-      key: 'is_active', header: 'Status', width: 100, sortable: true,
-      accessor: (r) => (r.is_active ? 'Active' : 'Inactive'),
-      render: (r) => (
-        <Badge variant={r.is_active ? 'success' : 'neutral'} size="sm">
-          {r.is_active ? 'Active' : 'Inactive'}
-        </Badge>
-      ),
-    },
-  ]
-
-  const selectedCount = selectedIds?.size ?? 0
-
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
+    <div>
       <PageHeader
         title={pageHeadings.campaigns.title}
         description={pageHeadings.campaigns.description}
@@ -81,56 +47,52 @@ export default function CampaignsPage({ params }: { params: Promise<{ id: string
         ]}
         actions={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
-            Create Campaign
+            <Plus className="h-4 w-4 mr-1" /> Create Campaign
           </Button>
         }
       />
 
-      {selectedCount > 0 && (
-        <div
-          className="flex items-center justify-between px-4 py-2 rounded-lg mb-3 text-[13px] flex-shrink-0"
-          style={{
-            background: 'var(--color-danger-bg)',
-            border: '1px solid var(--color-danger-border)',
-            color: 'var(--color-danger-text)',
-          }}
-        >
-          <span>{selectedCount} campaign{selectedCount !== 1 ? 's' : ''} selected</span>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5 mr-1" />
-            Delete Selected
-          </Button>
+      {isLoading ? (
+        <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>
+      ) : !campaigns?.length ? (
+        <EmptyState
+          title="No campaigns yet"
+          description="Create your first campaign to start outreach."
+          action={{ label: 'Create Campaign', onClick: () => setCreateOpen(true) }}
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+          {campaigns.map((campaign, idx) => (
+            <div
+              key={campaign.id}
+              className="animate-item-entrance"
+              style={{ animationDelay: `${idx * 40}ms` }}
+            >
+              <CampaignCard
+                id={campaign.id}
+                name={campaign.name}
+                market={campaign.market}
+                listingType={campaign.listing_type}
+                isActive={campaign.is_active}
+                dealCount={campaign.deal_count}
+                createdAt={campaign.created_at}
+                projectId={projectId}
+              />
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="flex-1 min-h-0">
-        <DataGrid
-          columns={columns}
-          data={campaigns}
-          rowKey={(r) => r.id}
-          onRowClick={(r) => router.push(`/projects/${projectId}/campaigns/${r.id}`)}
-          loading={isLoading}
-          emptyMessage="No campaigns — create one first"
-          emptyAction={{ label: 'Create Campaign', onClick: () => setCreateOpen(true) }}
-          fillHeight
-          selectedRowIds={selectedIds}
-          onSelectionChange={setSelectedIds}
-        />
-      </div>
-
       <CreateCampaignDialog open={createOpen} onOpenChange={setCreateOpen} projectId={projectId} />
-      <DeleteCampaignDialog
-        campaigns={selectedCampaigns}
-        open={deleteOpen}
-        onOpenChange={(open) => {
-          setDeleteOpen(open)
-          if (!open) clearSelection()
-        }}
-      />
     </div>
+  )
+}
+
+export default function CampaignsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: projectId } = use(params)
+  return (
+    <Suspense fallback={<div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>}>
+      <CampaignsContent projectId={projectId} />
+    </Suspense>
   )
 }

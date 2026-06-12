@@ -129,7 +129,7 @@ function ProfileContent() {
     )
   }
 
-  const roleLabel = data?.profile?.role === 'client' ? 'Sponsor' : (data?.profile?.role ?? 'Team')
+  const roleLabel = data?.profile?.role === 'client' ? 'Sponsor' : data?.profile?.role === 'admin' ? 'Admin' : (data?.profile?.role ?? 'Team')
   const avatarUrl = data?.profile?.avatar_url
   const avatarInitial = (data?.profile?.full_name ?? data?.user?.email ?? 'U').charAt(0).toUpperCase()
 

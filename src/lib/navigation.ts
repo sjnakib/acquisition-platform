@@ -1,4 +1,4 @@
-import { LayoutDashboard, Phone, FolderKanban, Building2, Megaphone, Upload, Settings, Handshake, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Phone, FolderKanban, Building2, Megaphone, Upload, Settings, Handshake, Shield, type LucideIcon } from 'lucide-react'
 
 export interface NavItem {
   label: string
@@ -21,5 +21,11 @@ export function clientNavItems(projectId: string): NavItem[] {
   return [
     { label: 'Active Deals', icon: Handshake,       href: `/projects/${projectId}/overview` },
     { label: 'Call Queue',   icon: Phone,           href: `/projects/${projectId}/calls` },
+  ]
+}
+
+export function adminNavItems(): NavItem[] {
+  return [
+    { label: 'Admin Panel', icon: Shield, href: '/admin' },
   ]
 }

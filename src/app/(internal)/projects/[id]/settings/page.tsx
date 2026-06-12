@@ -24,6 +24,26 @@ interface Sponsor {
   created_at: string
 }
 
+interface Member {
+  id: string
+  user_id: string
+  email: string | null
+  full_name: string | null
+  role: string
+  created_at: string
+}
+
+interface UserRow {
+  id: string
+  email: string | null
+  full_name: string | null
+  role: 'internal' | 'client' | 'admin'
+  client_org: string | null
+}
+
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+
 export default function SettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params)
   const { projectName } = useProjectContext()
@@ -34,9 +54,43 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const [description, setDescription] = useState('')
   const [sponsorEmail, setSponsorEmail] = useState('')
   const [sponsorName, setSponsorName] = useState('')
+  const [memberUserId, setMemberUserId] = useState('')
   const [showFolderPicker, setShowFolderPicker] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [removingSponsor, setRemovingSponsor] = useState<Sponsor | null>(null)
+
+  // Fetch user role
+  const { data: role = null } = useQuery<string | null>({
+    queryKey: ['auth', 'role'],
+    queryFn: async () => {
+      const res = await fetch('/api/auth/me')
+      if (!res.ok) return null
+      const json = await res.json()
+      return json?.profile?.role ?? null
+    },
+  })
+
+  // Fetch project members
+  const { data: members = [] } = useQuery<Member[]>({
+    queryKey: ['project', projectId, 'members'],
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/members`)
+      if (!res.ok) throw new Error('Failed to load members')
+      return res.json()
+    },
+  })
+
+  // Fetch all users to assign
+  const { data: allUsers = [] } = useQuery<UserRow[]>({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/users')
+      if (!res.ok) return []
+      return res.json()
+    },
+    enabled: role === 'admin',
+  })
+
 
   const { data: project, isLoading: loading } = useQuery<{
     name: string; description: string | null
@@ -142,6 +196,39 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     },
   })
 
+  const addMemberMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Failed to add member')
+      }
+    },
+    onSuccess: () => {
+      toast.success('Team member assigned to project')
+      setMemberUserId('')
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'members'] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to add member'),
+  })
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (memberId: string) => {
+      const res = await fetch(`/api/projects/${projectId}/members?memberId=${memberId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to remove member')
+    },
+    onSuccess: () => {
+      toast.success('Team member unassigned')
+      queryClient.invalidateQueries({ queryKey: ['project', projectId, 'members'] })
+    },
+    onError: () => toast.error('Failed to remove member'),
+  })
+
+
   const disconnectGmailMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/projects/${projectId}/google/disconnect`, { method: 'POST' })
@@ -203,6 +290,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     },
     onSuccess: () => {
       toast.success('Project deleted')
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       router.push('/projects')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to delete project'),
@@ -228,6 +317,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     deleteMutation.mutate()
   }
 
+  const currentMemberUserIds = new Set(members.map((m) => m.user_id))
+  const availableMembers = allUsers.filter(
+    (u) => (u.role === 'internal' || u.role === 'admin') && !currentMemberUserIds.has(u.id)
+  )
+
   if (loading) {
     return (
       <div>
@@ -244,6 +338,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       </div>
     )
   }
+
 
   return (
     <div>
@@ -635,11 +730,106 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             sponsorName={removingSponsor?.full_name ?? null}
             sponsorEmail={removingSponsor?.email ?? null}
             onConfirm={async () => {
-              if (!removingSponsor) return
-              await removeSponsor(removingSponsor.id)
+               if (!removingSponsor) return
+               await removeSponsor(removingSponsor.id)
             }}
           />
         </div>
+
+        {/* Section 3.5: Team Members & Access */}
+        <div 
+          className="animate-item-entrance rounded-xl border p-6" 
+          style={{ 
+            background: 'var(--color-surface-0)', 
+            borderColor: 'var(--color-surface-2)', 
+            boxShadow: 'var(--shadow-sm)',
+            animationDelay: '185ms'
+          }}
+        >
+          <div className="flex items-center gap-2.5 pb-3 mb-5 border-b border-[var(--color-surface-2)]">
+            <div className="p-1.5 rounded-lg bg-[var(--color-accent-bg)] text-[var(--accent)]">
+              <Users size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Team Members & Project Access</h2>
+              <p className="text-[11px] text-[var(--color-text-secondary)]">Manage internal team member and admin permissions for this project.</p>
+            </div>
+          </div>
+
+          {/* Add Team Member Form Box */}
+          {role === 'admin' && (
+            <div className="border border-[var(--color-surface-2)] rounded-xl p-4 bg-[var(--color-canvas)] mb-6 shadow-2xs">
+              <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-primary)]">Assign Team Member</h3>
+              <div className="flex flex-col gap-1.5 mb-4">
+                <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-text-tertiary)] pl-0.5">Select Team Member</label>
+                <Select value={memberUserId} onValueChange={setMemberUserId} disabled={availableMembers.length === 0}>
+                  <SelectTrigger className="text-xs h-9 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                    <SelectValue placeholder={availableMembers.length === 0 ? "No team members available to assign" : "Select team member..."} />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                    {availableMembers.map((u) => (
+                      <SelectItem key={u.id} className="text-xs focus:bg-[var(--color-accent-bg)]" value={u.id}>
+                        {u.full_name ?? u.email ?? 'Unnamed'} {u.role === 'admin' ? '(Admin)' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => addMemberMutation.mutate(memberUserId)}
+                  disabled={addMemberMutation.isPending || !memberUserId}
+                  size="sm"
+                  style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
+                  className="h-8 px-4"
+                >
+                  {addMemberMutation.isPending ? <LoadingSpinner size="sm" /> : <Plus size={14} className="mr-1" />}
+                  Assign Member
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Members Grid List */}
+          <div>
+            <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-secondary)]">Active Members ({members.length})</h3>
+            {members.length === 0 ? (
+              <div className="text-center py-8 border border-dashed rounded-xl border-[var(--color-surface-3)] bg-[var(--color-canvas)] text-[var(--color-text-tertiary)] text-xs leading-relaxed">
+                No team members assigned to this project.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {members.map((m) => {
+                  const initials = (m.full_name ?? m.email ?? 'U').charAt(0).toUpperCase()
+                  return (
+                    <div key={m.id} className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)] hover:border-[var(--accent)] hover:shadow-xs transition-all duration-300 group">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-[var(--color-accent-bg)] text-[var(--accent)] font-semibold text-xs flex items-center justify-center flex-shrink-0 transition-transform duration-300 group-hover:scale-105 border border-[var(--color-accent-light)]">
+                          {initials}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold text-[var(--color-text-primary)] truncate">{m.full_name ?? 'Unnamed Member'}</span>
+                          <span className="text-[10px] text-[var(--color-text-tertiary)] truncate font-mono">{m.email ?? '—'}</span>
+                        </div>
+                      </div>
+                      {role === 'admin' && (
+                        <button
+                          onClick={() => removeMemberMutation.mutate(m.id)}
+                          disabled={removeMemberMutation.isPending}
+                          className="p-1.5 rounded-md hover:bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] hover:text-[var(--color-danger-text)] transition-colors duration-200 flex-shrink-0 cursor-pointer"
+                          title="Remove Access"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
 
         {/* Section 4: Advanced Settings */}
         <div 
