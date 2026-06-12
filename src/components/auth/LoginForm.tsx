@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
+import { useQueryClient } from '@tanstack/react-query'
 
 export function LoginForm() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -37,6 +39,7 @@ export function LoginForm() {
         return
       }
 
+      queryClient.clear()
       router.push('/projects')
     } catch {
       setError('An error occurred.')

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Sidebar from '@/components/shared/Sidebar'
 import { ProjectProvider } from '@/components/shared/ProjectContext'
 import { internalNavItems, clientNavItems } from '@/lib/navigation'
@@ -27,6 +27,7 @@ export default function ProjectLayout({
   const [collapsed, toggleCollapsed] = useSidebarCollapsed()
   const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const { data: projectData, error: projectError } = useQuery<{ name?: string }>({
     queryKey: ['project', projectId],
@@ -78,6 +79,7 @@ export default function ProjectLayout({
     setIsExiting(true)
     setTimeout(async () => {
       await fetch('/api/auth/logout', { method: 'POST' })
+      queryClient.clear()
       router.push('/login')
     }, 130)
   }

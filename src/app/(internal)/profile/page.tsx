@@ -58,7 +58,11 @@ function ProfileContent() {
     queryKey: ['auth', 'me'],
     queryFn: async () => {
       const res = await fetch('/api/auth/me')
-      if (res.status === 401) { router.push('/login'); throw new Error('Unauthorized') }
+      if (res.status === 401) {
+        queryClient.clear()
+        router.push('/login')
+        throw new Error('Unauthorized')
+      }
       if (!res.ok) throw new Error('Failed to load profile')
       const json = await res.json()
       if (json.error) throw new Error(json.error)

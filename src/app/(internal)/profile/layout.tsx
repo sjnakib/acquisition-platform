@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +20,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
   const [collapsed, toggleCollapsed] = useSidebarCollapsed()
   const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
   const supabase = createClient()
 
   const { data: roleData } = useQuery({
@@ -57,6 +58,7 @@ export default function ProfileLayout({ children }: { children: React.ReactNode 
     setIsExiting(true)
     setTimeout(async () => {
       await fetch('/api/auth/logout', { method: 'POST' })
+      queryClient.clear()
       router.push('/login')
     }, 130)
   }

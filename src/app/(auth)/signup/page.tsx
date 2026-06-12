@@ -6,12 +6,14 @@ import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
 import { BrandLogo } from '@/components/shared/BrandLogo'
+import { useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 
 export default function SignupPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,6 +48,7 @@ export default function SignupPage() {
       }
       setIsExiting(true)
       setTimeout(() => {
+        queryClient.clear()
         router.push(data.role === 'client' ? '/overview' : '/dashboard')
       }, 130)
     } catch { 

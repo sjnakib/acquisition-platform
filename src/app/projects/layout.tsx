@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FolderKanban } from 'lucide-react'
 import Sidebar from '@/components/shared/Sidebar'
 import { createClient } from '@/lib/supabase/client'
@@ -22,6 +22,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const [isExiting, setIsExiting] = useState(false)
   const router = useRouter()
   const supabase = createClient()
+  const queryClient = useQueryClient()
 
   const { data: roleData } = useQuery({
     queryKey: ['auth', 'role'],
@@ -58,6 +59,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
     setIsExiting(true)
     setTimeout(async () => {
       await fetch('/api/auth/logout', { method: 'POST' })
+      queryClient.clear()
       router.push('/login')
     }, 200)
   }
