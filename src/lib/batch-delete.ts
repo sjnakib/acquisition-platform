@@ -19,10 +19,14 @@ export async function deleteAllDeals(params: {
   stage?: string
   score?: string
   search?: string
+  projectId?: string
 }): Promise<number> {
   const sp = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
-    if (v) sp.set(k, v)
+    if (v) {
+      // Map JS camelCase to API snake_case
+      sp.set(k === 'projectId' ? 'project_id' : k, v)
+    }
   }
   const res = await fetch(`/api/deals?${sp.toString()}`, { method: 'DELETE' })
   if (!res.ok) {

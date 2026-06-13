@@ -8,5 +8,5 @@ export const loginSchema = z.object({
 
 export const signupSchema = loginSchema.extend({
   fullName: z.string().min(2).max(100),
-  role: z.enum(['internal', 'client']).default('internal'),
+  role: z.enum(['internal', 'client', 'admin']).default('internal'),
 })

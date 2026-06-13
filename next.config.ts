@@ -5,6 +5,8 @@ const cspScriptSrc = [
   "'unsafe-inline'",
   'https://challenges.cloudflare.com',
   "'unsafe-eval'",
+  'https://apis.google.com',
+  'https://*.googleapis.com',
 ].join(' ')
 
 const nextConfig: NextConfig = {
@@ -26,10 +28,10 @@ const nextConfig: NextConfig = {
           value: [
             "default-src 'self'",
             `script-src ${cspScriptSrc}`,
-            "frame-src https://challenges.cloudflare.com",
-            "connect-src 'self' https://*.supabase.co https://www.googleapis.com https://accounts.google.com",
-            "img-src 'self' data: https://lh3.googleusercontent.com",
-            "style-src 'self' 'unsafe-inline'",
+            "frame-src https://challenges.cloudflare.com https://docs.google.com https://accounts.google.com",
+            "connect-src 'self' https://*.supabase.co https://www.googleapis.com https://accounts.google.com https://*.googleapis.com",
+            "img-src 'self' data: https://lh3.googleusercontent.com https://*.googleapis.com",
+            "style-src 'self' 'unsafe-inline' https://*.googleapis.com",
           ].join('; '),
         },
         { key: 'X-Frame-Options', value: 'DENY' },

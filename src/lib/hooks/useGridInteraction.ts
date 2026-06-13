@@ -356,7 +356,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
     }
 
     case 'START_EDIT': {
-      return { ...state, editingCell: action.address, draftValue: action.value }
+      return { ...state, focusCell: action.address, anchorCell: action.address, editingCell: action.address, draftValue: action.value }
     }
 
     case 'SET_DRAFT': {
@@ -461,6 +461,7 @@ export interface GridInteractionConfig {
   pageSize: number
   data: unknown[]
   editableColumns: Set<number>
+  instantEditColumns?: Set<number>
   excludeColIndices?: Set<number>
   getCellValue: (rowIndex: number, colIndex: number) => string
   onCellEdit: (rowIndex: number, colIndex: number, value: string) => void
@@ -486,16 +487,27 @@ export function useGridInteraction(config: GridInteractionConfig) {
   const autoScrollRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null)
   const configRef = useRef(config)
   const mousePosRef = useRef<{ x: number; y: number } | null>(null)
+  const focusCellRef = useRef(state.focusCell)
+  const editingCellRef = useRef(state.editingCell)
+  const modifierRef = useRef(false)
 
   useEffect(() => {
     configRef.current = config
   }, [config])
 
   useEffect(() => {
+    focusCellRef.current = state.focusCell
+  }, [state.focusCell])
+
+  useEffect(() => {
+    editingCellRef.current = state.editingCell
+  }, [state.editingCell])
+
+  useEffect(() => {
     if (!state.focusCell) return
     configRef.current.scrollToRow(state.focusCell.rowIndex)
     configRef.current.scrollToCol(state.focusCell.colIndex)
-  }, [state.focusCell, config])
+  }, [state.focusCell])
 
   const doAutoScrollRef = useRef<() => void>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -573,12 +585,14 @@ export function useGridInteraction(config: GridInteractionConfig) {
   }, [state.editingCell])
 
   const commitEdit = useCallback((newValue?: string) => {
-    if (!state.editingCell || !state.focusCell) return
+    if (!editingCellRef.current || !focusCellRef.current) return
     const value = newValue ?? state.draftValue
-    const cell = state.editingCell
+    const cell = editingCellRef.current
+    editingCellRef.current = null
     if (configRef.current.validateCell) {
       const error = configRef.current.validateCell(cell.rowIndex, cell.colIndex, value)
       if (error) {
+        editingCellRef.current = cell
         configRef.current.onValidationError?.(cell, error)
         return
       }
@@ -588,7 +602,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
     }
     dispatch({ type: 'COMMIT_EDIT' })
     configRef.current.scrollToRow(cell.rowIndex)
-  }, [state.editingCell, state.draftValue])
+  }, [state.draftValue])
 
   const isEditing = state.editingCell !== null
 
@@ -607,7 +621,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
       if (key === 'Enter') {
         e.preventDefault()
         commitEdit()
-        if (state.focusCell) {
+        if (focusCellRef.current) {
           dispatch({ type: 'ENTER_NEXT', rowCount: c.rowCount, colCount: c.colCount })
         }
         return
@@ -615,7 +629,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
       if (key === 'Tab') {
         e.preventDefault()
         commitEdit()
-        if (state.focusCell) {
+        if (focusCellRef.current) {
           if (isShift) {
             dispatch({ type: 'TAB_PREV', rowCount: c.rowCount, colCount: c.colCount })
           } else {
@@ -914,21 +928,22 @@ export function useGridInteraction(config: GridInteractionConfig) {
       return
     }
 
-    if (key === 'F2' && state.focusCell) {
+    if (key === 'F2' && focusCellRef.current) {
       e.preventDefault()
-      if (c.editableColumns.has(state.focusCell.colIndex)) {
-        const curVal = c.getCellValue(state.focusCell.rowIndex, state.focusCell.colIndex)
+      const fc = focusCellRef.current
+      if (c.editableColumns.has(fc.colIndex)) {
+        const curVal = c.getCellValue(fc.rowIndex, fc.colIndex)
         const val = curVal === '—' ? '' : curVal
-        dispatch({ type: 'START_EDIT', address: state.focusCell, value: val })
+        dispatch({ type: 'START_EDIT', address: fc, value: val })
       } else {
-        c.onF2NonEditable?.(state.focusCell)
+        c.onF2NonEditable?.(fc)
       }
       return
     }
 
-    if (key.length === 1 && state.focusCell && c.editableColumns.has(state.focusCell.colIndex)) {
+    if (key.length === 1 && focusCellRef.current && c.editableColumns.has(focusCellRef.current.colIndex)) {
       e.preventDefault()
-      dispatch({ type: 'START_EDIT', address: state.focusCell, value: '' })
+      dispatch({ type: 'START_EDIT', address: focusCellRef.current, value: '' })
       return
     }
 
@@ -945,6 +960,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
     if (state.editingCell && !cellAddressEqual(address, state.editingCell)) {
       commitEdit()
     }
+    modifierRef.current = e.ctrlKey || e.metaKey || e.shiftKey
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault()
       dispatch({ type: 'ADD_RANGE', address })
@@ -956,7 +972,10 @@ export function useGridInteraction(config: GridInteractionConfig) {
       dispatch({ type: 'SHIFT_CLICK_RANGE', anchor, clickAddress: address })
       return
     }
-    if (state.focusCell && cellAddressEqual(address, state.focusCell)) {
+    // For instant-edit columns with no modifier, skip START_DRAG.
+    // onCellClick handles edit entry so START_DRAG's initialInteractionState()
+    // reset of editingCell cannot interfere.
+    if (configRef.current.instantEditColumns?.has(address.colIndex)) {
       return
     }
     dragRef.current = true
@@ -971,8 +990,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
     }
     document.addEventListener('mouseup', handleMouseUpDoc)
     dispatch({ type: 'START_DRAG', address })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [state.editingCell, state.focusCell, state.anchorCell, commitEdit])
 
   const onCellMouseEnter = useCallback((address: CellAddress) => {
     if (!dragRef.current) return
@@ -995,6 +1013,17 @@ export function useGridInteraction(config: GridInteractionConfig) {
     }
   }, [])
 
+  const onCellClick = useCallback((address: CellAddress) => {
+    // Respect modifier keys — ctrl/shift click selects, does not edit
+    if (!modifierRef.current && configRef.current.instantEditColumns?.has(address.colIndex)) {
+      const curVal = configRef.current.getCellValue(address.rowIndex, address.colIndex)
+      const val = curVal === '—' ? '' : curVal
+      dispatch({ type: 'START_EDIT', address, value: val })
+    } else {
+      dispatch({ type: 'SET_FOCUS', address })
+    }
+  }, [])
+
   return {
     state,
     dispatch,
@@ -1007,5 +1036,6 @@ export function useGridInteraction(config: GridInteractionConfig) {
     onCellMouseEnter,
     onCellMouseUp,
     onCellDoubleClick,
+    onCellClick,
   }
 }

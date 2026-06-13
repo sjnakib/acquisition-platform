@@ -1,33 +1,24 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { useDeal } from '@/lib/hooks/useDeal'
 
 interface Deal {
-  deal_name: string | null;
-  unit_count: number | null;
+  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
 }
 
 export default function DealDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const [deal, setDeal] = useState<Deal | null>(null)
-  const [loading, setLoading] = useState(true)
+  const dealId = params.id as string
+  const { data: deal, isLoading: loading } = useDeal<Deal>(dealId)
   const [activeTab, setActiveTab] = useState('overview')
 
-  const tabs = ['Overview', 'Contacts', 'Outreach', 'Documents', 'Underwriting', 'LOI', 'Call Brief']
-
-  useEffect(() => {
-    if (!params.id) return
-    fetch(`/api/deals/${params.id}`)
-      .then((res) => res.json())
-      .then((data) => setDeal(data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [params.id])
+  const tabs = ['Overview', 'Contacts', 'Outreach', 'Deal Room', 'Underwriting', 'LOI', 'Call Brief']
 
   if (loading) {
     return (
@@ -47,6 +38,13 @@ export default function DealDetailPage() {
     )
   }
 
+  const dealFields = deal.deal_fields ?? []
+  const addrField = dealFields.find((f) => f.field_definitions?.key === 'address')
+  const dealName = addrField?.value ?? 'Untitled Deal'
+
+  const unitsField = dealFields.find((f) => f.field_definitions?.key === 'unit_count')
+  const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
+
   return (
     <div>
       <button onClick={() => router.push('/deals')} className="flex items-center gap-1 text-sm mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -55,8 +53,8 @@ export default function DealDetailPage() {
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>{deal.deal_name ?? 'Untitled Deal'}</h1>
-          {deal.unit_count ? <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{deal.unit_count} units</p> : null}
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>{dealName}</h1>
+          {unitCount ? <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{unitCount} units</p> : null}
         </div>
       </div>
 
@@ -81,9 +79,9 @@ export default function DealDetailPage() {
         </nav>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <p className="text-slate-500 text-sm">Deal detail tabs coming soon.</p>
-        <pre className="mt-4 text-xs text-slate-400 overflow-auto">{JSON.stringify(deal, null, 2)}</pre>
+      <div className="rounded-xl border p-6" style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-surface-2)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Deal detail tabs coming soon.</p>
+        <pre className="mt-4 text-xs overflow-auto" style={{ color: 'var(--color-text-tertiary)' }}>{JSON.stringify(deal, null, 2)}</pre>
       </div>
     </div>
   )

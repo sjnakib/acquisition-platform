@@ -1,86 +1,80 @@
 # This is NOT the Next.js you know
 
-Next.js 16 — APIs, conventions, and file structure differ from training data. Heed deprecation notices.
+Next.js 16.2.6 — APIs, conventions, and file structure differ from training data. Heed deprecation notices.
 
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `npm run dev` | Dev server at localhost:3000 |
-| `npm run build` | Production build |
-| `npm run lint` | ESLint — only automated check |
-| `npm run test` | Vitest (node env, globals on) |
-| `npm run test:watch` | Vitest watch mode |
-| `npm run db:push` | Push migrations to linked Supabase |
-| `npm run db:push:local` | Push to local Supabase |
-| `npm run db:reset` | Reset + re-seed local DB (runs `seed.sql`) |
-| `npm run db:types` | Generate TS types from Supabase schema |
-
-**Gotcha:** `supabase migration up` does NOT exist (CLI v2). Use `supabase db push`.
-**Gotcha:** `supabase gen types` uses `--project-ref` (NOT `--project-id`). Output redirection is broken — `src/lib/supabase/types.ts` is a manual placeholder with real enums but `Record<string, unknown>` for table rows. No Supabase client file passes the `Database` type param.
-**Gotcha:** No test files exist yet. Vitest is configured (`vitest.config.ts`, node env, globals) but suite is empty.
-**Gotcha:** No `typecheck` / `tsc` script in `package.json`. Run `npx tsc --noEmit` manually for type validation.
+Commands + gotchas: see CLAUDE.md quick-start section.
 
 ## Auth & Routing
 
 - **No `src/middleware.ts`.** `src/proxy.ts` handles session + role routing (Next.js 16 proxy pattern). API routes excluded from matcher.
-- **Route groups:** `(auth)` — login/signup/reset-password, `(internal)` — team views + `/client-view`, `(client)` — CEO/client views.
-- **`app/page.tsx`** just `redirect('/login')`.
-- **API routes** (31 route files): auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
-- **`createAdminClient()`** (service role) ONLY used in Gmail webhook and `/api/admin/*` routes.
+- **Route groups:** `(auth)` — login/signup/logout/reset-password, `(internal)` — team views, `(client)` — CEO/client views.
+- **`/projects`** is the primary route (project list + `[id]` workspace). `src/app/projects/page.tsx` is outside route groups — shared entry for both roles. Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. `/projects/[id]/profile` for user profile. Legacy routes redirect → `/projects`.
+- **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect. Layout guards reinforce this.
+- **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
+
+## API Routes (61 route files in `src/app/api/`)
+
+Pattern: auth check → CSRF origin check (mutations only) → Zod validation → Supabase anon-key client (RLS scopes data).
+
+Domains: admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import), emails, field-definitions, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting.
+
+- `createAdminClient()` (service role) ONLY in Gmail webhook + `/api/admin/*` routes.
+- `get_my_role()` SQL function (migration 0015) used for role checks.
 
 ## Database
 
-- **17 migrations** in `supabase/migrations/` (0001–0017, all applied). 0016 is the v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). Seed users: `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client). Re-seed: `npm run db:reset`.
-- **RLS is sole access control.** Internal sees all; client sees only good/very_good non-archived deals + published call briefs.
-- **Enums (8-stage):** `deal_stage` = `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` is only valid after `loi`; before LOI use `archived`. See `src/lib/supabase/types.ts` for all 14 enums.
-- **Flexible schema:** `deals` table holds only system fields (outreach_emails, unit_count, stage, score). All property data (address, zip, CoStar link, etc.) stored in `deal_fields` as key/value rows catalogued by `field_definitions`.
+- **45 migrations** (`supabase/migrations/0001–0045`, all applied). 0016 = v2 schema transform (11-stage → 8-stage enum, fixed columns → dynamic `deal_fields`). 0019–0022 = projects/sponsors + project-scoped RLS. 0023–0026 = backfill `project_id`, column rationalization, surface imported fields. 0027–0029 = follow-up call fields, deal detail enhancements, project access. 0030 = multi-project Gmail (`google_connections` table, projects FK). 0031 = email body template fields. 0032 = custom templates (`email_templates` table, project-scoped). 0033 = `custom` enum value for `email_template_key`. 0034 = **address replaces deal_name** as primary required deal field. 0035 = snoozed email threads. 0036 = enable realtime. 0037 = email attachments storage. 0038–0040 = client RLS fixes (field defs, deal visibility, contacts). 0041 = Drive folders for deal-linked file management. 0042 = remove activity_log table. 0043 = **portfolios as deals** — `is_portfolio` flag on deals, `portfolio_deal_id` FK on portfolios. 0044 = backfill portfolio deal links. 0045 = **admin role** — add `'admin'` to `user_role` enum, `is_staff()` helper, `project_members` table (scopes internal users to projects, admin sees all), backfill existing internal users to all projects, update all RLS policies to use `is_staff()`.
+- **RLS is sole access control.** Admin sees all (same data access as internal). Internal sees projects they're assigned to via `project_members`. Client sees only non-archived deals in sponsored projects + published call briefs. `is_staff()` helper returns true for admin OR internal.
+- **8-stage `deal_stage`:** `lead | outreach | response | underwriting | loi | closed | failed | archived`. `failed` only valid after `loi`; before LOI use `archived`.
+- **Flexible schema:** `deals` table stores only system fields. Property data in `deal_fields` as key/value rows catalogued by `field_definitions`. **`address` is the required primary field** (migration 0034 replaced `deal_name`). Deals API response includes `deal_fields` with nested `field_definitions` join — new code touching deals must include this join.
+- **Key tables:** users, contacts, deals, deal_fields, field_definitions, call_briefs, campaigns, import_jobs, google_connections, profile, ca_credentials, loi_tracker, portfolios, projects, sponsors, email_templates, drive_folders.
 
 ## Architecture
 
-- **Supabase layer:** `src/lib/supabase/` — `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (session refresh), `admin.ts` (service role), `types.ts` (manual placeholder).
-- **Hooks:** `src/lib/hooks/` (7 files): `useAuth`, `useCampaigns`, `useCallQueue`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. `components.json` aliases `hooks` to `@/hooks` but actual imports use `@/lib/hooks/`. Only `useGridInteraction`, `useColumnWidths`, and `usePortfolios` are currently imported — the other 4 are skeleton/placeholder.
-- **`src/lib/stage-machine.ts`** — source of truth for deal stage transitions. `canTransition()` enforces: `failed` only after `loi`; `archived` not allowed at/past `loi`/`closed`/`failed`. Used by 4 API routes.
-- **`ReactQueryProvider`** — default export, module-level `new QueryClient()` (NOT wrapped in `useState`).
+- **Dashboard** guides new projects through system-assisted deal flow: import properties → create campaign → view pipeline. Empty states for each step surface the next action. Per-project analytics: `KPIScorecard`, `ConversionChart`, `FunnelMetrics`, `PipelineTable`, `CallStatistics`, `PipelineAnalytics`, `TopOpportunities`.
+- **Drive-linked deal rooms:** Deals can link a Google Drive folder (`drive_folders` table). `DriveFileManager` + `DriveBreadcrumb` provide file browsing, upload, and folder navigation in deal detail view. API: `/api/deals/[id]/drive/files`.
+- **Multi-project:** All core data scoped to `project_id` FK + RLS (migrations 0019–0041). `ProjectProvider` (`src/components/shared/ProjectContext.tsx`) wraps project pages via `useProjectContext`. Every query/API call must be project-scoped. Google connections are project-scoped via `google_connection_id` FK on `projects` (0030). Drive folders are deal-scoped via `drive_folders` table (0041).
+- **Data fetching:** TanStack Query v5 (`useQuery`/`useMutation`). All hooks in `src/lib/hooks/` use it. Query keys follow `['resource', id]` pattern. Cache invalidation via `queryClient.invalidateQueries()`.
+- **Supabase layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role — limited use), `types.ts` (manual placeholder).
+- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`): `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeals`, `useGridInteraction`, `usePortfolios`. Batch-delete logic in `src/lib/batch-delete.ts`.
+- **`src/lib/stage-machine.ts`** — `canTransition()` is source of truth for deal stages. Used by 4 API routes.
 - **`noUncheckedIndexedAccess: true`** — access arrays/records with `!` or `?.`.
-- **Tailwind CSS v4** with `@tailwindcss/postcss` — no `tailwind.config.ts`. `tw-animate-css` plugin.
-- **Theme:** CSS variables in `globals.css` (light default, opt-in dark via `.dark` class). **Do NOT use `next-themes`** — root layout violates UI spec. `docs/architecture/ui.md` takes precedence.
-- **CSS variables:** All components must use `var(--color-*)` tokens. Raw hex, Tailwind palette colors, `prefers-color-scheme` prohibited. Sidebar always-dark (`#0E0E0E`), no theming.
-- **`src/lib/brand.ts`** — brand config (name: 'Acquire'). **`src/lib/page-headings.ts`** — centralized page heading titles/descriptions.
+- **`next.config.ts`** `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
+- **shadcn alias gotcha:** `components.json` maps `"hooks": "@/hooks"`, but no imports use it — all hooks are at `@/lib/hooks/`. Use `@/lib/hooks/` for hook imports.
+- **Key shared components:** `DataGrid` (~47KB virtualized Excel-like table, **renders ALL `field_definitions` columns** not just `show_in_grid`), `useGridInteraction` (~39KB), `ProjectContext`, `Sidebar`, `InlineDropdownEditor` (inline select for DataGrid enum columns: stage, score, portfolio, response classification), `PaginationControls`, `EmptyState`, `BrandLogo`. Components in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`.
+
+## Theme & Design System (strict — read `docs/architecture/ui.md`)
+
+- **Tailwind CSS v4** with `@tailwindcss/postcss` — no `tailwind.config.ts`. `tw-animate-css` plugin. Theme tokens via `@theme inline` in `globals.css`.
+- **CSS variables only** (`var(--color-*)`). No raw hex, no Tailwind palette colors, no `prefers-color-scheme`.
+- **Do NOT use `next-themes`** — root layout uses inline `<script>` + `localStorage` key `acq_theme`. Light default, opt-in dark via `.dark` class. Sidebar always-dark (`#0E0E0E`), no theming.
+- **Brand:** `src/lib/brand.ts` (name: 'Acquire'). **Page headings:** `src/lib/page-headings.ts`.
+
+## Key Libraries (unusual picks)
+
+`exceljs` (CoStar import, NOT `xlsx`), `papaparse` (CSV), `immer` (DataGrid state), `@dnd-kit` (drag/drop), `sonner` (toasts), `lucide-react` (icons), `date-fns` (dates), `use-debounce`, `googleapis` + `google-auth-library`, `@upstash/ratelimit` + `@upstash/redis`, `react-turnstile`, `fast-check` (dev, property-based testing).
 
 ## CSP Headers (`next.config.ts`)
 
-Adding external APIs, scripts, or iframes requires updating CSP in `next.config.ts`. Current:
+Adding external APIs/scripts/iframes requires updating CSP:
 - script-src: `'self'`, `'unsafe-inline'`, `'unsafe-eval'`, `https://challenges.cloudflare.com`
 - connect-src: `'self'`, `https://*.supabase.co`, `https://www.googleapis.com`, `https://accounts.google.com`
 - frame-src: `https://challenges.cloudflare.com`
 - img-src: `'self'`, `data:`, `https://lh3.googleusercontent.com`
 
+## Env Vars (`.env.example` — 5 groups)
+
+Supabase (URL, anon key, service role, project ID), Turnstile (site + secret), Google OAuth (client ID/secret, redirect URI, cloud project ID), App (app URL, DB encryption key), Upstash Redis (REST URL + token).
+
 ## Key Reference Docs (read before building)
 
-- **`PLAN.md`** — Sequential build plan, phase-gated, schema details, API patterns. Supersedes all prior plans.
-- **`docs/architecture/ui.md`** — Design system spec: color tokens, dimensions, theme rules, remediation debt.
-- **`EXCEL_TABLE.md`** — DataGrid/DealTable: keyboard nav, cell editing, clipboard, virtualization (~728 lines).
-- **`docs/architecture/`** — overview, database schema. **`docs/guides/developer/`** — API conventions, getting started. **`docs/guides/user/`** — platform usage.
+- **`PLAN.md`** — Build blueprint, schema details, Supabase API patterns. Some divergence from implementation; verify against actual migrations.
+- **`docs/architecture/ui.md`** — Full design system: color tokens, dimensions, theme rules.
+- **`EXCEL_TABLE.md`** — DataGrid spec: keyboard nav, cell editing, clipboard, virtualization (~502 lines).
+- **`docs/architecture/database.md`** — DB design, RLS, schema details.
+- **`docs/architecture/`** — overview, database schema. **`docs/guides/developer/`** — API conventions, getting started.
 
-## Integration Gotchas
+## Known Gaps
 
-- **Upstash Redis** required for rate limiting. `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` in `.env.local`.
-- **Gmail/Drive** requires Google OAuth. Pub/Sub webhook verifies Google JWTs. Gmail watch expires every 7 days — re-register via `refresh-watch` cron. `vercel.json` missing (needed for cron).
-- **Cloudflare Turnstile** for bot protection on login/signup. Server verify at `/api/turnstile/verify`.
-- **CoStar import** uses `exceljs` (NOT `xlsx`). Import wizard is format-agnostic (XLSX + CSV).
-- **Zod schemas** in `src/lib/validations/` — one file per domain.
-- **Env vars** in `.env.example` — 5 groups: Supabase, Turnstile, Google OAuth, App, Upstash.
-
-## Implementation Status (Known Gaps)
-
-Components may already exist in `src/components/` — check before building.
-- Dashboard: **wired up** — `FunnelMetrics`, `KPIScorecard`, `PipelineTable`, `ConversionChart` all used. Data aggregated client-side from `/api/deals`.
-- Deal detail (`/deals/[id]`): 7 tabs show placeholder JSON — none wire to `DealStageBar`, `UnderwritingForm`, `LOITracker`, `DocumentChecklist`, etc.
-- Settings: Gmail connect works; campaign management is placeholder.
-- Import wizard: **fully wired** — upload → preview → confirm → poll status (3-step flow with `CoStarImportWizard`).
-- Client calls page: missing `client_notes` textarea.
-- `UnderwritingForm.tsx`, `DealCard.tsx`, `ClientDealCard.tsx`, `LOITracker.tsx`, `EmailThread.tsx`, `DocumentChecklist.tsx`: hardcoded Tailwind palette colors (`text-slate-*`, `bg-blue-600`, `bg-white`, etc.) — need `var(--color-*)` remediation (see `docs/architecture/ui.md`).
-- `deals/[id]/page.tsx`: deal detail tabs all show placeholder JSON — not wired to any tab components. Also uses hardcoded Tailwind classes (`bg-white`, `border-slate-200`, `text-slate-*`).
-- Root `layout.tsx` uses `next-themes` `ThemeProvider` — violates UI spec (mandates inline `<script>` + `localStorage`). Do NOT add more `next-themes` usage.
-- `DataGrid.tsx` (~47KB) + `useGridInteraction` (~39KB): Excel-like virtualized table with dynamic columns, multi-cell selection, F2 editing, copy/paste.
+- Settings: campaign management is placeholder.
+- `DataGrid.tsx` has scattered `var(--color-*, #fallback)` fallback hex values — acceptable pattern but prefer central token definitions.

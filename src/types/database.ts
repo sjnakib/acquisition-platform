@@ -1,4 +1,4 @@
-export type UserRole = 'internal' | 'client'
+export type UserRole = 'internal' | 'client' | 'admin'
 export type DealStage = 'lead' | 'outreach' | 'response' | 'document_collection' | 'underwritability_review' | 'underwriting' | 'scored' | 'call_scheduled' | 'loi' | 'closed' | 'archived'
 export type DealScore = 'very_good' | 'good' | 'bad' | 'very_bad'
 export type ListingType = 'on_market' | 'off_market'

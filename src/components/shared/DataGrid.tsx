@@ -2,10 +2,13 @@
 
 import { useRef, useState, useCallback, useMemo, useEffect, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowUpDown, ArrowUp, ArrowDown, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Asterisk, Check, Minus, MoreHorizontal, ChevronLeft, ChevronRight, Plus, Trash2, X, Search, SlidersHorizontal } from 'lucide-react'
+import { toast } from 'sonner'
 import { useGridInteraction } from '@/lib/hooks/useGridInteraction'
 import { useColumnWidths } from '@/lib/hooks/useColumnWidths'
+import { useColumnOrder } from '@/lib/hooks/useColumnOrder'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip } from '@/components/ui/tooltip'
 
 import type { CellAddress, CellRange } from '@/lib/types/grid'
 import { isInAnyRange, cellAddressEqual, rangeNormalize } from '@/lib/types/grid'
@@ -18,9 +21,15 @@ export interface ColumnDef<T> {
   maxWidth?: number
   align?: 'left' | 'right' | 'center'
   sortable?: boolean
+  /** Custom header content. When provided, replaces the plain-text header label. */
+  headerRender?: (col: ColumnDef<T>) => React.ReactNode
   render?: (row: T, index: number) => React.ReactNode
   accessor?: (row: T, index?: number) => string | number | null | undefined
   editable?: boolean
+  /** Custom save handler. When provided, called instead of the default PATCH to /api/deals/{id}/fields. */
+  onSave?: (row: T, value: string) => Promise<void>
+  /** When true, a required-field indicator is shown next to the column header. */
+  isRequired?: boolean
 }
 
 interface DataGridProps<T> {
@@ -87,6 +96,8 @@ interface DataGridProps<T> {
   /** External search/filter chip count. Render badge on filter button. */
   activeFilterCount?: number
   onClearFilters?: () => void
+  /** When provided, enables drag-and-drop column reordering. Value is a localStorage key suffix for persistence. */
+  columnOrderStorageKey?: string
 }
 
 const CHECKBOX_COL_W = 40
@@ -125,23 +136,26 @@ interface RowRendererProps<T> {
   isEven: boolean
   onRowClick?: (row: T, index: number) => void
   interactionState: ReturnType<typeof useGridInteraction>['state']
-  interactionHandlers: Pick<ReturnType<typeof useGridInteraction>, 'onCellMouseDown' | 'onCellMouseEnter' | 'onCellMouseUp' | 'onCellDoubleClick'>
+  interactionHandlers: Pick<ReturnType<typeof useGridInteraction>, 'onCellMouseDown' | 'onCellMouseEnter' | 'onCellMouseUp' | 'onCellDoubleClick' | 'onCellClick'>
   editingValue: string
   onDraftChange: (val: string) => void
-  commitEdit: () => void
+  commitEdit: (newValue?: string) => void
+  discardEdit: () => void
   onRowKeyDown: (e: React.KeyboardEvent) => void
   isSelected: boolean
   onCheckboxToggle: (rowIndex: number) => void
   flashingCell: CellAddress | null
   validationFlashCell: CellAddress | null
+  saveSuccessCell: CellAddress | null
   editComponents?: Record<number, (props: { value: string; rowIndex: number; onChange: (val: string) => void; onCommit: () => void; onDiscard: () => void; cellEl?: HTMLElement | null }) => React.ReactNode>
 }
 
 const RowRenderer = memo(function RowRendererInner<T>({
   row, rowIndex, columns, computedWidths, isEven, onRowClick,
-  interactionState, interactionHandlers, editingValue, onDraftChange, commitEdit, onRowKeyDown,
-  isSelected, onCheckboxToggle, flashingCell, validationFlashCell, editComponents,
+  interactionState, interactionHandlers, editingValue, onDraftChange, commitEdit, discardEdit, onRowKeyDown,
+  isSelected, onCheckboxToggle, flashingCell, validationFlashCell, saveSuccessCell, editComponents,
 }: RowRendererProps<T>) {
+  const { onCellClick } = interactionHandlers
   const rowBg = isEven ? S.rowEvenBg : S.rowOddBg
   const focusCell = interactionState.focusCell
   const selectionRanges = interactionState.selectionRanges
@@ -156,7 +170,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
       style={{
         height: S.rowH, width: '100%',
         borderColor: S.rowBorder, background: isSelected ? selectedBg : rowBg,
-        cursor: onRowClick ? 'pointer' : 'default',
+        cursor: 'default',
         borderLeft: isSelected ? `2px solid ${S.accent}` : undefined,
         paddingLeft: isSelected ? 0 : undefined,
       }}
@@ -182,15 +196,16 @@ const RowRenderer = memo(function RowRendererInner<T>({
               background: isSelected ? S.accent : 'transparent',
             }}
           >
-            {isSelected && <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />}
+            {isSelected && <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />}
           </div>
         </label>
       </div>
 
-      {/* Row number */}
+      {/* Row number — click navigates to deal detail */}
       <div
         className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 text-[11px] border-r select-none tabular-nums"
-        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: rowBg, color: S.rowNumText }}
+        style={{ width: S.rowNumW, height: S.rowH, borderColor: S.rowBorder, background: rowBg, color: S.rowNumText, cursor: onRowClick ? 'pointer' : 'default' }}
+        onClick={(e) => { e.stopPropagation(); onRowClick?.(row as Parameters<typeof onRowClick>[0], rowIndex) }}
       >
         {rowIndex + 1}
       </div>
@@ -218,6 +233,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
         return (
           <div
             key={col.key}
+            data-col-key={col.key}
             role="gridcell"
             id={`grid-cell-r${rowIndex}-c${colIndex}`}
             className={`flex-shrink-0 flex items-center px-3 border-r text-[13px] relative ${isActionsCol ? 'sticky right-0 z-10' : ''}`}
@@ -229,6 +245,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
             onMouseEnter={() => interactionHandlers.onCellMouseEnter(addr)}
             onMouseUp={interactionHandlers.onCellMouseUp}
             onDoubleClick={() => interactionHandlers.onCellDoubleClick(addr)}
+            onClick={(e) => { if (onRowClick) e.stopPropagation(); onCellClick(addr) }}
           >
             {isEditingCell ? (
               editComponents?.[colIndex] ? (
@@ -237,7 +254,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
                   rowIndex,
                   onChange: onDraftChange,
                   onCommit: commitEdit,
-                  onDiscard: () => {},
+                  onDiscard: discardEdit,
                   cellEl: undefined,
                 })
               ) : (
@@ -251,7 +268,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
                     boxShadow: `0 0 0 4px color-mix(in srgb, ${S.accent} 20%, transparent)`,
                     fontFamily: 'var(--font-dm-sans)',
                     color: 'var(--color-text-primary)',
-                    borderRadius: 0,
+                    borderRadius: 'var(--radius-sm)',
                   }}
                   value={editingValue}
                   onChange={(e) => onDraftChange(e.target.value)}
@@ -276,14 +293,17 @@ const RowRenderer = memo(function RowRendererInner<T>({
             )}
             {flashingCell && cellAddressEqual(addr, flashingCell) && (
               <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ border: `2px solid var(--color-surface-3)`, transition: 'opacity 600ms ease' }}
+                className="absolute inset-0 pointer-events-none animate-cell-flash"
               />
             )}
             {validationFlashCell && cellAddressEqual(addr, validationFlashCell) && (
               <div
-                className="absolute inset-0 pointer-events-none"
-                style={{ border: `2px solid var(--color-error, #ef4444)`, transition: 'opacity 600ms ease' }}
+                className="absolute inset-0 pointer-events-none animate-cell-error"
+              />
+            )}
+            {saveSuccessCell && cellAddressEqual(addr, saveSuccessCell) && (
+              <div
+                className="absolute inset-0 pointer-events-none animate-cell-success"
               />
             )}
           </div>
@@ -301,6 +321,7 @@ const RowRenderer = memo(function RowRendererInner<T>({
   if (prevProps.editingValue !== nextProps.editingValue) return false
   if (prevProps.flashingCell !== nextProps.flashingCell) return false
   if (prevProps.validationFlashCell !== nextProps.validationFlashCell) return false
+  if (prevProps.saveSuccessCell !== nextProps.saveSuccessCell) return false
   const pf = prevProps.interactionState.focusCell
   const nf = nextProps.interactionState.focusCell
   if (pf !== nf && (pf?.rowIndex !== nf?.rowIndex)) return false
@@ -337,10 +358,9 @@ function PageSizeSelector({
 
   useEffect(() => {
     if (customOpen) {
-      setCustomValue(String(pageSize))
       setTimeout(() => inputRef.current?.select(), 0)
     }
-  }, [customOpen, pageSize])
+  }, [customOpen])
 
   const applyCustom = () => {
     const n = parseInt(customValue, 10)
@@ -358,51 +378,40 @@ function PageSizeSelector({
       <span>Rows</span>
       {customOpen ? (
         <div className="relative">
-          <input
-            ref={inputRef}
-            type="number"
-            min={1}
-            max={5000}
-            value={customValue}
-            onChange={(e) => setCustomValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); if (e.key === 'Escape') setCustomOpen(false) }}
-            onBlur={applyCustom}
-            className="w-[64px] h-[28px] px-2 rounded-md bg-transparent border-none outline-none text-[12px] tabular-nums"
-            style={{
-              color: 'var(--color-text-primary)',
-              fontFamily: 'var(--font-jetbrains-mono)',
-              background: 'var(--color-surface-0)',
-              border: `1.5px solid ${isLarge ? 'var(--color-warning, #f59e0b)' : 'var(--accent)'}`,
-              boxShadow: isLarge ? '0 0 0 3px var(--color-warning-bg, #fef3c7)' : '0 0 0 3px var(--color-accent-bg)',
-            }}
-          />
-          {isLarge && (
-            <div
-              className="absolute bottom-full left-0 mb-1 px-2 py-0.5 rounded text-[10px] whitespace-nowrap z-50"
+          <Tooltip
+            content={isLarge ? 'Rendering may slow down' : null}
+            forceOpen={isLarge}
+            variant="warning"
+          >
+            <input
+              ref={inputRef}
+              type="number"
+              min={1}
+              max={5000}
+              value={customValue}
+              onChange={(e) => setCustomValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyCustom(); if (e.key === 'Escape') setCustomOpen(false) }}
+              onBlur={applyCustom}
+              className="w-[64px] h-[28px] px-2 rounded-md bg-transparent border-none outline-none text-[12px] tabular-nums"
               style={{
-                background: 'var(--color-warning, #f59e0b)',
-                color: '#000',
-                fontWeight: 500,
+                color: 'var(--color-text-primary)',
+                fontFamily: 'var(--font-jetbrains-mono)',
+                background: 'var(--color-surface-0)',
+                border: `1.5px solid ${isLarge ? 'var(--color-warning-border)' : 'var(--accent)'}`,
+                boxShadow: isLarge ? '0 0 0 3px var(--color-warning-bg)' : '0 0 0 3px var(--color-accent-bg)',
               }}
-            >
-              Rendering may slow down
-              <div
-                className="absolute top-full left-3 -mt-px"
-                style={{
-                  width: 0, height: 0,
-                  borderLeft: '4px solid transparent',
-                  borderRight: '4px solid transparent',
-                  borderTop: `4px solid var(--color-warning, #f59e0b)`,
-                }}
-              />
-            </div>
-          )}
+            />
+          </Tooltip>
         </div>
       ) : (
         <Select
           value={String(pageSize)}
           onValueChange={(v) => {
-            if (v === 'custom') { setCustomOpen(true); return }
+            if (v === 'custom') {
+              setCustomValue(String(pageSize))
+              setCustomOpen(true)
+              return
+            }
             onPageSizeChange?.(Number(v))
           }}
         >
@@ -493,15 +502,16 @@ function Toolbar({
       <div className="flex items-center gap-2 flex-shrink-0" style={{ minWidth: 0 }}>
         {selectedCount > 0 ? (
           <>
-            <button
-              onClick={onClearSelection}
-              style={btnBase}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-              title="Clear selection"
-            >
-              <Check className="h-3.5 w-3.5" style={{ color: tb.accent }} strokeWidth={3} />
-            </button>
+            <Tooltip content="Clear selection" position="bottom">
+              <button
+                onClick={onClearSelection}
+                style={btnBase}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <Check className="h-3.5 w-3.5" style={{ color: tb.accent }} strokeWidth={3} />
+              </button>
+            </Tooltip>
             <span className="text-[12px] font-medium whitespace-nowrap" style={{ color: tb.textPrimary }}>
               {selectedCount.toLocaleString()} selected
             </span>
@@ -522,29 +532,30 @@ function Toolbar({
       {selectedCount > 0 && (
         <div className="flex items-center gap-0.5 flex-1 justify-center">
           {selectionActions?.map((a) => (
-            <button
-              key={a.id}
-              style={btnBase}
-              onClick={() => a.onClick(selectedIds)}
-              title={a.label}
-              onMouseEnter={(e) => { e.currentTarget.style.background = tb.accentBg; e.currentTarget.style.color = tb.accent }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tb.text }}
-            >
-              {a.icon}
-            </button>
+            <Tooltip key={a.id} content={a.label} position="bottom">
+              <button
+                style={btnBase}
+                onClick={() => a.onClick(selectedIds)}
+                onMouseEnter={(e) => { e.currentTarget.style.background = tb.accentBg; e.currentTarget.style.color = tb.accent }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tb.text }}
+              >
+                {a.icon}
+              </button>
+            </Tooltip>
           ))}
           {bulkActions?.(selectedCount)}
           {selectionMenuActions && selectionMenuActions.length > 0 && (
             <div ref={menuRef} className="relative">
-              <button
-                style={btnBase}
-                onClick={() => setMenuOpen(!menuOpen)}
-                title="More actions"
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
-                onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = 'transparent' }}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+              <Tooltip content="More actions" position="bottom">
+                <button
+                  style={btnBase}
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-2)' }}
+                  onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </Tooltip>
               {menuOpen && (
                 <div
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 rounded-lg shadow-lg py-1 z-50 min-w-[140px]"
@@ -686,7 +697,9 @@ function PageInput({
 
   // Sync display when page changes externally (prev/next clicks)
   useEffect(() => {
-    if (!focused) setValue(String(page))
+    if (!focused) {
+      setTimeout(() => setValue(String(page)), 0)
+    }
   }, [page, focused])
 
   const commit = useCallback((v: string) => {
@@ -818,7 +831,7 @@ function TopToolbar({
     text: 'var(--color-text-secondary)',
     accent: 'var(--accent)',
     accentBg: 'var(--color-accent-bg)',
-    danger: 'var(--color-danger, #ef4444)',
+    danger: 'var(--color-danger)',
     dangerBg: 'var(--color-danger-bg, #fef2f2)',
   } as const
 
@@ -886,16 +899,17 @@ function TopToolbar({
       <div className="flex items-center gap-0.5 flex-shrink-0">
         {/* Clear sort — only when user changed from default */}
         {sortKey && sortKey !== defaultSortKey && onClearSort && (
-          <button
-            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
-            onClick={onClearSort}
-            title={`Clear sort (${sortColumnHeader ?? sortKey})`}
-            onMouseEnter={hoverBg}
-            onMouseLeave={resetBg}
-          >
-            <ArrowUpDown className="h-3 w-3" />
-            <span className="text-[11px]">Clear sort</span>
-          </button>
+          <Tooltip content={`Clear sort (${sortColumnHeader ?? sortKey})`}>
+            <button
+              style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3 }}
+              onClick={onClearSort}
+              onMouseEnter={hoverBg}
+              onMouseLeave={resetBg}
+            >
+              <ArrowUpDown className="h-3 w-3" />
+              <span className="text-[11px]">Clear sort</span>
+            </button>
+          </Tooltip>
         )}
 
         {/* Clear selection */}
@@ -913,25 +927,26 @@ function TopToolbar({
 
         {/* Delete */}
         {onDelete && (
-          <button
-            style={{
-              ...iconButton,
-              width: 'auto', padding: '0 8px', gap: 3,
-              background: selectedCount > 0 ? st.dangerBg : 'transparent',
-              color: selectedCount > 0 ? st.danger : st.text,
-              opacity: selectedCount > 0 ? 1 : 0.3,
-              pointerEvents: selectedCount > 0 ? 'auto' : 'none',
-            }}
-            onClick={() => onDelete(selectedIds)}
-            title={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}
-            onMouseEnter={(e) => {
-              if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = '#FFF' }
-            }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
-          >
-            <Trash2 className="h-3 w-3" />
-            <span className="text-[11px]">Delete {recordLabel}</span>
-          </button>
+          <Tooltip content={selectedCount > 0 ? `Delete ${selectedCount} ${recordLabel}${selectedCount !== 1 ? 's' : ''}` : 'Select rows to delete'}>
+            <button
+              style={{
+                ...iconButton,
+                width: 'auto', padding: '0 8px', gap: 3,
+                background: selectedCount > 0 ? st.dangerBg : 'transparent',
+                color: selectedCount > 0 ? st.danger : st.text,
+                opacity: selectedCount > 0 ? 1 : 0.3,
+                pointerEvents: selectedCount > 0 ? 'auto' : 'none',
+              }}
+              onClick={() => onDelete(selectedIds)}
+              onMouseEnter={(e) => {
+                if (selectedCount > 0) { e.currentTarget.style.background = st.danger; e.currentTarget.style.color = 'var(--color-text-inverse)' }
+              }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = st.dangerBg; e.currentTarget.style.color = st.danger }}
+            >
+              <Trash2 className="h-3 w-3" />
+              <span className="text-[11px]">Delete {recordLabel}</span>
+            </button>
+          </Tooltip>
         )}
 
         {/* Add */}
@@ -949,29 +964,30 @@ function TopToolbar({
 
         {/* Custom icon actions */}
         {actions?.map((a) => (
-          <button
-            key={a.id}
-            style={iconButton}
-            onClick={a.onClick}
-            title={a.label}
-            onMouseEnter={hoverBg}
-            onMouseLeave={resetBg}
-          >
-            {a.icon}
-          </button>
+          <Tooltip key={a.id} content={a.label}>
+            <button
+              style={iconButton}
+              onClick={a.onClick}
+              onMouseEnter={hoverBg}
+              onMouseLeave={resetBg}
+            >
+              {a.icon}
+            </button>
+          </Tooltip>
         ))}
 
         {/* 3-dot menu — always visible, icon only */}
         <div ref={menuRef} className="relative">
-          <button
-            style={iconButton}
-            onClick={() => setMenuOpen(!menuOpen)}
-            title="More actions"
-            onMouseEnter={hoverBg}
-            onMouseLeave={(e) => { if (!menuOpen) resetBg(e) }}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
+          <Tooltip content="More actions">
+            <button
+              style={iconButton}
+              onClick={() => setMenuOpen(!menuOpen)}
+              onMouseEnter={hoverBg}
+              onMouseLeave={(e) => { if (!menuOpen) resetBg(e) }}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </Tooltip>
           {menuOpen && (
             <div
               className="absolute top-full right-0 mt-1 rounded-lg shadow-lg py-1 z-50 min-w-[150px]"
@@ -979,33 +995,33 @@ function TopToolbar({
             >
               {(menuActions && menuActions.length > 0
                 ? menuActions.map((m) => (
-                    <button
-                      key={m.id}
-                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
-                      onClick={() => { m.onClick(); setMenuOpen(false) }}
-                    >
-                      {m.label}
-                    </button>
-                  ))
+                  <button
+                    key={m.id}
+                    className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                    onClick={() => { m.onClick(); setMenuOpen(false) }}
+                  >
+                    {m.label}
+                  </button>
+                ))
                 : [
-                    { id: 'export', label: 'Export CSV' },
-                    { id: 'archive', label: 'Archive all' },
-                    { id: 'columns', label: 'Manage columns' },
-                  ].map((m) => (
-                    <button
-                      key={m.id}
-                      className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
-                      style={{ color: 'var(--color-text-secondary)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      {m.label}
-                    </button>
-                  ))
+                  { id: 'export', label: 'Export CSV' },
+                  { id: 'archive', label: 'Archive all' },
+                  { id: 'columns', label: 'Manage columns' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    className="flex items-center w-full px-3 py-1.5 text-[13px] transition-colors whitespace-nowrap"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-surface-1)'; e.currentTarget.style.color = 'var(--color-text-primary)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-secondary)' }}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {m.label}
+                  </button>
+                ))
               )}
             </div>
           )}
@@ -1046,16 +1062,17 @@ function TopToolbar({
 
         {/* Clear all filters */}
         {onClearFilters && (activeFilterCount ?? 0) > 0 && (
-          <button
-            style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3, color: st.textMuted }}
-            onClick={onClearFilters}
-            title="Clear all filters"
-            onMouseEnter={(e) => { e.currentTarget.style.color = st.text }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = st.textMuted }}
-          >
-            <X className="h-3 w-3" />
-            Clear
-          </button>
+          <Tooltip content="Clear all filters">
+            <button
+              style={{ ...iconButton, width: 'auto', padding: '0 8px', gap: 3, color: st.textMuted }}
+              onClick={onClearFilters}
+              onMouseEnter={(e) => { e.currentTarget.style.color = st.text }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = st.textMuted }}
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>
@@ -1099,14 +1116,19 @@ export function DataGrid<T>({
   filters,
   activeFilterCount,
   onClearFilters,
+  columnOrderStorageKey,
 }: DataGridProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [internalSortKey, setInternalSortKey] = useState<string | null>(null)
   const [internalSortDir, setInternalSortDir] = useState<'asc' | 'desc'>('asc')
   const sortKey = serverSide ? (serverSortKey ?? null) : internalSortKey
   const sortDir = serverSide ? serverSortDir : internalSortDir
+  const { orderedColumns, onReorder } = useColumnOrder(columnOrderStorageKey, columns)
   const { widths: columnWidths, setWidth: setColumnWidth, autoFitColumn, autoFitSelected } = useColumnWidths()
   const [resizeIndicatorX, setResizeIndicatorX] = useState<number | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
+  const dragSourceKeyRef = useRef<string | null>(null)
+  const resizeJustOccurredRef = useRef(false)
   const resizingRef = useRef<{
     key: string; startX: number; startWidth: number; totalStartWidth: number; lastClientX?: number; el: HTMLElement | null;
     multiCols?: { key: string; startWidth: number; ratio: number; el: HTMLElement | null }[] | null;
@@ -1122,7 +1144,7 @@ export function DataGrid<T>({
 
   const sortedData = useMemo(() => {
     if (serverSide || !sortKey) return data
-    const col = columns.find((c) => c.key === sortKey)
+    const col = orderedColumns.find((c) => c.key === sortKey)
     if (!col) return data
     const getter = col.accessor ?? ((r: T) => (r as Record<string, unknown>)[col.key] as string | number | null | undefined)
     return [...data].sort((a, b) => {
@@ -1131,7 +1153,7 @@ export function DataGrid<T>({
       const cmp = va < vb ? -1 : va > vb ? 1 : 0
       return sortDir === 'desc' ? -cmp : cmp
     })
-  }, [serverSide, data, sortKey, sortDir, columns])
+  }, [serverSide, data, sortKey, sortDir, orderedColumns])
 
   // Refs hold latest values so toggleRowSelection stays stable across selection changes.
   // Without this, RowRenderer memo comparator skips re-render for unselected rows,
@@ -1151,7 +1173,7 @@ export function DataGrid<T>({
   const computedWidths = useMemo(() => {
     const w: Record<string, number> = {}
     const sample = sortedData.slice(0, 50)
-    for (const col of columns) {
+    for (const col of orderedColumns) {
       if (columnWidths[col.key] !== undefined) { w[col.key] = columnWidths[col.key]!; continue }
       let maxChars = col.header.length
       const getter = col.accessor ?? ((r: T) => (r as Record<string, unknown>)[col.key] as string | number | null | undefined)
@@ -1164,7 +1186,7 @@ export function DataGrid<T>({
       w[col.key] = col.width ?? auto
     }
     return w
-  }, [columns, sortedData, columnWidths])
+  }, [orderedColumns, sortedData, columnWidths])
 
   const totalWidth = useMemo(
     () => Object.values(computedWidths).reduce((s, w) => s + (w ?? 100), 0) + S.rowNumW + S.checkboxW,
@@ -1187,20 +1209,20 @@ export function DataGrid<T>({
   const getCellValue = useCallback((rowIndex: number, colIndex: number): string => {
     const row = sortedData[rowIndex]
     if (!row) return ''
-    const col = columns[colIndex]
+    const col = orderedColumns[colIndex]
     if (!col) return ''
     const val = col.accessor
       ? col.accessor(row, rowIndex)
       : ((row as Record<string, unknown>)[col.key] as string | number | null | undefined)
     return val != null && val !== '' ? String(val) : '—'
-  }, [sortedData, columns])
+  }, [sortedData, orderedColumns])
 
   const handleBatchEdit = useCallback((updates: { rowIndex: number; colIndex: number; value: string }[]) => {
     if (!onCellEdit) return
     // Spec §8.2-8.5: Batch all updates into a single API call
     const batch = updates.map((u) => {
       const row = sortedData[u.rowIndex]
-      const col = columns[u.colIndex]
+      const col = orderedColumns[u.colIndex]
       if (!row || !col) return null
       const dealId = (row as Record<string, unknown>).id as string | undefined
       if (!dealId) return null
@@ -1213,18 +1235,82 @@ export function DataGrid<T>({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ updates: batch }),
-    }).catch(() => {})
+    }).catch(() => { })
 
     // Also apply locally for optimistic update
     for (const u of updates) {
       onCellEdit(u.rowIndex, u.colIndex, u.value)
     }
-  }, [onCellEdit, sortedData, columns])
+  }, [onCellEdit, sortedData, orderedColumns])
+
+  // ── Save-success flash (declared before handleCellEdit which references it) ──
+  const [saveSuccessCell, setSaveSuccessCell] = useState<CellAddress | null>(null)
+  const saveSuccessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showSaveSuccess = useCallback((addr: CellAddress) => {
+    setSaveSuccessCell(addr)
+    if (saveSuccessTimeoutRef.current) clearTimeout(saveSuccessTimeoutRef.current)
+    saveSuccessTimeoutRef.current = setTimeout(() => {
+      setSaveSuccessCell(null)
+      saveSuccessTimeoutRef.current = null
+    }, 1000)
+  }, [])
 
   const handleCellEdit = useCallback((rowIndex: number, colIndex: number, value: string) => {
-    if (!onCellEdit) return
-    onCellEdit(rowIndex, colIndex, value)
-  }, [onCellEdit])
+    const row = sortedData[rowIndex]
+    const col = orderedColumns[colIndex]
+    if (!row || !col) return
+
+    if (col.onSave) {
+      toast.promise(col.onSave(row, value), {
+        loading: 'Updating...',
+        success: () => { showSaveSuccess({ rowIndex, colIndex }); return 'Updated' },
+        error: (err) => {
+          const msg = err instanceof Error ? err.message : 'Save failed'
+          return msg
+        },
+      })
+    } else {
+      const dealId = (row as Record<string, unknown>).id as string | undefined
+      if (!dealId) return
+
+      toast.promise(
+        fetch(`/api/deals/${dealId}/fields`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [col.key]: value }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            const msg = (body as { errors?: string[] }).errors?.join(', ') || (body as { error?: string }).error || `HTTP ${res.status}`
+            throw new Error(msg)
+          }
+        }),
+        {
+          loading: 'Updating...',
+          success: () => { showSaveSuccess({ rowIndex, colIndex }); return 'Updated' },
+          error: (err) => {
+            const label = col.header
+            return `Failed to save "${label}": ${err instanceof Error ? err.message : 'Network error'}`
+          },
+        },
+      )
+
+      // Optimistic local update — mutate deal_fields so the cell renders the new value immediately
+      const rowData = row as Record<string, unknown>
+      const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
+      if (dealFields) {
+        const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
+        if (existing) {
+          existing.value = value
+        } else {
+          dealFields.push({ value, field_definitions: { key: col.key } })
+        }
+      }
+    }
+
+    onCellEdit?.(rowIndex, colIndex, value)
+  }, [onCellEdit, sortedData, orderedColumns, showSaveSuccess])
 
   const copyHandler = useCallback((ranges: CellRange[]): string[][] => {
     const result: string[][] = []
@@ -1249,25 +1335,25 @@ export function DataGrid<T>({
     if (!scrollRef.current) return
     let offset = S.rowNumW
     for (let i = 0; i < colIndex; i++) {
-      const col = columns[i]
+      const col = orderedColumns[i]
       if (col) offset += computedWidths[col.key] ?? 100
     }
-    const colW = columns[colIndex] ? (computedWidths[columns[colIndex]!.key] ?? 100) : 100
+    const colW = orderedColumns[colIndex] ? (computedWidths[orderedColumns[colIndex]!.key] ?? 100) : 100
     const containerW = scrollRef.current.clientWidth
     if (offset < scrollRef.current.scrollLeft || offset + colW > scrollRef.current.scrollLeft + containerW) {
       scrollRef.current.scrollLeft = offset
     }
-  }, [columns, computedWidths])
+  }, [orderedColumns, computedWidths])
 
   const excludeColIndices = useMemo(() => {
     const s = new Set<number>()
     s.add(0) // Checkbox column — always excluded from keyboard nav (spec §1.3)
-    const lastIdx = columns.length - 1
-    if (lastIdx >= 0 && columns[lastIdx]!.key === 'actions') {
+    const lastIdx = orderedColumns.length - 1
+    if (lastIdx >= 0 && orderedColumns[lastIdx]!.key === 'actions') {
       s.add(lastIdx)
     }
     return s
-  }, [columns])
+  }, [orderedColumns])
 
   const [flashingCell, setFlashingCell] = useState<CellAddress | null>(null)
   const [validationFlashCell, setValidationFlashCell] = useState<CellAddress | null>(null)
@@ -1294,36 +1380,40 @@ export function DataGrid<T>({
 
   const validateCell = useCallback((rowIndex: number, colIndex: number, value: string): string | null => {
     if (!onCellEdit) return null
-    const col = columns[colIndex]
+    const col = orderedColumns[colIndex]
     if (!col) return null
-    if (col.key === 'deal_name') {
-      if (!value || value.trim().length === 0) return 'Property name cannot be empty'
-      if (value.length > 200) return 'Property name must be 200 characters or fewer'
-    }
-    if (col.key === 'address') {
-      if (value.length > 300) return 'Address must be 300 characters or fewer'
-    }
-    if (col.key === 'unit_count') {
-      if (value === '') return null
-      const n = parseInt(value, 10)
-      if (isNaN(n) || n < 0) return 'Units must be a positive number'
-    }
+    if (value.length > 500) return 'Value must be 500 characters or fewer'
     return null
-  }, [columns, onCellEdit])
+  }, [orderedColumns, onCellEdit])
+
+  const derivedEditableColumns = useMemo(() => {
+    const set = new Set<number>()
+    for (let i = 0; i < orderedColumns.length; i++) {
+      if (orderedColumns[i]!.editable) set.add(i)
+    }
+    return set
+  }, [orderedColumns])
 
   useEffect(() => {
     return () => {
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
       if (validationFlashTimeoutRef.current) clearTimeout(validationFlashTimeoutRef.current)
+      if (saveSuccessTimeoutRef.current) clearTimeout(saveSuccessTimeoutRef.current)
     }
   }, [])
 
+  const instantEditColumns = useMemo(
+    () => new Set(editComponents ? Object.keys(editComponents).map(Number) : []),
+    [editComponents],
+  )
+
   const interactConfig = {
     rowCount: sortedData.length,
-    colCount: columns.length,
+    colCount: orderedColumns.length,
     pageSize: virtualPageSize,
     data: sortedData,
-    editableColumns: editableColumns ?? new Set(),
+    editableColumns: editableColumns ?? derivedEditableColumns,
+    instantEditColumns,
     excludeColIndices,
     getCellValue,
     onCellEdit: handleCellEdit,
@@ -1509,6 +1599,8 @@ export function DataGrid<T>({
         }
       }
       resizingRef.current = null
+      resizeJustOccurredRef.current = true
+      setTimeout(() => { resizeJustOccurredRef.current = false }, 50)
       setResizeIndicatorX(null)
       if (resizeRafRef.current) {
         cancelAnimationFrame(resizeRafRef.current)
@@ -1526,7 +1618,7 @@ export function DataGrid<T>({
   }, [computedWidths, setColumnWidth, selectedColKeys])
 
   const getAutoFitValues = useCallback((colKey: string) => {
-    const col = columns.find((c) => c.key === colKey)
+    const col = orderedColumns.find((c) => c.key === colKey)
     if (!col) return []
     const values = sortedData.slice(0, 50).map((row, i) => {
       const val = col.accessor
@@ -1536,36 +1628,23 @@ export function DataGrid<T>({
     })
     values.push(col.header)
     return values
-  }, [columns, sortedData])
-
-  const applyWidthToColumnElements = useCallback((colKey: string, width: number) => {
-    if (!scrollRef.current) return
-    const headerEl = scrollRef.current.querySelector(`[data-col-key="${colKey}"]`) as HTMLElement | null
-    if (headerEl) headerEl.style.width = `${width}px`
-    const colIndex = columns.findIndex((c) => c.key === colKey)
-    if (colIndex >= 0) {
-      const cellEls = scrollRef.current.querySelectorAll(`[id^="grid-cell-r"][id$="-c${colIndex}"]`)
-      for (const el of cellEls) {
-        (el as HTMLElement).style.width = `${width}px`
-      }
-    }
-  }, [columns])
+  }, [orderedColumns, sortedData])
 
   const onResizeDoubleClick = useCallback((key: string) => {
     const isMulti = selectedColKeys.size > 1 && selectedColKeys.has(key)
     if (isMulti) {
-      const widths = autoFitSelected(Array.from(selectedColKeys), (colKey) => getAutoFitValues(colKey))
-      for (const [colKey, w] of Object.entries(widths)) {
-        applyWidthToColumnElements(colKey, w)
-      }
+      autoFitSelected(Array.from(selectedColKeys), (colKey) => getAutoFitValues(colKey))
     } else {
-      const w = autoFitColumn(key, () => getAutoFitValues(key))
-      applyWidthToColumnElements(key, w)
+      autoFitColumn(key, () => getAutoFitValues(key))
     }
-  }, [autoFitColumn, autoFitSelected, selectedColKeys, getAutoFitValues, applyWidthToColumnElements])
+  }, [autoFitColumn, autoFitSelected, selectedColKeys, getAutoFitValues])
 
   const handleDraftChange = useCallback((val: string) => {
     dispatch({ type: 'SET_DRAFT', value: val })
+  }, [dispatch])
+
+  const discardEdit = useCallback(() => {
+    dispatch({ type: 'DISCARD_EDIT' })
   }, [dispatch])
 
   const hasActiveFilter = (topToolbar?.searchValue && topToolbar.searchValue.length > 0) || (filters?.some((f) => f.value != null)) || false
@@ -1612,7 +1691,7 @@ export function DataGrid<T>({
             ? () => onSortChange?.('', 'desc')
             : () => { setInternalSortKey(null); setInternalSortDir('asc') }}
           sortKey={sortKey}
-          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
+          sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
           defaultSortKey="created_at"
           searchValue={topToolbar.searchValue}
           onSearchChange={topToolbar.onSearchChange}
@@ -1647,29 +1726,30 @@ export function DataGrid<T>({
               style={{ width: S.checkboxW, height: S.headerH, background: S.headerBg, borderColor: S.headerBorder }}
               onClick={(e) => e.stopPropagation()}
             >
-              <label
-                className="flex items-center justify-center cursor-pointer"
-                style={{ width: 18, height: 18 }}
-                title={allRowsSelected || allSelected ? 'All rows selected. Click to clear.' : 'Select all on page'}
-                onClick={(e) => { e.preventDefault(); toggleAllRows() }}
-              >
-                <div
-                  className="flex items-center justify-center rounded transition-colors"
-                  style={{
-                    width: 16, height: 16,
-                    border: `1.5px solid ${allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) || someSelected ? S.accent : 'var(--color-text-tertiary)'}`,
-                    background: allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
-                  }}
+              <Tooltip content={allRowsSelected || allSelected ? 'All rows selected. Click to clear.' : 'Select all on page'}>
+                <label
+                  className="flex items-center justify-center cursor-pointer"
+                  style={{ width: 18, height: 18 }}
+                  onClick={(e) => { e.preventDefault(); toggleAllRows() }}
                 >
-                  {allRowsSelected && resolvedSelectedIds.size > 0 ? (
-                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
-                  ) : allSelected ? (
-                    <Check className="h-3 w-3" style={{ color: '#fff' }} strokeWidth={3} />
-                  ) : someSelected ? (
-                    <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
-                  ) : null}
-                </div>
-              </label>
+                  <div
+                    className="flex items-center justify-center rounded transition-colors"
+                    style={{
+                      width: 16, height: 16,
+                      border: `1.5px solid ${allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) || someSelected ? S.accent : 'var(--color-text-tertiary)'}`,
+                      background: allSelected || (allRowsSelected && resolvedSelectedIds.size > 0) ? S.accent : someSelected ? 'var(--color-accent-bg)' : 'transparent',
+                    }}
+                  >
+                    {allRowsSelected && resolvedSelectedIds.size > 0 ? (
+                      <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
+                    ) : allSelected ? (
+                      <Check className="h-3 w-3" style={{ color: 'var(--color-text-inverse)' }} strokeWidth={3} />
+                    ) : someSelected ? (
+                      <Minus className="h-3 w-3" style={{ color: 'var(--accent)' }} strokeWidth={3} />
+                    ) : null}
+                  </div>
+                </label>
+              </Tooltip>
             </div>
 
             <div
@@ -1678,25 +1758,74 @@ export function DataGrid<T>({
             >
               #
             </div>
-            {columns.map((col) => {
+            {orderedColumns.map((col) => {
               const w = computedWidths[col.key] ?? 100
-        const isActionsCol = col.key === 'actions'
-        const isColSelected = selectedColKeys.has(col.key)
+              const isActionsCol = col.key === 'actions'
+              const isColSelected = selectedColKeys.has(col.key)
+              const isDraggable = columnOrderStorageKey != null && !isActionsCol
+              const isDropTarget = dragOverKey === col.key
               return (
                 <div
                   key={col.key}
                   data-col-key={col.key}
+                  draggable={isDraggable || undefined}
+                  onDragStart={(e) => {
+                    if (!isDraggable) return
+                    dragSourceKeyRef.current = col.key
+                    e.dataTransfer.effectAllowed = 'move'
+                    e.dataTransfer.setData('text/plain', col.key)
+                  }}
+                  onDragOver={(e) => {
+                    if (!columnOrderStorageKey || isActionsCol) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setDragOverKey(col.key)
+                  }}
+                  onDragLeave={(e) => {
+                    if (!columnOrderStorageKey) return
+                    // Only clear if actually leaving this element
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const x = e.clientX
+                    const y = e.clientY
+                    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+                      setDragOverKey(null)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    if (!columnOrderStorageKey || isActionsCol) return
+                    e.preventDefault()
+                    const sourceKey = e.dataTransfer.getData('text/plain')
+                    if (!sourceKey || sourceKey === col.key) {
+                      setDragOverKey(null)
+                      return
+                    }
+                    const fromIndex = orderedColumns.findIndex((c) => c.key === sourceKey)
+                    const toIndex = orderedColumns.findIndex((c) => c.key === col.key)
+                    if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
+                      onReorder(fromIndex, toIndex)
+                    }
+                    setDragOverKey(null)
+                    dragSourceKeyRef.current = null
+                  }}
+                  onDragEnd={() => {
+                    setDragOverKey(null)
+                    dragSourceKeyRef.current = null
+                  }}
                   className={`relative flex-shrink-0 flex items-center gap-1 px-3 text-[11px] font-medium uppercase tracking-[0.06em] border-r select-none ${isActionsCol ? 'sticky right-0 z-20' : ''}`}
                   style={{
                     width: w, height: S.headerH, borderColor: S.headerBorder, color: S.headerText,
                     background: isColSelected ? S.accentBg : S.headerBg,
                     justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start',
-                    cursor: col.sortable !== false ? 'pointer' : 'default',
+                    cursor: isDraggable ? (col.sortable !== false ? 'grab' : 'grab') : (col.sortable !== false ? 'pointer' : 'default'),
+                    borderLeftColor: isDropTarget ? S.accent : undefined,
+                    borderLeftWidth: isDropTarget ? '2px' : undefined,
+                    borderLeftStyle: isDropTarget ? 'solid' : undefined,
                   }}
                   onClick={(e) => {
+                    if (resizeJustOccurredRef.current) return
                     if (e.shiftKey && col.sortable !== false) {
                       e.preventDefault()
-                      const selectableKeys = columns.filter((c) => c.key !== 'actions').map((c) => c.key)
+                      const selectableKeys = orderedColumns.filter((c) => c.key !== 'actions').map((c) => c.key)
                       if (!lastShiftClickColRef.current) {
                         lastShiftClickColRef.current = col.key
                         setSelectedColKeys(new Set([col.key]))
@@ -1717,9 +1846,24 @@ export function DataGrid<T>({
                     }
                   }}
                   role="columnheader"
-                  id={`grid-header-c${columns.indexOf(col)}`}
+                  id={`grid-header-c${orderedColumns.indexOf(col)}`}
                 >
-                  <span className="truncate">{col.header}</span>
+                  {col.headerRender ? col.headerRender(col) : (
+                    <span className="flex items-center gap-0.5 min-w-0">
+                      <span className="truncate">{col.header}</span>
+                      {col.isRequired && (
+                        <Tooltip content="Required field" position="top">
+                          <Asterisk
+                            className="flex-shrink-0"
+                            size={11}
+                            strokeWidth={2.5}
+                            style={{ color: 'var(--accent)' }}
+                            aria-hidden="true"
+                          />
+                        </Tooltip>
+                      )}
+                    </span>
+                  )}
                   {sortIcon(col)}
                   <div
                     className="absolute right-0 top-0 bottom-0 w-[5px] cursor-col-resize z-20 transition-opacity"
@@ -1732,7 +1876,10 @@ export function DataGrid<T>({
                       e.currentTarget.style.background = 'transparent'
                       e.currentTarget.style.opacity = '0.6'
                     }}
-                    onMouseDown={(e) => onResizeStart(col.key, e)}
+                    onMouseDown={(e) => {
+                      e.stopPropagation()
+                      onResizeStart(col.key, e)
+                    }}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       onResizeDoubleClick(col.key)
@@ -1760,7 +1907,7 @@ export function DataGrid<T>({
                     }}
                     className="text-[12px] font-medium px-3 py-1 rounded-md transition-colors"
                     style={{ color: 'var(--accent)', background: 'var(--color-accent-bg)' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-accent)'; e.currentTarget.style.color = '#fff' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-accent)'; e.currentTarget.style.color = 'var(--color-text-inverse)' }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-accent-bg)'; e.currentTarget.style.color = 'var(--accent)' }}
                   >
                     Clear filter
@@ -1769,7 +1916,7 @@ export function DataGrid<T>({
                   <button
                     onClick={emptyAction.onClick}
                     className="text-[13px] font-medium px-4 py-2 rounded-lg transition-colors"
-                    style={{ background: 'var(--color-accent)', color: '#fff' }}
+                    style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
                     onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9' }}
                     onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
                   >
@@ -1779,63 +1926,65 @@ export function DataGrid<T>({
               </div>
             ) : loading
               ? virtualizer.getVirtualItems().map((vi) => (
-                  <div
-                    key={vi.key}
-                    className="flex absolute top-0 left-0 border-b"
-                    style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)`, borderColor: S.rowBorder }}
-                  >
-                    <div className="flex-shrink-0 sticky left-0 z-20 flex items-center justify-center border-r" style={{ width: S.checkboxW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
-                    </div>
-                    <div className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 border-r" style={{ width: S.rowNumW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
-                      <div className="h-3 w-8 rounded" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
-                    </div>
-                    {columns.map((col) => {
-                      const wc = computedWidths[col.key] ?? 100
-                      return (
-                        <div key={col.key} className="flex-shrink-0 flex items-center px-3 border-r" style={{ width: wc, height: vi.size, borderColor: S.rowBorder }}>
-                          <div className="h-3 rounded w-3/4" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
-                        </div>
-                      )
-                    })}
+                <div
+                  key={vi.key}
+                  className="flex absolute top-0 left-0 border-b"
+                  style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)`, borderColor: S.rowBorder }}
+                >
+                  <div className="flex-shrink-0 sticky left-0 z-20 flex items-center justify-center border-r" style={{ width: S.checkboxW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
                   </div>
-                ))
+                  <div className="flex-shrink-0 sticky left-[40px] z-10 flex items-center justify-end px-2 border-r" style={{ width: S.rowNumW, borderColor: S.rowBorder, background: S.rowEvenBg }}>
+                    <div className="h-3 w-8 rounded" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+                  </div>
+                  {orderedColumns.map((col) => {
+                    const wc = computedWidths[col.key] ?? 100
+                    return (
+                      <div key={col.key} className="flex-shrink-0 flex items-center px-3 border-r" style={{ width: wc, height: vi.size, borderColor: S.rowBorder }}>
+                        <div className="h-3 rounded w-3/4" style={{ background: `linear-gradient(90deg, ${S.skelShimmer1} 25%, ${S.skelShimmer2} 50%, ${S.skelShimmer1} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ))
               : virtualizer.getVirtualItems().map((vi) => {
-                  const row = sortedData[vi.index]
-                  if (!row) return null
-                  return (
-                    <div
-                      key={rowKey(row, vi.index)}
-                      className="flex absolute top-0 left-0"
-                      style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)` }}
-                      onClick={() => onRowClick?.(row, vi.index)}
-                    >
-                      <RowRenderer
-                        row={row as T}
-                        rowIndex={vi.index}
-                        columns={columns as unknown as ColumnDef<unknown>[]}
-                        computedWidths={computedWidths}
-                        isEven={vi.index % 2 === 0}
-                        onRowClick={onRowClick as unknown as ((row: unknown, index: number) => void)}
-                        interactionState={state}
-                        interactionHandlers={{
-                          onCellMouseDown: interaction.onCellMouseDown,
-                          onCellMouseEnter: interaction.onCellMouseEnter,
-                          onCellMouseUp: interaction.onCellMouseUp,
-                          onCellDoubleClick: interaction.onCellDoubleClick,
-                        }}
-                        editingValue={state.draftValue}
-                        onDraftChange={handleDraftChange}
-                        commitEdit={interaction.commitEdit}
-                        onRowKeyDown={interaction.onContainerKeyDown}
-                        isSelected={resolvedSelectedIds.has(rowKey(row, vi.index))}
-                        onCheckboxToggle={toggleRowSelection}
-                        flashingCell={flashingCell}
-                        validationFlashCell={validationFlashCell}
-                        editComponents={editComponents}
-                      />
-                    </div>
-                  )
-                })}
+                const row = sortedData[vi.index]
+                if (!row) return null
+                return (
+                  <div
+                    key={rowKey(row, vi.index)}
+                    className="flex absolute top-0 left-0"
+                    style={{ height: vi.size, width: '100%', transform: `translateY(${vi.start}px)` }}
+                  >
+                    <RowRenderer
+                      row={row as T}
+                      rowIndex={vi.index}
+                      columns={orderedColumns as unknown as ColumnDef<unknown>[]}
+                      computedWidths={computedWidths}
+                      isEven={vi.index % 2 === 0}
+                      onRowClick={onRowClick as unknown as ((row: unknown, index: number) => void)}
+                      interactionState={state}
+                      interactionHandlers={{
+                        onCellMouseDown: interaction.onCellMouseDown,
+                        onCellMouseEnter: interaction.onCellMouseEnter,
+                        onCellMouseUp: interaction.onCellMouseUp,
+                        onCellDoubleClick: interaction.onCellDoubleClick,
+                        onCellClick: interaction.onCellClick,
+                      }}
+                      editingValue={state.draftValue}
+                      onDraftChange={handleDraftChange}
+                      commitEdit={interaction.commitEdit}
+                      discardEdit={discardEdit}
+                      onRowKeyDown={interaction.onContainerKeyDown}
+                      isSelected={resolvedSelectedIds.has(rowKey(row, vi.index))}
+                      onCheckboxToggle={toggleRowSelection}
+                      flashingCell={flashingCell}
+                      validationFlashCell={validationFlashCell}
+                      saveSuccessCell={saveSuccessCell}
+                      editComponents={editComponents}
+                    />
+                  </div>
+                )
+              })}
           </div>
         </div>
       </div>
@@ -1845,88 +1994,88 @@ export function DataGrid<T>({
         const n = rangeNormalize(r)
         return n.start.rowIndex !== n.end.rowIndex || n.start.colIndex !== n.end.colIndex
       }) && (
-        <div className="relative" style={{ height: 0 }}>
-          {state.selectionRanges.map((range, i) => {
-            const n = rangeNormalize(range)
-            if (n.start.rowIndex === n.end.rowIndex && n.start.colIndex === n.end.colIndex) return null
-            let left = S.checkboxW + S.rowNumW
-            let top = 0
-            let width = 0
-            let heightVal = 0
+          <div className="relative" style={{ height: 0 }}>
+            {state.selectionRanges.map((range, i) => {
+              const n = rangeNormalize(range)
+              if (n.start.rowIndex === n.end.rowIndex && n.start.colIndex === n.end.colIndex) return null
+              let left = S.checkboxW + S.rowNumW
+              let top = 0
+              let width = 0
+              let heightVal = 0
 
-            for (let c = 0; c < n.start.colIndex; c++) {
-              const col = columns[c]
-              if (col) left += computedWidths[col.key] ?? 100
-            }
-            for (let c = n.start.colIndex; c <= n.end.colIndex; c++) {
-              const col = columns[c]
-              if (col) width += computedWidths[col.key] ?? 100
-            }
+              for (let c = 0; c < n.start.colIndex; c++) {
+                const col = orderedColumns[c]
+                if (col) left += computedWidths[col.key] ?? 100
+              }
+              for (let c = n.start.colIndex; c <= n.end.colIndex; c++) {
+                const col = orderedColumns[c]
+                if (col) width += computedWidths[col.key] ?? 100
+              }
 
-            const vItems = virtualizer.getVirtualItems()
-            const firstVis = vItems[0]
-            const lastVis = vItems[vItems.length - 1]
-            if (!firstVis || !lastVis) return null
+              const vItems = virtualizer.getVirtualItems()
+              const firstVis = vItems[0]
+              const lastVis = vItems[vItems.length - 1]
+              if (!firstVis || !lastVis) return null
 
-            const firstRow = Math.max(n.start.rowIndex, firstVis.index)
-            const lastRow = Math.min(n.end.rowIndex, lastVis.index)
+              const firstRow = Math.max(n.start.rowIndex, firstVis.index)
+              const lastRow = Math.min(n.end.rowIndex, lastVis.index)
 
-            if (firstRow > lastRow) return null
+              if (firstRow > lastRow) return null
 
-            if (firstRow === n.start.rowIndex) {
-              top = (firstRow - firstVis.index) * S.rowH
-            } else {
-              top = 0
-            }
+              if (firstRow === n.start.rowIndex) {
+                top = (firstRow - firstVis.index) * S.rowH
+              } else {
+                top = 0
+              }
 
-            if (firstRow === n.start.rowIndex && lastRow === n.end.rowIndex) {
-              heightVal = (n.end.rowIndex - n.start.rowIndex + 1) * S.rowH
-            } else if (firstRow === n.start.rowIndex) {
-              heightVal = (lastRow - n.start.rowIndex + 1) * S.rowH
-            } else if (lastRow === n.end.rowIndex) {
-              heightVal = (n.end.rowIndex - firstRow + 1) * S.rowH
-            } else {
-              heightVal = (lastRow - firstRow + 1) * S.rowH
-            }
+              if (firstRow === n.start.rowIndex && lastRow === n.end.rowIndex) {
+                heightVal = (n.end.rowIndex - n.start.rowIndex + 1) * S.rowH
+              } else if (firstRow === n.start.rowIndex) {
+                heightVal = (lastRow - n.start.rowIndex + 1) * S.rowH
+              } else if (lastRow === n.end.rowIndex) {
+                heightVal = (n.end.rowIndex - firstRow + 1) * S.rowH
+              } else {
+                heightVal = (lastRow - firstRow + 1) * S.rowH
+              }
 
-            top += firstVis.start
+              top += firstVis.start
 
-            return (
-              <div
-                key={i}
-                className="absolute pointer-events-none z-20"
-                style={{
-                  left, top, width, height: heightVal,
-                  border: `1px solid ${S.accent}`,
-                }}
-              />
-            )
-          })}
-        </div>
-      )}
+              return (
+                <div
+                  key={i}
+                  className="absolute pointer-events-none z-20"
+                  style={{
+                    left, top, width, height: heightVal,
+                    border: `1px solid ${S.accent}`,
+                  }}
+                />
+              )
+            })}
+          </div>
+        )}
 
       {/* Toolbar — row count / selection actions / pagination */}
       <Toolbar
-          sortedDataLength={sortedData.length}
-          sortKey={sortKey}
-          sortColumnHeader={columns.find((c) => c.key === sortKey)?.header}
-          defaultSortKey="created_at"
-          selectedCount={resolvedSelectedIds.size}
-          selectedIds={[...resolvedSelectedIds]}
-          selectionActions={selectionActions}
-          selectionMenuActions={selectionMenuActions}
-          bulkActions={bulkActions}
-          onClearSelection={() => {
-            const next = new Set<string>()
-            if (!isControlled) setInternalSelectedIds(next)
-            onSelectionChange?.(next)
-          }}
-          pagination={
-            totalRows != null && page != null && pageSize != null && onPageChange
-              ? { totalRows, page, pageSize, onPageChange, onPageSizeChange, pageSizes }
-              : undefined
-          }
-        />
+        sortedDataLength={sortedData.length}
+        sortKey={sortKey}
+        sortColumnHeader={orderedColumns.find((c) => c.key === sortKey)?.header}
+        defaultSortKey="created_at"
+        selectedCount={resolvedSelectedIds.size}
+        selectedIds={[...resolvedSelectedIds]}
+        selectionActions={selectionActions}
+        selectionMenuActions={selectionMenuActions}
+        bulkActions={bulkActions}
+        onClearSelection={() => {
+          const next = new Set<string>()
+          if (!isControlled) setInternalSelectedIds(next)
+          onSelectionChange?.(next)
+        }}
+        pagination={
+          totalRows != null && page != null && pageSize != null && onPageChange
+            ? { totalRows, page, pageSize, onPageChange, onPageSizeChange, pageSizes }
+            : undefined
+        }
+      />
 
       {/* Resize drag indicator */}
       {resizeIndicatorX !== null && (
@@ -1945,11 +2094,11 @@ export function DataGrid<T>({
         const n = rangeNormalize(r)
         return n.start.rowIndex !== n.end.rowIndex || n.start.colIndex !== n.end.colIndex
       }) && (
-        <div
-          className="fixed inset-0 z-[100]"
-          style={{ cursor: 'default' }}
-        />
-      )}
+          <div
+            className="fixed inset-0 z-[100]"
+            style={{ cursor: 'default' }}
+          />
+        )}
 
       <style jsx>{`
         @keyframes shimmer {

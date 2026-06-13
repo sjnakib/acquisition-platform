@@ -81,7 +81,7 @@ export function DeletePortfolioDialog({ open, onOpenChange, portfolioName, dealC
           <Button
             onClick={handleDelete}
             disabled={!mode || deleting}
-            style={mode ? { background: 'var(--color-danger-solid)', color: '#FFF' } : undefined}
+            style={mode ? { background: 'var(--color-danger-solid)', color: 'var(--color-text-inverse)' } : undefined}
           >
             {deleting ? <LoadingSpinner size="sm" /> : 'Delete Portfolio'}
           </Button>

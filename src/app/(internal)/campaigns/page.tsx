@@ -67,7 +67,7 @@ export default function CampaignsPage() {
   const selectedCount = selectedIds?.size ?? 0
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
       <PageHeader
         title={pageHeadings.campaigns.title}
         description={pageHeadings.campaigns.description}
@@ -80,7 +80,7 @@ export default function CampaignsPage() {
 
       {selectedCount > 0 && (
         <div
-          className="flex items-center justify-between px-4 py-2 rounded-lg mb-3 text-[13px]"
+          className="flex items-center justify-between px-4 py-2 rounded-lg mb-3 text-[13px] flex-shrink-0"
           style={{
             background: 'var(--color-danger-bg)',
             border: '1px solid var(--color-danger-border)',
@@ -99,18 +99,20 @@ export default function CampaignsPage() {
         </div>
       )}
 
-      <DataGrid
-        columns={columns}
-        data={campaigns}
-        rowKey={(r) => r.id}
-        onRowClick={(r) => router.push(`/campaigns/${r.id}`)}
-        loading={isLoading}
-        emptyMessage="No campaigns — create one first"
-        emptyAction={{ label: 'Create Campaign', onClick: () => setCreateOpen(true) }}
-        maxHeight="calc(100vh - 230px)"
-        selectedRowIds={selectedIds}
-        onSelectionChange={setSelectedIds}
-      />
+      <div className="flex-1 min-h-0">
+        <DataGrid
+          columns={columns}
+          data={campaigns}
+          rowKey={(r) => r.id}
+          onRowClick={(r) => router.push(`/campaigns/${r.id}`)}
+          loading={isLoading}
+          emptyMessage="No campaigns — create one first"
+          emptyAction={{ label: 'Create Campaign', onClick: () => setCreateOpen(true) }}
+          fillHeight
+          selectedRowIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+        />
+      </div>
 
       <CreateCampaignDialog open={createOpen} onOpenChange={setCreateOpen} />
       <DeleteCampaignDialog

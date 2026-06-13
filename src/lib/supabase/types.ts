@@ -21,7 +21,7 @@ export type Database = {
       }
     }
     Enums: {
-      user_role: 'internal' | 'client'
+      user_role: 'internal' | 'client' | 'admin'
       listing_type: 'on_market' | 'off_market'
       deal_source: 'direct' | 'indirect'
       email_template_key: 'outreach' | 'thank_you' | 'declination'

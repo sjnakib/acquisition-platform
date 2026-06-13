@@ -3,46 +3,30 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Mail, Target, BarChart3 } from 'lucide-react'
+import { ArrowLeft, Mail, Target, BarChart3, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { DealTable } from '@/components/deals/DealTable'
+import { DealTable, type Deal } from '@/components/deals/DealTable'
 import { DeleteDealDialog } from '@/components/deals/DeleteDealDialog'
 import { batchDeleteDeals, deleteAllDeals } from '@/lib/batch-delete'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManager'
+import { CampaignEmailView } from '@/components/campaigns/CampaignEmailView'
+import { Tooltip } from '@/components/ui/tooltip'
+import { toast } from 'sonner'
 
 interface Campaign {
-  id: string
-  name: string
-  market: string
-  listing_type: string | null
-  email_template: string | null
-  email_subject_template: string | null
-  target_response_rate_pct: number | null
-  target_loi_count: number | null
-  is_active: boolean
-  created_at: string
+  id: string; name: string; market: string; listing_type: string | null
+  email_template: string | null; email_template_id: string | null
+  email_subject_template: string | null; email_body_template: string | null
+  project_id: string | null
+  target_response_rate_pct: number | null; target_loi_count: number | null
+  is_active: boolean; created_at: string
 }
 
 interface FieldDef {
-  id: string
-  key: string
-  label: string
-  data_type: string
-  show_in_grid: boolean
-  sort_order: number
-}
-
-interface Deal {
-  id: string
-  deal_name: string | null
-  unit_count: number | null
-  stage: string
-  score: string | null
-  created_at: string
-  campaigns: { name: string; market: string } | null
-  portfolios?: { id: string; name: string } | null
-  deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
+  id: string; key: string; label: string; data_type: string
+  show_in_grid: boolean; sort_order: number; source?: string | null
 }
 
 const STAGE_ORDER = ['lead', 'outreach', 'response', 'underwriting', 'loi', 'closed', 'failed', 'archived'] as const
@@ -52,16 +36,17 @@ const STAGE_LABELS: Record<string, string> = {
   failed: 'Failed', archived: 'Archived',
 }
 
-const tabTriggerStyle = (active: boolean) =>
+const tabTriggerStyle = (active: boolean, disabled?: boolean) =>
   ({
     padding: '6px 14px',
     fontSize: 13,
     fontWeight: 500,
     fontFamily: 'var(--font-dm-sans)',
-    color: active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+    color: disabled ? 'var(--color-text-tertiary)' : active ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+    borderBottom: active && !disabled ? '2px solid var(--accent)' : '2px solid transparent',
     background: 'transparent',
-    cursor: 'pointer',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
     transition: 'color 150ms ease, border-color 150ms ease',
   }) as const
 
@@ -147,7 +132,7 @@ export default function CampaignDetailPage() {
   const id = params.id as string
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'details' | 'leads'>('leads')
+  const [tab, setTab] = useState<'details' | 'leads' | 'emails'>('leads')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
@@ -191,14 +176,14 @@ export default function CampaignDetailPage() {
     },
   })
 
-  // Lightweight query for Details tab metrics — all deals, just stage + unit_count
-  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'unit_count'>[]>({
-    queryKey: ['deals', { campaign_id: id, select: 'stage,unit_count' }],
+  // Lightweight query for Details tab metrics — all deals for stage counts
+  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'deal_fields'>[]>({
+    queryKey: ['deals', { campaign_id: id, select: 'stage' }],
     queryFn: async () => {
       const res = await fetch(`/api/deals?campaign_id=${encodeURIComponent(id)}&limit=1000`)
       if (!res.ok) throw new Error('Failed to fetch deal metrics')
       const json = await res.json()
-      return (json.data ?? []) as Pick<Deal, 'stage' | 'unit_count'>[]
+      return (json.data ?? []) as Pick<Deal, 'stage' | 'deal_fields'>[]
     },
     enabled: tab === 'details',
   })
@@ -212,14 +197,46 @@ export default function CampaignDetailPage() {
     },
   })
 
+  // Gmail connection status — requires project_id from campaign
+  const projectId = campaign?.project_id
+  const { data: gmailConnected = false } = useQuery<boolean>({
+    queryKey: ['project', projectId, 'gmail-status'],
+    queryFn: async () => {
+      if (!projectId) return false
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`)
+      if (!res.ok) return false
+      const json = await res.json()
+      return !!json.google_connections?.google_email
+    },
+    enabled: !!projectId,
+  })
+
+  const handleCampaignUpdate = async (updates: Partial<Campaign>) => {
+    try {
+      const res = await fetch(`/api/campaigns/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) throw new Error('Failed to update campaign')
+      queryClient.invalidateQueries({ queryKey: ['campaigns', id] })
+    } catch {
+      toast.error('Failed to save template')
+    }
+  }
+
   const deals = dealsData?.data ?? []
   const total = dealsData?.total ?? 0
+  const activeTab = total === 0 ? 'leads' : tab
 
   // Clamp page if sort/filter reduced total pages below current page
   useEffect(() => {
     if (deals.length === 0 && total > 0 && page > 1) {
       const maxPage = Math.ceil(total / pageSize)
-      setPage(Math.min(page, maxPage))
+      const timer = setTimeout(() => {
+        setPage(Math.min(page, maxPage))
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [deals.length, total, page, pageSize])
 
@@ -232,7 +249,7 @@ export default function CampaignDetailPage() {
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 130px)' }}>
+    <div className="flex flex-col -mb-4" style={{ height: 'calc(100vh - 48px)' }}>
       {/* Header */}
       <div className="flex items-center gap-2 flex-shrink-0 mb-3">
         <Button variant="ghost" size="icon" onClick={() => router.push('/campaigns')} className="h-8 w-8">
@@ -261,105 +278,89 @@ export default function CampaignDetailPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-0 flex-shrink-0 mb-4" style={{ borderBottom: '1px solid var(--color-surface-2)' }}>
-        <button style={tabTriggerStyle(tab === 'details')} onClick={() => setTab('details')}>
-          Details
-        </button>
-        <button style={tabTriggerStyle(tab === 'leads')} onClick={() => setTab('leads')}>
+        {total === 0 ? (
+          <Tooltip content="Import leads first to enable mass emailing" position="bottom">
+            <button
+              style={tabTriggerStyle(activeTab === 'details', total === 0)}
+              onClick={() => setTab('details')}
+              disabled={total === 0}
+            >
+              Details
+            </button>
+          </Tooltip>
+        ) : (
+          <button
+            style={tabTriggerStyle(activeTab === 'details', total === 0)}
+            onClick={() => setTab('details')}
+            disabled={total === 0}
+          >
+            Details
+          </button>
+        )}
+        <button style={tabTriggerStyle(activeTab === 'leads')} onClick={() => setTab('leads')}>
           Leads{total > 0 ? ` (${total})` : ''}
+        </button>
+        <button
+          style={tabTriggerStyle(activeTab === 'emails')}
+          onClick={() => setTab('emails')}
+          className="inline-flex items-center gap-1.5"
+        >
+          <Inbox size={13} />
+          Emails
         </button>
       </div>
 
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {tab === 'details' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Template configuration */}
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}>
-                <Mail className="h-3.5 w-3.5" />
-                Template Configuration
-              </div>
-              {campaign.email_template ? (
-                <div style={{ marginBottom: campaign.email_subject_template ? 14 : 0 }}>
-                  <div style={labelStyle}>Email Template</div>
-                  <div style={valueStyle}>{campaign.email_template.replace(/_/g, ' ')}</div>
-                </div>
+        {activeTab === 'details' ? (
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            {/* Left 70% — Email Template Manager */}
+            <div style={{ width: '70%', minWidth: 0 }}>
+              {projectId ? (
+                <EmailTemplateManager
+                  campaign={campaign}
+                  projectId={projectId}
+                  leadsCount={total}
+                  gmailConnected={gmailConnected}
+                  onCampaignUpdate={handleCampaignUpdate}
+                />
               ) : (
-                <div style={mutedStyle}>No template selected.</div>
+                <div style={sectionStyle}>
+                  <div style={sectionTitleStyle}><Mail className="h-3.5 w-3.5" />Template Configuration</div>
+                  <div style={mutedStyle}>Campaign must be associated with a project to manage email templates.</div>
+                </div>
               )}
-              {campaign.email_subject_template && (
-                <div>
-                  <div style={labelStyle}>Subject Template</div>
-                  <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>
-                    {campaign.email_subject_template}
+            </div>
+            {/* Right 30% — Pipeline, Targets, Summary */}
+            <div style={{ width: '30%', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><BarChart3 className="h-3.5 w-3.5" />Pipeline by Stage</div>
+                {total === 0 ? <div style={mutedStyle}>No deals in this campaign yet.</div> : <StageBar deals={allDeals ?? []} />}
+              </div>
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><Target className="h-3.5 w-3.5" />Targets</div>
+                {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {campaign.target_response_rate_pct != null && <div><div style={labelStyle}>Response Rate</div><div style={valueStyle}>{campaign.target_response_rate_pct}%</div></div>}
+                    {campaign.target_loi_count != null && <div><div style={labelStyle}>LOI Count</div><div style={valueStyle}>{campaign.target_loi_count}</div></div>}
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Targets */}
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}>
-                <Target className="h-3.5 w-3.5" />
-                Targets
+                ) : <div style={mutedStyle}>No targets set.</div>}
               </div>
-              {campaign.target_response_rate_pct != null || campaign.target_loi_count != null ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  {campaign.target_response_rate_pct != null && (
-                    <div>
-                      <div style={labelStyle}>Response Rate</div>
-                      <div style={valueStyle}>{campaign.target_response_rate_pct}%</div>
-                    </div>
-                  )}
-                  {campaign.target_loi_count != null && (
-                    <div>
-                      <div style={labelStyle}>LOI Count</div>
-                      <div style={valueStyle}>{campaign.target_loi_count}</div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div style={mutedStyle}>No targets set.</div>
-              )}
-            </div>
-
-            {/* Pipeline by stage */}
-            <div style={sectionStyle}>
-              <div style={sectionTitleStyle}>
-                <BarChart3 className="h-3.5 w-3.5" />
-                Pipeline by Stage
-              </div>
-              {total === 0 ? (
-                <div style={mutedStyle}>No deals in this campaign yet.</div>
-              ) : (
-                <StageBar deals={allDeals ?? []} />
-              )}
-            </div>
-
-            {/* Summary card */}
-            <div style={sectionStyle}>
-              <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <div style={labelStyle}>Total Deals</div>
-                  <div style={valueStyle}>{total}</div>
-                </div>
-                <div>
-                  <div style={labelStyle}>Total Units</div>
-                  <div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => sum + (d.unit_count ?? 0), 0)}</div>
-                </div>
-                <div>
-                  <div style={labelStyle}>Market</div>
-                  <div style={valueStyle}>{campaign.market}</div>
-                </div>
-                <div>
-                  <div style={labelStyle}>Listing Type</div>
-                  <div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div>
+              <div style={sectionStyle}>
+                <div style={{ ...sectionTitleStyle, marginBottom: 12 }}>Summary</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div><div style={labelStyle}>Total Deals</div><div style={valueStyle}>{total}</div></div>
+                  <div><div style={labelStyle}>Total Units</div><div style={valueStyle}>{(allDeals ?? []).reduce((sum, d) => {
+                    const uc = d.deal_fields?.find((f) => f?.field_definitions?.key === 'unit_count')
+                    return sum + (uc?.value ? parseInt(uc.value, 10) || 0 : 0)
+                  }, 0)}</div></div>
+                  <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
+                  <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
                 </div>
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'leads' ? (
           <div className="flex flex-col" style={{ height: '100%' }}>
             <div className="flex-1 min-h-0">
               <DealTable
@@ -399,11 +400,25 @@ export default function CampaignDetailPage() {
               />
             </div>
           </div>
+        ) : projectId ? (
+          <div style={{ height: '100%' }}>
+            <CampaignEmailView campaignId={id} projectId={projectId} />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-center" style={{ height: '100%' }}>
+            <Mail size={32} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, marginBottom: 16 }} />
+            <p className="text-[14px] font-medium" style={{ color: 'var(--color-text-primary)' }}>Campaign not linked to a project</p>
+            <p className="text-[12px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>Associate this campaign with a project to enable email tracking.</p>
+          </div>
         )}
       </div>
 
       <DeleteDealDialog
-        dealNames={pendingDeleteIds.map((id) => deals.find((d) => d.id === id)?.deal_name ?? 'Untitled Deal')}
+        dealNames={pendingDeleteIds.map((id) => {
+          const d = deals.find((d) => d.id === id)
+          const df = d?.deal_fields?.find((f) => f?.field_definitions?.key === 'address')
+          return df?.value ?? 'Untitled Deal'
+        })}
         open={deleteOpen}
         allSelected={allSelected}
         totalCount={total}

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { CallBrief } from './CallBrief'
 
 interface Call {
@@ -9,26 +10,24 @@ interface Call {
  summary_text: string | null;
  published: boolean;
  client_notes: string | null;
+ contact_name: string | null;
+ contact_role: string | null;
+ phone_number: string | null;
  deals?: {
- deal_name: string | null;
- address: string | null;
- city: string | null;
- state: string | null;
  score: string | null;
+ deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null;
  };
 }
 
 export function CallQueue() {
- const [calls, setCalls] = useState<Call[]>([])
- const [loading, setLoading] = useState(true)
-
- useEffect(() => {
- fetch('/api/calls')
- .then((r) => r.json())
- .then(setCalls)
- .catch(console.error)
- .finally(() => setLoading(false))
- }, [])
+ const { data: calls = [], isLoading: loading } = useQuery<Call[]>({
+   queryKey: ['call_briefs'],
+   queryFn: async () => {
+     const res = await fetch('/api/calls')
+     if (!res.ok) throw new Error('Failed to load calls')
+     return res.json()
+   },
+ })
 
  if (loading) return <div className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading...</div>
 

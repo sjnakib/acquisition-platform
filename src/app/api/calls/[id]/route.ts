@@ -10,7 +10,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { data, error } = await supabase
       .from('call_briefs')
-      .select('*, deals(deal_name, score, unit_count)')
+      .select('*, deals(score, deal_fields(value, field_definitions(key)))')
       .eq('id', id)
       .single()
 
@@ -42,8 +42,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (isClient) {
       if (body.call_status) updateData.call_status = body.call_status
       if (body.client_notes !== undefined) updateData.client_notes = body.client_notes
-    } else {
       if (body.summary_text !== undefined) updateData.summary_text = body.summary_text
+    } else {
+      if (body.contact_name !== undefined) updateData.contact_name = body.contact_name
+      if (body.contact_role !== undefined) updateData.contact_role = body.contact_role
+      if (body.phone_number !== undefined) updateData.phone_number = body.phone_number
+      if (body.summary_text !== undefined) updateData.summary_text = body.summary_text
+      if (body.client_notes !== undefined) updateData.client_notes = body.client_notes
       if (body.published !== undefined) {
         updateData.published = body.published
         if (body.published) updateData.published_at = new Date().toISOString()

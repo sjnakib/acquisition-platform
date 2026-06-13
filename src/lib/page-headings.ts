@@ -16,7 +16,7 @@ export const pageHeadings = {
   },
   import: {
     title: 'Import Properties',
-    description: 'Upload an Excel or CSV file to import new deals into the pipeline.',
+    description: 'Upload an Excel file to import new deals into the pipeline.',
   },
   settings: {
     title: 'Settings',
@@ -29,5 +29,9 @@ export const pageHeadings = {
   callQueue: {
     title: 'Call Queue',
     description: 'Review these deals before your call with the team',
+  },
+  profile: {
+    title: 'Profile',
+    description: 'Your account details',
   },
 } as const

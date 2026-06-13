@@ -15,7 +15,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .select(`
         *,
         campaigns(*),
-        portfolios(id, name),
+        portfolios!deals_portfolio_id_fkey(id, name),
+        portfolio_details:portfolios!portfolio_deal_id(id, name, description),
         contacts(*),
         underwriting(*),
         call_briefs(*),
@@ -60,25 +61,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         const result = canTransition(deal.stage as DealStage, parsed.data.stage as DealStage)
         if (!result.ok) {
           return NextResponse.json({ error: result.reason }, { status: 422 })
-        }
-      }
-    }
-
-    // If unit_count changed, recompute per-unit fields on underwriting
-    if (parsed.data.unit_count !== undefined) {
-      const { data: deal } = await supabase.from('deals').select('unit_count').eq('id', id).single()
-      const oldUnitCount = deal?.unit_count as number | null
-      if (oldUnitCount && oldUnitCount !== parsed.data.unit_count) {
-        const { data: uw } = await supabase.from('underwriting').select('*').eq('deal_id', id).single()
-        if (uw) {
-          const updates: Record<string, number> = {}
-          const newCount = parsed.data.unit_count ?? 1
-          if (uw.asking_price != null) updates.price_per_unit = (uw.asking_price as number) / newCount
-          if (uw.purchase_price != null) updates.purchase_price_per_unit = (uw.purchase_price as number) / newCount
-          if (uw.capex != null) updates.capex_per_unit = (uw.capex as number) / newCount
-          if (Object.keys(updates).length > 0) {
-            await supabase.from('underwriting').update(updates).eq('deal_id', id)
-          }
         }
       }
     }

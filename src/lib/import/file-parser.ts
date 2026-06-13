@@ -64,8 +64,18 @@ function formatValue(val: ExcelJS.CellValue): string {
   if (val instanceof Date) return val.toISOString().slice(0, 10)
   if (typeof val === 'object') {
     // RichText: array of { text, ... }
-    if (Array.isArray(val)) return val.map((v) => (typeof v === 'object' && 'text' in v ? v.text : String(v))).join('')
-    return String(val)
+    if (Array.isArray(val)) {
+      return val
+        .map((v) => (typeof v === 'object' && v !== null && 'text' in v ? String(v.text) : String(v)))
+        .join('')
+    }
+    // CellErrorValue: { error: '#VALUE!' | '#REF!' | ... }
+    if ('error' in val) return ''
+    // CellHyperlinkValue: { text: string, hyperlink: string }
+    if ('text' in val && 'hyperlink' in val) return String(val.text)
+    // Unknown object — best-effort: try .text, else empty to avoid "[object Object]"
+    if ('text' in val) return String((val as { text: unknown }).text)
+    return ''
   }
   return String(val)
 }

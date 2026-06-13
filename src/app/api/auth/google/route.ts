@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUrl } from '@/lib/google/oauth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const url = getAuthUrl()
+    const projectId = req.nextUrl.searchParams.get('projectId') ?? undefined
+    const url = getAuthUrl(projectId)
     return NextResponse.redirect(url)
   } catch (err) {
     console.error('Google auth error:', err)

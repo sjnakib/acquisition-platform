@@ -1,0 +1,162 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { Button } from '@/components/ui/button'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { Plus, FolderKanban, Users, ArrowRight } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog'
+
+interface Project {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+  sponsors: [{ count: number }] | null
+}
+
+export default function ProjectsPage() {
+  const [createOpen, setCreateOpen] = useState(false)
+  const router = useRouter()
+  const supabase = createClient()
+
+  const { data: roleData, isLoading: loading } = useQuery({
+    queryKey: ['auth', 'role'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return (user?.app_metadata?.role as 'internal' | 'client' | 'admin') ?? 'internal'
+    },
+    staleTime: Infinity,
+  })
+
+  const { data: projects = [] } = useQuery<Project[]>({
+    queryKey: ['projects', 'all'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects')
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data ?? []) as Project[]
+    },
+    enabled: !!roleData,
+  })
+
+  const role = roleData ?? null
+
+  useEffect(() => {
+    if (role === 'client' && projects.length === 1) {
+      router.replace(`/projects/${projects[0]!.id}/overview`)
+    }
+  }, [role, projects, router])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--color-canvas)' }}>
+        <LoadingSpinner size="lg" />
+      </div>
+    )
+  }
+
+  // Client with no projects
+  if (role === 'client' && projects.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-3" style={{ background: 'var(--color-canvas)' }}>
+        <p style={{ color: 'var(--color-text-primary)' }} className="text-lg font-semibold">No projects available</p>
+        <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm">Contact your account manager for access.</p>
+      </div>
+    )
+  }
+
+  // Client with multiple projects
+  if (role === 'client' && projects.length > 1) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8" style={{ background: 'var(--color-canvas)' }}>
+        <h1 className="text-xl font-bold mb-2" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+          Select a Project
+        </h1>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg w-full">
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => router.push(`/projects/${p.id}/overview`)}
+              className="text-left p-5 rounded-lg border transition-all duration-150 hover:shadow-md cursor-pointer"
+              style={{ background: 'var(--color-surface-0)', borderColor: 'var(--color-border)' }}
+            >
+              <h3 className="font-semibold text-sm mb-1" style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}>
+                {p.name}
+              </h3>
+              {p.description && (
+                <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{p.description}</p>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Internal user: show project management view
+  return (
+    <div className="pt-8 px-8 pb-8 max-lg:px-6 max-md:px-4 max-md:pt-4">
+        <PageHeader
+          title="Projects"
+          description="Select or create a project to get started"
+          actions={
+            <Button size="sm" onClick={() => setCreateOpen(true)} style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
+              <Plus className="h-4 w-4 mr-1" /> New Project
+            </Button>
+          }
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects.map((p, idx) => (
+            <button
+              key={p.id}
+              onClick={() => router.push(`/projects/${p.id}/dashboard`)}
+              className="animate-item-entrance group text-left p-5 rounded-lg border transition-all duration-300 ease-[var(--ease-fluid)] hover:shadow-md hover:-translate-y-[2px] cursor-pointer"
+              style={{
+                background: 'var(--color-surface-0)',
+                borderColor: 'var(--color-border)',
+                animationDelay: `${idx * 40}ms`,
+              }}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300 ease-[var(--ease-spring)] group-hover:scale-105"
+                  style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}
+                >
+                  <FolderKanban size={20} />
+                </div>
+                <ArrowRight
+                  size={16}
+                  className="transition-all duration-300 ease-[var(--ease-spring)] group-hover:translate-x-1 group-hover:text-[var(--accent)]"
+                  style={{ color: 'var(--color-text-tertiary)' }}
+                />
+              </div>
+              <h3
+                className="font-semibold text-sm mb-1"
+                style={{ color: 'var(--color-text-primary)', fontFamily: 'var(--font-dm-sans)' }}
+              >
+                {p.name}
+              </h3>
+              {p.description && (
+                <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>
+                  {p.description}
+                </p>
+              )}
+              <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+                <span className="flex items-center gap-1">
+                  <Users size={12} />
+                  {p.sponsors?.[0]?.count ?? 0} sponsor{(p.sponsors?.[0]?.count ?? 0) !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+      </div>
+  )
+}
