@@ -48,6 +48,7 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'fields'] })
       queryClient.invalidateQueries({ queryKey: ['deal', dealId] }) // Invalidate main deal query for unit count or address updates
+      queryClient.invalidateQueries({ queryKey: ['deals'] }) // Invalidate table/list views
       setEditingKey(null)
     },
     onError: (err) => {

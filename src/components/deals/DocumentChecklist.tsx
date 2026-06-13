@@ -57,6 +57,7 @@ export function DocumentChecklist({ dealId }: { dealId: string }) {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'documents'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
     },
   })
 

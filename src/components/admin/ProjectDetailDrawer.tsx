@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, Trash2, Users, Building2, Shield, FolderKanban } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -51,6 +53,11 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
   const queryClient = useQueryClient()
   const [selectedMemberId, setSelectedMemberId] = useState<string>('')
   const [selectedSponsorId, setSelectedSponsorId] = useState<string>('')
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const { data: members = [], isLoading: loadingMembers } = useQuery<Member[]>({
     queryKey: ['project', project?.id, 'members'],
@@ -140,7 +147,7 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
     onError: () => toast.error('Failed to remove sponsor'),
   })
 
-  if (!open || !project) return null
+  if (!open || !project || !mounted) return null
 
   // Filter available members (internal users not already in members)
   const currentMemberUserIds = new Set(members.map((m) => m.user_id))
@@ -154,7 +161,7 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
     (u) => u.role === 'client' && !currentSponsorUserIds.has(u.id)
   )
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div 
@@ -260,9 +267,9 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
                       <div className="text-[10px] text-[var(--color-text-secondary)] font-mono truncate">{m.email}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-bold uppercase bg-[var(--color-neutral-bg)] text-[var(--color-neutral-text)] px-1.5 py-0.5 rounded border border-[var(--color-neutral-border)]">
+                      <Badge variant="neutral" size="sm">
                         {m.role}
-                      </span>
+                      </Badge>
                       <button 
                         onClick={() => removeMemberMutation.mutate(m.id)}
                         disabled={removeMemberMutation.isPending}
@@ -353,6 +360,7 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

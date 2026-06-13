@@ -34,6 +34,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const userMetadataUpdates: Record<string, any> = {}
 
     if (body.role) {
+      // Get old role to verify changes and clean up memberships
+      const { data: currentProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', id)
+        .single()
+      
+      const oldRole = currentProfile?.role
+
+      if (oldRole && oldRole !== body.role) {
+        // If changed to client, clear team membership assignments
+        if (body.role === 'client') {
+          await supabase.from('project_members').delete().eq('user_id', id)
+        }
+        // If changed to internal/admin, clear client sponsor assignments
+        if (oldRole === 'client') {
+          await supabase.from('sponsors').delete().eq('user_id', id)
+        }
+      }
+
       profileUpdates.role = body.role
       await supabase.auth.admin.updateUserById(id, {
         app_metadata: { role: body.role },

@@ -53,6 +53,7 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
       setShowAdd(false)
       setAddEmail('')
       queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'contacts'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to add email'),
   })
@@ -69,6 +70,7 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
       toast.success('Email removed')
       setRemoving(null)
       queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'contacts'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
     },
     onError: (err) => {
       setRemoving(null)

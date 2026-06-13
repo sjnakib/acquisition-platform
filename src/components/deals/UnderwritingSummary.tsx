@@ -96,6 +96,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     onSuccess: () => {
       setDirty(false)
       queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       toast.success('Underwriting saved')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save underwriting'),

@@ -15,8 +15,8 @@ export async function proxy(request: NextRequest) {
 
   const path = request.nextUrl.pathname
 
-  // Auth pages: login, signup, reset-password
-  const isAuthRoute = path.startsWith('/login') || path.startsWith('/signup')
+  // Auth pages: login, invite (public signup from invitation links)
+  const isAuthRoute = path.startsWith('/login') || path.startsWith('/invite')
 
   // Internal routes: /projects (list), /projects/[id]/* (all workspace pages)
   const isInternalRoute = path.startsWith('/projects')

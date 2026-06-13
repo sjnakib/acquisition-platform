@@ -7,6 +7,16 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      profiles: {
+        Row: { id: string; full_name: string | null; role: string; client_org: string | null; avatar_url: string | null; created_at: string; updated_at: string }
+        Insert: { id: string; full_name?: string | null; role?: string; client_org?: string | null; avatar_url?: string | null; created_at?: string; updated_at?: string }
+        Update: { full_name?: string | null; role?: string; client_org?: string | null; avatar_url?: string | null; updated_at?: string }
+      }
+      invitations: {
+        Row: { id: string; email: string; role: string; token: string; status: string; project_ids: string[]; invited_by: string; expires_at: string; accepted_at: string | null; accepted_by: string | null; message: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; email: string; role: string; token: string; status?: string; project_ids?: string[]; invited_by: string; expires_at: string; accepted_at?: string | null; accepted_by?: string | null; message?: string | null; created_at?: string; updated_at?: string }
+        Update: { status?: string; accepted_at?: string | null; accepted_by?: string | null; updated_at?: string }
+      }
       [key: string]: {
         Row: Record<string, unknown>
         Insert: Record<string, unknown>
@@ -35,6 +45,7 @@ export type Database = {
       loi_outcome: 'in_progress' | 'deal_reached' | 'fallen_through'
       field_data_type: 'text' | 'number' | 'integer' | 'date' | 'boolean' | 'url' | 'currency'
       activity_type: 'call' | 'voicemail' | 'note' | 'meeting' | 'other'
+      invitation_status: 'pending' | 'accepted' | 'expired' | 'revoked'
     }
     CompositeTypes: Record<string, never>
   }

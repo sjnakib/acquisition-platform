@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/google/gmail'
+import { emailSendRateLimit } from '@/lib/rate-limit'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
 import { formatNameFromEmail } from '@/lib/utils'
 import { lookupNamesByEmail } from '@/lib/google/people'
@@ -138,6 +139,15 @@ export async function POST(
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    // Per-user rate limit on campaign email sends
+    const { success: rateLimitOk } = await emailSendRateLimit.limit(user.id)
+    if (!rateLimitOk) {
+      return NextResponse.json(
+        { error: 'Daily email send limit reached. Try again tomorrow.' },
+        { status: 429 },
+      )
+    }
 
     const body = await req.json().catch(() => ({}))
     const projectId = body.projectId as string | undefined

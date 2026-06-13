@@ -175,6 +175,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
       toast.success('Email sent')
       // Invalidate thread list so the sent thread shows updated status
       queryClient.invalidateQueries({ queryKey: ['email-threads'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       // Refetch messages for the current thread
       if (vars.threadId) {
         queryClient.invalidateQueries({

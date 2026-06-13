@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Plus, Trash2, FolderKanban, Shield, Sparkles, Building2, Calendar, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -50,6 +51,11 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
   const [savingProfile, setSavingProfile] = useState(false)
   const [assigningProject, setAssigningProject] = useState(false)
   const [unassigningProject, setUnassigningProject] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (user) {
@@ -60,7 +66,7 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
     }
   }, [user])
 
-  if (!open || !user) return null
+  if (!open || !user || !mounted) return null
 
   const assignedProjectIds = new Set(user.projects.map((p) => p.id))
   const availableProjects = allProjects.filter((p) => !assignedProjectIds.has(p.id))
@@ -161,7 +167,7 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
 
   const initials = (user.full_name ?? user.email ?? 'U').charAt(0).toUpperCase()
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div 
@@ -353,6 +359,7 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

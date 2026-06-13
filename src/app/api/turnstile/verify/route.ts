@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyTurnstile } from '@/lib/turnstile'
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get('origin')
@@ -8,25 +9,13 @@ export async function POST(req: NextRequest) {
 
   const { token } = await req.json()
 
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-           ?? req.headers.get('x-real-ip')
-           ?? undefined
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    undefined
 
-  const res = await fetch(
-    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        secret: process.env.TURNSTILE_SECRET_KEY!,
-        response: token,
-        ...(ip && { remoteip: ip }),
-      }),
-    }
-  )
-
-  const data = await res.json()
-  if (!data.success) {
+  const success = await verifyTurnstile(token, ip)
+  if (!success) {
     return NextResponse.json({ success: false }, { status: 400 })
   }
   return NextResponse.json({ success: true })

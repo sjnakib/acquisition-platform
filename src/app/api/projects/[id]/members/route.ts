@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAdminClient, listAllUsers, verifyUserExistsByEmail } from '@/lib/supabase/admin'
 
 export async function GET(
   req: NextRequest,
@@ -39,10 +39,9 @@ export async function GET(
     profileByUserId = new Map(profiles?.map((p) => [p.id, { full_name: p.full_name, role: p.role }]) ?? [])
   }
 
-  // Batch fetch emails from auth.users via admin client
-  const admin = await createAdminClient()
-  const { data: { users } } = await admin.auth.admin.listUsers()
-  const emailByUserId = new Map(users?.map((u: import('@supabase/supabase-js').User) => [u.id, u.email]) ?? [])
+  // Batch fetch emails from auth.users via admin client (paginated)
+  const users = await listAllUsers()
+  const emailByUserId = new Map(users.map((u) => [u.id, u.email]))
 
   const enriched = memberList.map((m) => {
     const profile = profileByUserId.get(m.user_id)
@@ -85,7 +84,6 @@ export async function POST(
     return NextResponse.json({ error: 'userId or email is required' }, { status: 400 })
   }
 
-  const admin = await createAdminClient()
   let targetUserId: string = ''
 
   if (userId) {
@@ -105,20 +103,19 @@ export async function POST(
 
     targetUserId = userId
   } else if (email) {
-    const { data: existingUsers } = await admin.auth.admin.listUsers()
-    const existing = existingUsers?.users.find(
-      (u: import('@supabase/supabase-js').User) => u.email?.toLowerCase() === email.toLowerCase()
-    )
+    const admin = createAdminClient()
+    const { exists, userId } = await verifyUserExistsByEmail(email)
 
-    if (!existing) {
+    if (!exists || !userId) {
       return NextResponse.json({ error: 'User does not exist. Create them in the Admin Panel first.' }, { status: 404 })
     }
 
-    if (existing.app_metadata?.role === 'client') {
+    const { data: { user: authUser } } = await admin.auth.admin.getUserById(userId)
+    if (authUser?.app_metadata?.role === 'client') {
       return NextResponse.json({ error: 'Sponsors cannot be assigned as project members' }, { status: 400 })
     }
 
-    targetUserId = existing.id
+    targetUserId = userId
   }
 
   // Insert into project_members

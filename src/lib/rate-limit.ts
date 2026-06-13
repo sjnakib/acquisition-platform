@@ -14,3 +14,9 @@ export const emailSendRateLimit = new Ratelimit({
   limiter: Ratelimit.slidingWindow(100, '1 d'),
   prefix: 'rl:email',
 })
+
+export const passwordResetRateLimit = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(3, '1 m'),
+  prefix: 'rl:pw-reset',
+})

@@ -652,7 +652,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
           {/* Add Sponsor Form Box */}
           <div className="border border-[var(--color-surface-2)] rounded-xl p-4 bg-[var(--color-canvas)] mb-6 shadow-2xs">
-            <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-primary)]">Invite New Sponsor</h3>
+            <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-primary)]">Add Existing Sponsor</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-text-tertiary)] pl-0.5">Email Address</label>
@@ -674,6 +674,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                 />
               </div>
             </div>
+            <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1 mb-3">Sponsor must already have an account. Ask an admin to create one first if needed.</p>
             <div className="flex justify-end">
               <Button
                 onClick={addSponsor}
@@ -683,7 +684,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                 className="h-8 px-4"
               >
                 {addSponsorMutation.isPending ? <LoadingSpinner size="sm" /> : <Plus size={14} className="mr-1" />}
-                Send Invite
+                Add Sponsor
               </Button>
             </div>
           </div>
@@ -693,7 +694,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             <h3 className="text-xs font-semibold mb-3 text-[var(--color-text-secondary)]">Active Sponsors ({sponsors.length})</h3>
             {sponsors.length === 0 ? (
               <div className="text-center py-8 border border-dashed rounded-xl border-[var(--color-surface-3)] bg-[var(--color-canvas)] text-[var(--color-text-tertiary)] text-xs leading-relaxed">
-                No sponsors invited yet. Invite sponsors above to grant access.
+                No sponsors added yet. Add sponsors above to grant access.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { TurnstileWidget } from '@/components/auth/TurnstileWidget'
 import { BrandLogo } from '@/components/shared/BrandLogo'
@@ -21,6 +22,23 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isExiting, setIsExiting] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const info = params.get('info')
+    if (info === 'invite_already_accepted') {
+      const timer = setTimeout(() => {
+        toast.info('This invitation has already been accepted. Please sign in with your password.')
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+    if (info === 'password_reset_success') {
+      const timer = setTimeout(() => {
+        toast.success('Password reset successfully. Please sign in with your new password.')
+      }, 300)
+      return () => clearTimeout(timer)
+    }
+  }, [])
 
   const handleTogglePassword = () => {
     setShowPassword(!showPassword)
@@ -139,9 +157,9 @@ export default function LoginPage() {
       )}
 
       <div className="mt-5 text-center animate-item-entrance" style={{ animationDelay: '440ms' }}>
-        <a 
-          href="/reset-password" 
-          className="text-[13px] font-medium hover:underline transition-all duration-300 hover:opacity-80" 
+        <a
+          href={`/reset-password${email ? `?email=${encodeURIComponent(email)}` : ''}`}
+          className="text-[13px] font-medium hover:underline transition-all duration-300 hover:opacity-80"
           style={{ color: 'var(--accent)' }}
         >
           Forgot password?

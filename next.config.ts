@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
     serverActions: { allowedOrigins: [process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'] },
   },
   headers: async () => [
+    // Prevent token leakage via Referer header on password reset pages
+    {
+      source: '/reset-password/:token',
+      headers: [
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+      ],
+    },
     {
       source: '/(.*)',
       headers: [

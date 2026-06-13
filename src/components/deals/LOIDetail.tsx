@@ -126,6 +126,7 @@ export function LOIDetail({ dealId }: Props) {
       }
       setDirty(false)
       queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       toast.success('LOI saved')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to save LOI'),
@@ -184,6 +185,7 @@ export function LOIDetail({ dealId }: Props) {
       setLoi(data)
       setInitialized(true)
       queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       toast.success('LOI created')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to create LOI'),

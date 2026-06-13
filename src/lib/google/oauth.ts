@@ -19,10 +19,15 @@ export function getOAuthClient() {
   )
 }
 
-export function getAuthUrl(projectId?: string) {
+export function getAuthUrl(projectId?: string, type?: string) {
   const oauth = getOAuthClient()
-  const state = projectId
-    ? Buffer.from(JSON.stringify({ projectId })).toString('base64url')
+  const statePayload = type === 'system'
+    ? { type: 'system' }
+    : projectId
+      ? { projectId }
+      : null
+  const state = statePayload
+    ? Buffer.from(JSON.stringify(statePayload)).toString('base64url')
     : undefined
   return oauth.generateAuthUrl({
     access_type: 'offline',
@@ -74,7 +79,7 @@ export async function getAuthedClientByConnection(
 
   if (error || !tokenRow) {
     throw new Error(
-      'Google account not connected for this project. Connect Gmail in project settings.'
+      'Google account not connected. Connect Gmail in settings.'
     )
   }
 
@@ -115,6 +120,15 @@ export async function getAuthedClientByConnection(
  */
 export async function cleanupOrphanedConnection(connectionId: string): Promise<void> {
   const adminClient = createAdminClient()
+
+  // System connections are never orphaned — they have no project FK
+  const { data: conn } = await adminClient
+    .from('google_connections')
+    .select('connection_type')
+    .eq('id', connectionId)
+    .maybeSingle()
+
+  if (conn?.connection_type === 'system') return
 
   // Check if any project still references this connection
   const { count, error: countError } = await adminClient
@@ -158,4 +172,18 @@ export async function cleanupOrphanedConnection(connectionId: string): Promise<v
   if (deleteError) {
     console.error('Failed to delete orphaned connection:', connectionId, deleteError)
   }
+}
+
+/**
+ * Get the system-level Google connection for transactional emails.
+ * Returns the connection ID or null if not configured.
+ */
+export async function getSystemConnectionId(): Promise<string | null> {
+  const adminClient = createAdminClient()
+  const { data } = await adminClient
+    .from('google_connections')
+    .select('id')
+    .eq('connection_type', 'system')
+    .maybeSingle()
+  return data?.id ?? null
 }

@@ -59,7 +59,10 @@ export function Tooltip({
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   // Mount portal only on the client to avoid SSR mismatch
-  useEffect(() => { setPortalReady(true) }, [])
+  useEffect(() => {
+    const timer = setTimeout(() => setPortalReady(true), 0)
+    return () => clearTimeout(timer)
+  }, [])
 
   const updateGeometry = useCallback(() => {
     if (wrapperRef.current) {

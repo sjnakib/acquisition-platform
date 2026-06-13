@@ -1,14 +1,23 @@
 import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAuthedClientByConnection } from '@/lib/google/oauth'
 
 export async function GET() {
+  // Require admin authentication
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user || user.app_metadata?.role !== 'admin') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const supabase = createAdminClient()
     const { data: connections } = await supabase
       .from('google_connections')
       .select('id')
+      .eq('connection_type', 'project')
 
     if (!connections) return NextResponse.json({ ok: true })
 

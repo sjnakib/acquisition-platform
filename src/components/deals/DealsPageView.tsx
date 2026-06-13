@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '@/components/shared/PageHeader'
 import type { BreadcrumbItem } from '@/components/shared/Breadcrumb'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -65,11 +66,7 @@ export function DealsPageView({
   const pathname = usePathname()
   const { data: portfolios } = usePortfolios(projectId ?? '')
 
-  const [deals, setDeals] = useState<Deal[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [total, setTotal] = useState(0)
-  const [filteredTotal, setFilteredTotal] = useState(0)
+  const queryClient = useQueryClient()
   const page = parseInt(searchParams.get('page') ?? '1', 10)
   const pageSize = parseInt(searchParams.get('pageSize') ?? '50', 10)
   const sortKey = searchParams.get('sort') ?? 'created_at'
@@ -77,6 +74,7 @@ export function DealsPageView({
   const view = (searchParams.get('view') ?? 'leads') as 'leads' | 'deals' | 'archived'
   const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([])
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false)
@@ -91,56 +89,66 @@ export function DealsPageView({
     router.replace(`${pathname}?${p.toString()}`, { scroll: false })
   }, [searchParams, router, pathname])
 
-  const debouncedSearchRef = useRef(search)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const buildUrl = useCallback((p: number, size: number) => {
+  const buildUrl = useCallback((p: number, size: number, searchTerm: string) => {
     const offset = (p - 1) * size
     const params = new URLSearchParams({ limit: String(size), offset: String(offset) })
     params.set('sort', sortKey)
     params.set('order', sortDir)
     if (projectId) params.set('project_id', projectId)
     params.set('is_portfolio', portfolioView ? 'true' : 'false')
-    if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current)
+    if (searchTerm) params.set('search', searchTerm)
     // Stage filter for all views (internal + client)
     const stages = view === 'leads' ? LEADS_STAGES : view === 'deals' ? DEALS_STAGES : ARCHIVED_STAGES
     for (const s of stages) params.append('stage', s)
     return `/api/deals?${params.toString()}`
-  }, [sortKey, sortDir, projectId, view, editable, portfolioView])
+  }, [sortKey, sortDir, projectId, view, portfolioView])
 
-  const fetchPage = useCallback(async (p: number, size: number) => {
-    setError(null)
-    const res = await fetch(buildUrl(p, size))
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      throw new Error(body.error ?? `Request failed (${res.status})`)
-    }
-    const json = await res.json()
-    const data = Array.isArray(json.data) ? json.data : []
-    const totalCount = json.total ?? 0
-    const filteredCount = json.filtered_total ?? totalCount
-    setDeals(data)
-    setTotal(totalCount)
-    setFilteredTotal(filteredCount)
-    if (data.length === 0 && filteredCount > 0 && p > 1) {
-      const maxPage = Math.ceil(filteredCount / size)
-      updateParams({ page: String(maxPage) })
-    }
-  }, [buildUrl, updateParams])
+  const {
+    data: dealsData,
+    isLoading: loading,
+    isFetching,
+    error: queryError,
+  } = useQuery({
+    queryKey: ['deals', { projectId, view, page, pageSize, sort: sortKey, order: sortDir, search: debouncedSearch, portfolioView }],
+    queryFn: async () => {
+      const res = await fetch(buildUrl(page, pageSize, debouncedSearch))
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `Request failed (${res.status})`)
+      }
+      const json = await res.json()
+      if (json.data && json.data.length === 0 && json.filtered_total > 0 && page > 1) {
+        const maxPage = Math.ceil(json.filtered_total / pageSize)
+        updateParams({ page: String(maxPage) })
+      }
+      return {
+        deals: (Array.isArray(json.data) ? json.data : []) as Deal[],
+        total: (json.total ?? 0) as number,
+        filteredTotal: (json.filtered_total ?? json.total ?? 0) as number,
+      }
+    },
+    staleTime: 0,
+    placeholderData: (prev) => prev,
+  })
+
+  const deals = dealsData?.deals ?? []
+  const total = dealsData?.total ?? 0
+  const filteredTotal = dealsData?.filteredTotal ?? 0
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load deals') : null
 
   const refetch = useCallback(() => {
-    setTimeout(() => setLoading(true), 0)
-    fetchPage(page, pageSize).finally(() => setLoading(false))
-  }, [page, pageSize, fetchPage])
+    queryClient.invalidateQueries({ queryKey: ['deals'] })
+  }, [queryClient])
 
   // Search debounce
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     searchTimerRef.current = setTimeout(() => {
-      debouncedSearchRef.current = search
-      refetch()
+      setDebouncedSearch(search)
     }, SEARCH_DEBOUNCE_MS)
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [search])
@@ -155,18 +163,6 @@ export function DealsPageView({
       .then((data) => setFieldDefs(Array.isArray(data) ? data : []))
       .catch(() => setFieldDefs([]))
   }, [projectId])
-
-  // Initial + page/size changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(true)
-      fetchPage(page, pageSize).catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load deals')
-        setDeals([])
-      }).finally(() => setLoading(false))
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [page, pageSize, fetchPage])
 
   // ── Derived values ─────────────────────────────────────────────────────────
 
@@ -185,7 +181,7 @@ export function DealsPageView({
 
   const handleDeleteConfirm = async () => {
     if (allSelected) {
-      const opts: { search?: string; projectId?: string } = { search: debouncedSearchRef.current || undefined }
+      const opts: { search?: string; projectId?: string } = { search: debouncedSearch || undefined }
       if (projectId) opts.projectId = projectId
       await deleteAllDeals(opts)
     } else {
@@ -236,7 +232,7 @@ export function DealsPageView({
         <DealTable
           key={`${gridKey}-${view}`}
           deals={deals}
-          loading={loading}
+          loading={loading || (isFetching && deals.length === 0)}
           fieldDefs={fieldDefs}
           portfolios={portfolios ?? []}
           view={view}

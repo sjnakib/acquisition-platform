@@ -56,6 +56,25 @@ export const useCreatePortfolio = () => {
   })
 }
 
+export const useUpdatePortfolio = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...body }: { id: string; name?: string; description?: string }) => {
+      const res = await fetch(`/api/portfolios/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
+    },
+  })
+}
+
 export const useDeletePortfolio = () => {
   const queryClient = useQueryClient()
   return useMutation({

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { loginRateLimit } from '@/lib/rate-limit'
 import { loginSchema } from '@/lib/validations/auth.schema'
+import { verifyTurnstile } from '@/lib/turnstile'
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,12 +24,8 @@ export async function POST(req: NextRequest) {
 
     const { email, password, turnstileToken } = parsed.data
 
-    const turnstileRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/turnstile/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'origin': process.env.NEXT_PUBLIC_APP_URL! },
-      body: JSON.stringify({ token: turnstileToken }),
-    })
-    if (!turnstileRes.ok) {
+    const turnstileOk = await verifyTurnstile(turnstileToken, ip)
+    if (!turnstileOk) {
       return NextResponse.json({ error: 'Bot verification failed. Please try again.' }, { status: 400 })
     }
 

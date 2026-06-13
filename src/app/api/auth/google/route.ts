@@ -4,7 +4,8 @@ import { getAuthUrl } from '@/lib/google/oauth'
 export async function GET(req: NextRequest) {
   try {
     const projectId = req.nextUrl.searchParams.get('projectId') ?? undefined
-    const url = getAuthUrl(projectId)
+    const type = req.nextUrl.searchParams.get('type') ?? undefined
+    const url = getAuthUrl(projectId, type)
     return NextResponse.redirect(url)
   } catch (err) {
     console.error('Google auth error:', err)

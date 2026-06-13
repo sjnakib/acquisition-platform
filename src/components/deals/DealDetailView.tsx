@@ -184,6 +184,7 @@ export default function DealDetailView({
             stage={deal.stage}
             onStageChange={() => {
               queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+              queryClient.invalidateQueries({ queryKey: ['deals'] })
             }}
           />
         </div>

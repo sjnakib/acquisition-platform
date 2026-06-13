@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { createAdminClient, listAllUsers, verifyUserExistsByEmail } from '@/lib/supabase/admin'
 import { addSponsorSchema } from '@/lib/validations/project.schema'
 
 export async function GET(
@@ -35,10 +35,9 @@ export async function GET(
     profileByUserId = new Map(profiles?.map((p) => [p.id, p.full_name]) ?? [])
   }
 
-  // Batch fetch emails from auth.users via admin client
-  const admin = await createAdminClient()
-  const { data: { users } } = await admin.auth.admin.listUsers()
-  const emailByUserId = new Map(users?.map((u: import('@supabase/supabase-js').User) => [u.id, u.email]) ?? [])
+  // Batch fetch emails from auth.users via admin client (paginated)
+  const users = await listAllUsers()
+  const emailByUserId = new Map(users.map((u) => [u.id, u.email]))
 
   const enriched = sponsorList.map((s) => ({
     id: s.id,
@@ -70,33 +69,25 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { email, full_name } = parsed.data
-  const admin = await createAdminClient()
+  const { email } = parsed.data
+  const admin = createAdminClient()
 
   // Find existing user by email
-  let sponsorUserId: string
-  const { data: existingUsers } = await admin.auth.admin.listUsers()
-  const existing = existingUsers?.users.find(
-    (u: import('@supabase/supabase-js').User) => u.email?.toLowerCase() === email.toLowerCase()
-  )
+  const { exists, userId } = await verifyUserExistsByEmail(email)
 
-  if (existing) {
-    if (existing.app_metadata?.role === 'internal' || existing.app_metadata?.role === 'admin') {
+  let sponsorUserId: string
+  if (exists && userId) {
+    // Fetch full user metadata for role check
+    const { data: { user: authUser } } = await admin.auth.admin.getUserById(userId)
+    if (authUser?.app_metadata?.role === 'internal' || authUser?.app_metadata?.role === 'admin') {
       return NextResponse.json({ error: 'Staff users cannot be sponsors' }, { status: 400 })
     }
-    sponsorUserId = existing.id
+    sponsorUserId = userId
   } else {
-    // Create new client user
-    const tempPassword = crypto.randomUUID().slice(0, 16) + 'Aa1!'
-    const { data: newUser, error: createErr } = await admin.auth.admin.createUser({
-      email,
-      password: tempPassword,
-      email_confirm: true,
-      user_metadata: { full_name: full_name ?? email.split('@')[0]!, role: 'client' },
-      app_metadata: { role: 'client' },
-    })
-    if (createErr) return NextResponse.json({ error: createErr.message }, { status: 500 })
-    sponsorUserId = newUser.user.id
+    return NextResponse.json(
+      { error: 'No account found with this email. Ask an admin to create an account first.' },
+      { status: 404 }
+    )
   }
 
   // Link sponsor to project

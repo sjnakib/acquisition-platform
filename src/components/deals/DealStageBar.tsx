@@ -54,6 +54,7 @@ export function DealStageBar({ dealId, stage, onStageChange }: DealStageBarProps
       toast.success(`Stage updated to ${STAGE_LABELS[targetStage] ?? targetStage}`)
       onStageChange?.(targetStage)
       queryClient.invalidateQueries({ queryKey: ['deal', dealId!] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update stage'),
   })

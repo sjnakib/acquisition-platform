@@ -108,6 +108,7 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       setContactName('')
       setContactRole('')
       setPhoneNumber('')
@@ -133,6 +134,7 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       setEditingCallId(null)
       toast.success('Call request updated')
     },
@@ -150,6 +152,7 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
       })
       if (res.ok) {
         queryClient.invalidateQueries({ queryKey: ['call-briefs', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
       } else {
         toast.error('Failed to save notes')
       }

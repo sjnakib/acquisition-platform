@@ -201,12 +201,15 @@ export function TabsContent({
   const isActive = context.value === value
 
   // Track first activation so entrance animation only plays once
-  const wasActiveRef = React.useRef(false)
-  const shouldAnimate = isActive && !wasActiveRef.current
+  const [hasBeenActive, setHasBeenActive] = React.useState(false)
+  const shouldAnimate = isActive && !hasBeenActive
 
   React.useEffect(() => {
-    wasActiveRef.current = isActive
-  }, [isActive])
+    if (isActive && !hasBeenActive) {
+      const timer = setTimeout(() => setHasBeenActive(true), 0)
+      return () => clearTimeout(timer)
+    }
+  }, [isActive, hasBeenActive])
 
   // Original behavior: unmount when inactive (keepMounted not set)
   if (!isActive && !keepMounted) return null
