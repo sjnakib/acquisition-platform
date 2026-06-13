@@ -38,36 +38,63 @@ export async function listAllUsers(): Promise<User[]> {
 
 /**
  * Verify whether a user exists by email.
- * Uses paginated listUsers() to search through ALL auth users.
+ * Uses the RPC function find_user_by_email for an O(1) indexed lookup.
+ * Falls back to paginated listUsers() if RPC fails.
  * Returns { exists: true, userId } if found, { exists: false } if not.
- * This is the single source of truth for email-based user existence checks.
  */
 export async function verifyUserExistsByEmail(
   email: string,
 ): Promise<{ exists: boolean; userId?: string }> {
   const admin = createAdminClient()
-  const normalizedEmail = email.toLowerCase()
-  let page = 1
-  const perPage = 100
+  const normalizedEmail = email.toLowerCase().trim()
+  
+  const { data, error } = await admin.rpc('find_user_by_email', { p_email: normalizedEmail })
+  if (error) {
+    console.error('[verifyUserExistsByEmail] RPC find_user_by_email error, falling back to scan:', error)
+    
+    let page = 1
+    const perPage = 100
 
-  while (true) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
-    if (error) {
-      console.error('[verifyUserExistsByEmail] listUsers error:', error)
-      return { exists: false }
+    while (true) {
+      const { data: listData, error: listErr } = await admin.auth.admin.listUsers({ page, perPage })
+      if (listErr) {
+        console.error('[verifyUserExistsByEmail] listUsers fallback error:', listErr)
+        return { exists: false }
+      }
+      if (!listData?.users?.length) break
+
+      const found = listData.users.find(
+        (u) => u.email?.toLowerCase() === normalizedEmail,
+      )
+      if (found) {
+        return { exists: true, userId: found.id }
+      }
+
+      if (listData.users.length < perPage) break
+      page++
     }
-    if (!data?.users?.length) break
-
-    const found = data.users.find(
-      (u) => u.email?.toLowerCase() === normalizedEmail,
-    )
-    if (found) {
-      return { exists: true, userId: found.id }
-    }
-
-    if (data.users.length < perPage) break
-    page++
+    return { exists: false }
   }
 
+  if (data && data.length > 0) {
+    return { exists: true, userId: data[0].user_id }
+  }
   return { exists: false }
+}
+
+/**
+ * Batch fetch email addresses for a specific list of user IDs.
+ * Uses the RPC function get_user_emails to perform a single indexed lookup,
+ * avoiding paginating through all auth users.
+ */
+export async function fetchUserEmails(userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map()
+  const admin = createAdminClient()
+  const { data, error } = await admin.rpc('get_user_emails', { p_user_ids: userIds })
+  if (error) {
+    console.error('[fetchUserEmails] RPC error, falling back to paginated listAllUsers:', error)
+    const users = await listAllUsers()
+    return new Map(users.filter((u) => userIds.includes(u.id)).map((u) => [u.id, u.email ?? '']))
+  }
+  return new Map((data as Array<{ user_id: string; user_email: string }>)?.map((row) => [row.user_id, row.user_email]) ?? [])
 }

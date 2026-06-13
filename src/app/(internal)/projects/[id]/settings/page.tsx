@@ -123,12 +123,14 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     },
   })
 
-  useEffect(() => {
+  const [prevProject, setPrevProject] = useState<typeof project | null>(null)
+  if (project !== prevProject) {
+    setPrevProject(project)
     if (project) {
       setName(project.name ?? '')
       setDescription(project.description ?? '')
     }
-  }, [project])
+  }
 
   const gmailConnected = !!project?.google_connections?.google_email
   const gmailEmail = project?.google_connections?.google_email ?? null
@@ -354,11 +356,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
       <div className="space-y-8 max-w-3xl mx-auto w-full pb-16">
         {/* Section 1: General Info */}
-        <div 
-          className="animate-item-entrance rounded-xl border p-6" 
-          style={{ 
-            background: 'var(--color-surface-0)', 
-            borderColor: 'var(--color-surface-2)', 
+        <div
+          className="animate-item-entrance rounded-xl border p-6"
+          style={{
+            background: 'var(--color-surface-0)',
+            borderColor: 'var(--color-surface-2)',
             boxShadow: 'var(--shadow-sm)',
             animationDelay: '0ms'
           }}
@@ -372,7 +374,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               <p className="text-[11px] text-[var(--color-text-secondary)]">Manage the basic project metadata and descriptions.</p>
             </div>
           </div>
-          
+
           <div className="space-y-4 w-full">
             <div>
               <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>Project Name</label>
@@ -401,11 +403,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* Section 2: Google Workspace (Merged Integration Card) */}
-        <div 
-          className="animate-item-entrance rounded-xl border p-6" 
-          style={{ 
-            background: 'var(--color-surface-0)', 
-            borderColor: 'var(--color-surface-2)', 
+        <div
+          className="animate-item-entrance rounded-xl border p-6"
+          style={{
+            background: 'var(--color-surface-0)',
+            borderColor: 'var(--color-surface-2)',
             boxShadow: 'var(--shadow-sm)',
             animationDelay: '75ms'
           }}
@@ -477,7 +479,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       </svg>
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Integration Account</span>
+                      <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Account Integration</span>
                       <span className="text-[11px] text-[var(--color-text-secondary)] font-mono truncate">{gmailEmail ?? 'Connected Account'}</span>
                     </div>
                   </div>
@@ -492,20 +494,20 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
               {/* Branching tree representation */}
               <div className="relative pl-6 ml-9 border-l border-dashed border-[var(--color-surface-3)] space-y-6">
-                
+
                 {/* Branch 1: Gmail Service */}
                 <div className="relative">
                   {/* Connector Dot */}
                   <span className="absolute -left-[29px] top-[27px] w-2.5 h-2.5 rounded-full bg-[#4285F4] border-2 border-[var(--color-surface-0)] shadow-3xs" />
-                  
+
                   <div className="p-4 rounded-xl border border-[var(--color-surface-2)] bg-[var(--color-canvas)]">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-2xs flex-shrink-0">
                         <svg viewBox="0 0 32 32" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M16.58,19.1068l-12.69-8.0757A3,3,0,0,1,7.1109,5.97l9.31,5.9243L24.78,6.0428A3,3,0,0,1,28.22,10.9579Z" fill="#ea4435"/>
-                          <path d="M25.5,5.5h4v18a3,3,0,0,1-3,3h0a3,3,0,0,1-3-3V7.5a2,2,0,0,1,2-2Z" fill="#34A853" transform="translate(53.0001 32.0007) rotate(180)"/>
-                          <path d="M29.4562,8.0656c-.0088-.06-.0081-.1213-.0206-.1812-.0192-.0918-.0549-.1766-.0823-.2652a2.9312,2.9312,0,0,0-.0958-.2993c-.02-.0475-.0508-.0892-.0735-.1354A2.9838,2.9838,0,0,0,28.9686,6.8c-.04-.0581-.09-.1076-.1342-.1626a3.0282,3.0282,0,0,0-.2455-.2849c-.0665-.0647-.1423-.1188-.2146-.1771a3.02,3.02,0,0,0-.24-.1857c-.0793-.0518-.1661-.0917-.25-.1359-.0884-.0461-.175-.0963-.267-.1331-.0889-.0358-.1837-.0586-.2766-.0859s-.1853-.06-.2807-.0777a3.0543,3.0543,0,0,0-.357-.036c-.0759-.0053-.1511-.0186-.2273-.018a2.9778,2.9778,0,0,0-.4219.0425c-.0563.0084-.113.0077-.1689.0193a33.211,33.211,0,0,0-.5645.178c-.0515.022-.0966.0547-.1465.0795A2.901,2.901,0,0,0,23.5,8.5v5.762l4.72-3.3043a2.8878,2.8878,0,0,0,1.2359-2.8923Z" fill="#ffba00"/>
-                          <path d="M5.5,5.5h0a3,3,0,0,1,3,3v18a0,0,0,0,1,0,0h-4a2,2,0,0,1-2-2V8.5a3,3,0,0,1,3-3Z" fill="#4285f4"/>
+                          <path d="M16.58,19.1068l-12.69-8.0757A3,3,0,0,1,7.1109,5.97l9.31,5.9243L24.78,6.0428A3,3,0,0,1,28.22,10.9579Z" fill="#ea4435" />
+                          <path d="M25.5,5.5h4v18a3,3,0,0,1-3,3h0a3,3,0,0,1-3-3V7.5a2,2,0,0,1,2-2Z" fill="#34A853" transform="translate(53.0001 32.0007) rotate(180)" />
+                          <path d="M29.4562,8.0656c-.0088-.06-.0081-.1213-.0206-.1812-.0192-.0918-.0549-.1766-.0823-.2652a2.9312,2.9312,0,0,0-.0958-.2993c-.02-.0475-.0508-.0892-.0735-.1354A2.9838,2.9838,0,0,0,28.9686,6.8c-.04-.0581-.09-.1076-.1342-.1626a3.0282,3.0282,0,0,0-.2455-.2849c-.0665-.0647-.1423-.1188-.2146-.1771a3.02,3.02,0,0,0-.24-.1857c-.0793-.0518-.1661-.0917-.25-.1359-.0884-.0461-.175-.0963-.267-.1331-.0889-.0358-.1837-.0586-.2766-.0859s-.1853-.06-.2807-.0777a3.0543,3.0543,0,0,0-.357-.036c-.0759-.0053-.1511-.0186-.2273-.018a2.9778,2.9778,0,0,0-.4219.0425c-.0563.0084-.113.0077-.1689.0193a33.211,33.211,0,0,0-.5645.178c-.0515.022-.0966.0547-.1465.0795A2.901,2.901,0,0,0,23.5,8.5v5.762l4.72-3.3043a2.8878,2.8878,0,0,0,1.2359-2.8923Z" fill="#ffba00" />
+                          <path d="M5.5,5.5h0a3,3,0,0,1,3,3v18a0,0,0,0,1,0,0h-4a2,2,0,0,1-2-2V8.5a3,3,0,0,1,3-3Z" fill="#4285f4" />
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -531,18 +533,18 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-2xs flex-shrink-0">
                           <svg viewBox="0 0 87.3 78" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
-                            <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
-                            <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
-                            <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
-                            <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
-                            <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
-                            <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+                            <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
+                            <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47" />
+                            <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335" />
+                            <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
+                            <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
+                            <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
                           </svg>
                         </div>
                         <div className="flex-1 min-w-0">
                           <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Drive workspace storage</span>
                           <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5 leading-relaxed">
-                            Organizes checklist items and documents in the project's Drive folder under the same account.
+                            Organizes checklist items and documents in the project&apos;s Drive folder under the same account.
                           </p>
                         </div>
                       </div>
@@ -594,8 +596,8 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                               <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans flex-shrink-0">Root</span>
                             </div>
                             <div className="pl-4 text-[var(--color-surface-3)]">└── <span className="text-amber-500">📁</span> <span className="text-[var(--color-text-primary)]">[Property Address]</span> <span className="text-[9px] bg-[var(--color-surface-2)] text-[var(--color-text-tertiary)] px-1.5 py-0.5 rounded font-sans">Deal Folder</span></div>
-                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-green-600">📊</span> <span className="text-[var(--color-text-secondary)]">Underwriting Spreadsheet.xlsx</span></div>
-                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-red-500">📄</span> <span className="text-[var(--color-text-secondary)]">Diligence Checklist.pdf</span></div>
+                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-[var(--color-success-solid)]">📊</span> <span className="text-[var(--color-text-secondary)]">Underwriting Spreadsheet.xlsx</span></div>
+                            <div className="pl-8 text-[var(--color-surface-3)]">├── <span className="text-[var(--color-danger-solid)]">📄</span> <span className="text-[var(--color-text-secondary)]">Diligence Checklist.pdf</span></div>
                             <div className="pl-8 text-[var(--color-surface-3)]">└── <span className="text-amber-500">📁</span> <span className="text-[var(--color-text-tertiary)]">Attachments/</span></div>
                           </div>
                         </div>
@@ -631,11 +633,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* Section 3: Sponsors & Access */}
-        <div 
-          className="animate-item-entrance rounded-xl border p-6" 
-          style={{ 
-            background: 'var(--color-surface-0)', 
-            borderColor: 'var(--color-surface-2)', 
+        <div
+          className="animate-item-entrance rounded-xl border p-6"
+          style={{
+            background: 'var(--color-surface-0)',
+            borderColor: 'var(--color-surface-2)',
             boxShadow: 'var(--shadow-sm)',
             animationDelay: '150ms'
           }}
@@ -731,18 +733,18 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             sponsorName={removingSponsor?.full_name ?? null}
             sponsorEmail={removingSponsor?.email ?? null}
             onConfirm={async () => {
-               if (!removingSponsor) return
-               await removeSponsor(removingSponsor.id)
+              if (!removingSponsor) return
+              await removeSponsor(removingSponsor.id)
             }}
           />
         </div>
 
         {/* Section 3.5: Team Members & Access */}
-        <div 
-          className="animate-item-entrance rounded-xl border p-6" 
-          style={{ 
-            background: 'var(--color-surface-0)', 
-            borderColor: 'var(--color-surface-2)', 
+        <div
+          className="animate-item-entrance rounded-xl border p-6"
+          style={{
+            background: 'var(--color-surface-0)',
+            borderColor: 'var(--color-surface-2)',
             boxShadow: 'var(--shadow-sm)',
             animationDelay: '185ms'
           }}
@@ -833,10 +835,10 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
 
 
         {/* Section 4: Advanced Settings */}
-        <div 
-          className="animate-item-entrance rounded-xl border p-6 border-[var(--color-danger-border)]" 
-          style={{ 
-            background: 'var(--color-surface-0)', 
+        <div
+          className="animate-item-entrance rounded-xl border p-6 border-[var(--color-danger-border)]"
+          style={{
+            background: 'var(--color-surface-0)',
             boxShadow: 'var(--shadow-sm)',
             animationDelay: '225ms'
           }}

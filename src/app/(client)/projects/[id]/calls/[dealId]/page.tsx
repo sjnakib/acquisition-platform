@@ -71,11 +71,13 @@ export default function ClientDealDetailPage({ params }: { params: Promise<{ id:
   const [expandedCallIds, setExpandedCallIds] = useState<Set<string>>(new Set())
   const [savingNotes, setSavingNotes] = useState<Record<string, 'team' | 'sponsor' | null>>({})
 
-  useEffect(() => {
+  const [prevActiveCallId, setPrevActiveCallId] = useState<string | null>(activeCallId)
+  if (activeCallId !== prevActiveCallId) {
+    setPrevActiveCallId(activeCallId)
     if (activeCallId) {
       setExpandedCallIds(new Set([activeCallId]))
     }
-  }, [activeCallId])
+  }
 
   const toggleExpandCall = (id: string) => {
     setExpandedCallIds((prev) => {

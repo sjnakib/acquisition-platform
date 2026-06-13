@@ -88,12 +88,12 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
   // ── Expanded messages UI state ─────────────────────────────────────────
 
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
+  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      setExpandedMessages(new Set(messages.map((m) => m.id)))
-    }
-  }, [messages])
+  if (selectedThread && messages.length > 0 && selectedThread.threadId !== expandedThreadId) {
+    setExpandedThreadId(selectedThread.threadId)
+    setExpandedMessages(new Set(messages.map((m) => m.id)))
+  }
 
   // ── Active dropdown menu ────────────────────────────────────────────────
 

@@ -62,8 +62,8 @@ export async function POST(req: NextRequest) {
       .single()
     if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
-    const dealFields = (deal.deal_fields as any) ?? []
-    const addrField = dealFields.find((f: any) => f?.field_definitions?.key === 'address')
+    const dealFields = (deal.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null } | null>) ?? []
+    const addrField = dealFields.find((f) => f?.field_definitions?.key === 'address')
     const propertyLabel = addrField?.value ?? 'property'
 
     const html = await render(

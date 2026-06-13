@@ -137,7 +137,7 @@ function AdminDashboardContent() {
       const data = await res.json()
       // Map to include detailed project counts
       const enriched = await Promise.all(
-        (data ?? []).map(async (p: any) => {
+        (data ?? []).map(async (p: Project) => {
           const detailRes = await fetch(`/api/projects/${p.id}`)
           if (!detailRes.ok) return p
           return detailRes.json()
@@ -327,7 +327,7 @@ function AdminDashboardContent() {
         </div>
       </div>
 
-      <Tabs defaultValue="users" value={activeTab} onValueChange={(val: any) => setActiveTab(val)}>
+      <Tabs defaultValue="users" value={activeTab} onValueChange={(val: string) => setActiveTab(val)}>
         <TabsList className="mt-8">
           <TabsTrigger value="users">Users & Security</TabsTrigger>
           <TabsTrigger value="projects">Projects Directory</TabsTrigger>

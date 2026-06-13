@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createDriveFolder } from '@/lib/google/drive'
+import { GoogleAuthError } from '@/lib/google/oauth'
 
 /**
  * POST /api/projects/[id]/drive/create-folder
@@ -48,6 +49,12 @@ export async function POST(
     return NextResponse.json(folder, { status: 201 })
   } catch (err) {
     console.error('Create folder error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }

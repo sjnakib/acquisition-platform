@@ -72,7 +72,10 @@ export async function GET(
         }).eq('id', project.google_connection_id)
       } catch (refreshErr) {
         console.error('Token refresh failed:', refreshErr)
-        return NextResponse.json({ error: 'Google token expired and could not be refreshed. Reconnect Gmail in project settings.' }, { status: 401 })
+        return NextResponse.json({
+          error: 'google_auth_expired',
+          message: 'Google token expired and could not be refreshed. Reconnect Gmail in project settings.',
+        }, { status: 401 })
       }
     }
 

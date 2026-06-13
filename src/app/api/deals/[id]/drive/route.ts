@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createDealFolder, deleteDriveFile } from '@/lib/google/drive'
+import { GoogleAuthError } from '@/lib/google/oauth'
 
 export async function POST(
   req: NextRequest,
@@ -66,6 +67,12 @@ export async function POST(
     return NextResponse.json(updated)
   } catch (err: unknown) {
     console.error('Drive folder error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
@@ -124,6 +131,12 @@ export async function DELETE(
     return NextResponse.json({ success: true })
   } catch (err: unknown) {
     console.error('Delete deal room error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }

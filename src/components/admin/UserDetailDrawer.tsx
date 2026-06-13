@@ -51,22 +51,19 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
   const [savingProfile, setSavingProfile] = useState(false)
   const [assigningProject, setAssigningProject] = useState(false)
   const [unassigningProject, setUnassigningProject] = useState<string | null>(null)
-  const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
+  const [prevUser, setPrevUser] = useState<typeof user | null>(null)
+  if (user !== prevUser) {
+    setPrevUser(user)
     if (user) {
       setFullName(user.full_name ?? '')
       setRole(user.role)
       setClientOrg(user.client_org ?? '')
       setSelectedProjectId('')
     }
-  }, [user])
+  }
 
-  if (!open || !user || !mounted) return null
+  if (!open || !user) return null
 
   const assignedProjectIds = new Set(user.projects.map((p) => p.id))
   const availableProjects = allProjects.filter((p) => !assignedProjectIds.has(p.id))
@@ -252,7 +249,7 @@ export function UserDetailDrawer({ user, open, onClose, onUpdated, allProjects }
 
               <div>
                 <Label className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-text-secondary)] mb-1">System Role</Label>
-                <Select value={role} onValueChange={(val: any) => setRole(val)}>
+                <Select value={role} onValueChange={(val) => setRole(val as 'internal' | 'client' | 'admin')}>
                   <SelectTrigger className="text-xs h-9 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
                     <SelectValue />
                   </SelectTrigger>

@@ -53,11 +53,6 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
   const queryClient = useQueryClient()
   const [selectedMemberId, setSelectedMemberId] = useState<string>('')
   const [selectedSponsorId, setSelectedSponsorId] = useState<string>('')
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
 
   const { data: members = [], isLoading: loadingMembers } = useQuery<Member[]>({
     queryKey: ['project', project?.id, 'members'],
@@ -147,7 +142,7 @@ export function ProjectDetailDrawer({ project, open, onClose, onUpdated, allUser
     onError: () => toast.error('Failed to remove sponsor'),
   })
 
-  if (!open || !project || !mounted) return null
+  if (!open || !project) return null
 
   // Filter available members (internal users not already in members)
   const currentMemberUserIds = new Set(members.map((m) => m.user_id))

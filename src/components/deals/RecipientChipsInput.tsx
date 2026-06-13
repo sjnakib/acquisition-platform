@@ -70,7 +70,7 @@ export function RecipientChipsInput({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const { data: suggestions = [] } = useQuery<ContactSuggestion[]>({
+  const { data: suggestionsData } = useQuery<ContactSuggestion[]>({
     queryKey: ['deal', dealId, 'contacts', 'suggest', searchQuery],
     queryFn: async () => {
       const url = `/api/deals/${dealId}/contacts${searchQuery ? `?search=${encodeURIComponent(searchQuery)}` : ''}`
@@ -83,10 +83,14 @@ export function RecipientChipsInput({
     gcTime: 0,
   })
 
-  useEffect(() => {
-    setOpen(suggestions.length > 0)
+  const suggestions = suggestionsData ?? []
+
+  const [prevSuggestionsData, setPrevSuggestionsData] = useState<ContactSuggestion[] | undefined>(undefined)
+  if (suggestionsData !== prevSuggestionsData) {
+    setPrevSuggestionsData(suggestionsData)
+    setOpen(!!suggestionsData && suggestionsData.length > 0)
     setHighlightIndex(0)
-  }, [suggestions])
+  }
 
   // Close suggestions on outside click
   useEffect(() => {

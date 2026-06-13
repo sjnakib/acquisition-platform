@@ -406,6 +406,10 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
             googleEmail: data.googleEmail ?? null,
           }
         }
+        if (res.status === 401) {
+          // Auth expired — return disconnected state so UI shows reconnect banner
+          return { threads: [], gmailConnected: false, googleEmail: null }
+        }
         if (res.status === 400) {
           const body = await res.json().catch(() => ({}))
           throw new Error(body.error ?? 'Gmail not connected')

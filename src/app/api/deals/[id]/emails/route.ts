@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthedClientByConnection } from '@/lib/google/oauth'
+import { getAuthedClientByConnection, GoogleAuthError, invalidateConnection } from '@/lib/google/oauth'
 import { google } from 'googleapis'
 
 interface DealField {
@@ -340,6 +340,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
       } catch (gmailErr) {
         console.error('[emails] Gmail fetch FAILED:', gmailErr)
+        if (GoogleAuthError.isInvalidGrant(gmailErr)) {
+          await invalidateConnection(connectionId)
+          return NextResponse.json({ threads: [], gmailConnected: false, googleEmail: null })
+        }
       }
     }
 
@@ -352,6 +356,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ threads: sorted, gmailConnected: !!connectionId, googleEmail })
   } catch (err) {
     console.error('Emails list error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({ threads: [], gmailConnected: false, googleEmail: null })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -1,4 +1,5 @@
 import { google } from 'googleapis'
+import type { OAuth2Client } from 'google-auth-library'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCachedClient, setCachedClient, invalidateCachedClient } from './auth-cache'
@@ -10,6 +11,106 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/contacts.other.readonly',
 ]
+
+// ---------------------------------------------------------------------------
+// Typed error for Google auth failures
+// ---------------------------------------------------------------------------
+
+export class GoogleAuthError extends Error {
+  constructor(
+    message: string,
+    public code: 'invalid_grant' | 'not_connected'
+  ) {
+    super(message)
+    this.name = 'GoogleAuthError'
+  }
+
+  /** Detect invalid_grant from either a GoogleAuthError or a raw GaxiosError. */
+  static isInvalidGrant(err: unknown): boolean {
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') return true
+    if (err && typeof err === 'object') {
+      const e = err as { response?: { data?: { error?: string } }; message?: string }
+      if (e.response?.data?.error === 'invalid_grant') return true
+      if (e.message?.includes('invalid_grant')) return true
+    }
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connection invalidation
+// ---------------------------------------------------------------------------
+
+/**
+ * Invalidate a Google connection:
+ *  1. Evict the in-memory OAuth2 cache entry.
+ *  2. Nullify access_token / refresh_token / expiry in the DB so every
+ *     subsequent request fails fast with a typed error instead of hitting
+ *     Google's token endpoint again.
+ *
+ * System connections are logged but NOT auto-invalidated — they require
+ * manual admin intervention.
+ */
+export async function invalidateConnection(connectionId: string): Promise<void> {
+  invalidateCachedClient(connectionId)
+
+  const adminClient = createAdminClient()
+  const { data: conn } = await adminClient
+    .from('google_connections')
+    .select('connection_type')
+    .eq('id', connectionId)
+    .maybeSingle()
+
+  if (conn?.connection_type === 'system') {
+    console.error(
+      `[oauth] System Google connection ${connectionId} has invalid_grant. ` +
+      'Admin must reconnect in admin settings.'
+    )
+    return
+  }
+
+  await adminClient.from('google_connections').update({
+    access_token: null,
+    refresh_token: null,
+    expiry: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', connectionId)
+}
+
+// ---------------------------------------------------------------------------
+// Centralised Google API call wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a Google API call with automatic invalid_grant detection.
+ *
+ * 1. Gets an authenticated OAuth2 client for the connection.
+ * 2. Calls `fn(auth)`.
+ * 3. If the call fails with `invalid_grant`, invalidates the connection
+ *    and throws a typed `GoogleAuthError` so route handlers can return 401.
+ *
+ * Prefer this over calling `getAuthedClientByConnection` directly in all
+ * gmail.ts, drive.ts, and people.ts functions.
+ */
+export async function callWithConnection<T>(
+  connectionId: string,
+  fn: (auth: OAuth2Client) => Promise<T>,
+  options?: { useAdminClient?: boolean }
+): Promise<T> {
+  const auth = await getAuthedClientByConnection(connectionId, options)
+  try {
+    return await fn(auth)
+  } catch (err) {
+    if (GoogleAuthError.isInvalidGrant(err)) {
+      await invalidateConnection(connectionId)
+      throw new GoogleAuthError(
+        'Google authentication expired. Please reconnect in Settings.',
+        'invalid_grant'
+      )
+    }
+    throw err
+  }
+}
 
 export function getOAuthClient() {
   return new google.auth.OAuth2(
@@ -78,8 +179,17 @@ export async function getAuthedClientByConnection(
     .single()
 
   if (error || !tokenRow) {
-    throw new Error(
-      'Google account not connected. Connect Gmail in settings.'
+    throw new GoogleAuthError(
+      'Google account not connected. Connect Gmail in settings.',
+      'not_connected'
+    )
+  }
+
+  // If tokens were nullified by a prior invalid_grant, fail fast
+  if (!tokenRow.access_token && !tokenRow.refresh_token) {
+    throw new GoogleAuthError(
+      'Google authentication expired. Please reconnect in Settings.',
+      'invalid_grant'
     )
   }
 
@@ -101,16 +211,31 @@ export async function getAuthedClientByConnection(
           : tokenRow.expiry,
         updated_at: new Date().toISOString(),
       }).eq('id', connectionId)
-      // Invalidate cache so next fetch gets the refreshed tokens
       invalidateCachedClient(connectionId)
     } catch (err) {
       console.error('Failed to persist refreshed Google tokens:', err)
     }
   })
 
-  // Cache the configured client
-  setCachedClient(connectionId, oauthClient)
+  // Proactive refresh: if the token is already expired, refresh now so
+  // invalid_grant surfaces before the actual API call rather than mid-operation.
+  const creds = oauthClient.credentials
+  if (creds.expiry_date && creds.expiry_date <= Date.now()) {
+    try {
+      await oauthClient.getAccessToken()
+    } catch (err) {
+      invalidateCachedClient(connectionId)
+      if (GoogleAuthError.isInvalidGrant(err)) {
+        throw new GoogleAuthError(
+          'Google authentication expired. Please reconnect in Settings.',
+          'invalid_grant'
+        )
+      }
+      throw err
+    }
+  }
 
+  setCachedClient(connectionId, oauthClient)
   return oauthClient
 }
 

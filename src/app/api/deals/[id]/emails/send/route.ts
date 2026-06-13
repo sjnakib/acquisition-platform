@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { emailSendRateLimit } from '@/lib/rate-limit'
 import { sendEmail, sendReply, type EmailAttachment } from '@/lib/google/gmail'
+import { GoogleAuthError } from '@/lib/google/oauth'
 
 async function resolveConnectionId(dealId: string): Promise<string | null> {
   const supabase = await createClient()
@@ -111,6 +112,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json(outreach, { status: 201 })
   } catch (err) {
     console.error('Email send error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     const message = err instanceof Error ? err.message : 'Internal server error'
     if (message.includes('Google account not connected')) {
       return NextResponse.json({ error: message }, { status: 401 })

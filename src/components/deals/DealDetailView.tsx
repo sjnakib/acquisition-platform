@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, Suspense, lazy, useState, useEffect } from 'react'
+import { useCallback, Suspense, lazy, useState } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -92,18 +92,15 @@ export default function DealDetailView({
     : BASE_TABS
 
   // Track which tabs have been visited so lazy components only load on first activation
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(
-    new Set([activeTab])
-  )
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]))
 
-  useEffect(() => {
-    setVisitedTabs(prev => {
-      if (prev.has(activeTab)) return prev
+  if (!visitedTabs.has(activeTab)) {
+    setVisitedTabs((prev) => {
       const next = new Set(prev)
       next.add(activeTab)
       return next
     })
-  }, [activeTab])
+  }
 
   if (loading) {
     return (

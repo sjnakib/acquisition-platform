@@ -59,11 +59,13 @@ export function CallBriefTab({ dealId }: { dealId: string }) {
   // Saving states for inline notes
   const [savingNotes, setSavingNotes] = useState<Record<string, 'team' | 'sponsor' | null>>({})
 
-  useEffect(() => {
+  const [prevActiveCallId, setPrevActiveCallId] = useState<string | null>(activeCallId)
+  if (activeCallId !== prevActiveCallId) {
+    setPrevActiveCallId(activeCallId)
     if (activeCallId) {
       setExpandedIds(new Set([activeCallId]))
     }
-  }, [activeCallId])
+  }
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {

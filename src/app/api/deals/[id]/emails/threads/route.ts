@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getThread, modifyThreadLabels, trashThread, untrashThread, trashMessage, untrashMessage } from '@/lib/google/gmail'
+import { GoogleAuthError } from '@/lib/google/oauth'
 
 export async function GET(req: NextRequest) {
   try {
@@ -62,6 +63,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ messages, threadId })
   } catch (err) {
     console.error('Thread fetch error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     const message = err instanceof Error ? err.message : 'Internal server error'
     if (message.includes('Google account not connected')) {
       return NextResponse.json({ error: message }, { status: 401 })
@@ -256,6 +263,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('Thread PATCH error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 })
   }
 }

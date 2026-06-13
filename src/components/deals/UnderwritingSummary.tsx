@@ -209,8 +209,8 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
 
         {/* Cash-on-Cash */}
         <div className="rounded-xl border p-4 bg-[var(--color-surface-0)] border-[var(--color-surface-2)] shadow-xs relative overflow-hidden group">
-          <div className="absolute right-0 top-0 w-16 h-16 bg-[rgba(59,130,246,0.03)] rounded-bl-full flex items-center justify-center pointer-events-none transition-all group-hover:scale-110">
-            <TrendingUp className="h-5 w-5 text-blue-500 opacity-40 translate-x-2 -translate-y-2" />
+          <div className="absolute right-0 top-0 w-16 h-16 bg-[var(--color-info-bg)]/30 rounded-bl-full flex items-center justify-center pointer-events-none transition-all group-hover:scale-110">
+            <TrendingUp className="h-5 w-5 text-[var(--color-info-solid)] opacity-40 translate-x-2 -translate-y-2" />
           </div>
           <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
             Cash-on-Cash Return

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthedClientByConnection } from '@/lib/google/oauth'
+import { getAuthedClientByConnection, GoogleAuthError, invalidateConnection } from '@/lib/google/oauth'
 import { google } from 'googleapis'
 
 interface DealField {
@@ -320,6 +320,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     } catch (gmailErr) {
       console.error('[campaign-emails] Gmail fetch FAILED:', gmailErr)
+      if (GoogleAuthError.isInvalidGrant(gmailErr)) {
+        await invalidateConnection(connectionId)
+        return NextResponse.json({ threads: [], gmailConnected: false })
+      }
     }
 
     // Sort: unread first, then by date descending
@@ -331,6 +335,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ threads: sorted, gmailConnected: true })
   } catch (err) {
     console.error('[campaign-emails] List error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({ threads: [], gmailConnected: false })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -438,6 +445,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[campaign-emails] PATCH error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 })
   }
 }

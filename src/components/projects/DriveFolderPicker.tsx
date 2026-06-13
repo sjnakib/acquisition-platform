@@ -90,13 +90,15 @@ export function DriveFolderPicker({ open, onOpenChange, projectId, onSelect }: D
   const pickerRef = useRef<Picker | null>(null)
 
   // Reset state when dialog opens
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     if (open) {
       setManualUrl('')
       setUrlError(null)
       setNewFolderName('')
     }
-  }, [open])
+  }
 
   // Load the Google API script once
   const loadGapi = useCallback((): Promise<void> => {

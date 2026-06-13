@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthedClientByConnection } from '@/lib/google/oauth'
+import { getAuthedClientByConnection, GoogleAuthError, invalidateConnection } from '@/lib/google/oauth'
 import { google } from 'googleapis'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  let googleConnectionId: string | null = null
+
   try {
     const { id: dealId } = await params
     const supabase = await createClient()
@@ -41,11 +43,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .eq('id', deal.project_id)
       .single()
 
-    if (!project?.google_connection_id) {
+    googleConnectionId = project?.google_connection_id ?? null
+
+    if (!googleConnectionId) {
       return NextResponse.json({ error: 'Project not connected to Gmail.' }, { status: 400 })
     }
 
-    const auth = await getAuthedClientByConnection(project.google_connection_id, { useAdminClient: true })
+    const auth = await getAuthedClientByConnection(googleConnectionId, { useAdminClient: true })
     const gmail = google.gmail({ version: 'v1', auth })
 
     // Fetch attachment content from Gmail
@@ -73,6 +77,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     })
   } catch (err) {
     console.error('Attachment fetch error:', err)
+    if (GoogleAuthError.isInvalidGrant(err)) {
+      if (googleConnectionId) await invalidateConnection(googleConnectionId)
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal server error' }, { status: 500 })
   }
 }

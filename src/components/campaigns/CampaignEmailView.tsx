@@ -36,11 +36,12 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
     staleTime: 60_000,
   })
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      setExpandedMessages(new Set(messages.map((m) => m.id)))
-    }
-  }, [messages])
+  const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null)
+
+  if (selectedThread && messages.length > 0 && selectedThread.threadId !== expandedThreadId) {
+    setExpandedThreadId(selectedThread.threadId)
+    setExpandedMessages(new Set(messages.map((m) => m.id)))
+  }
 
   const handleThreadClick = useCallback((thread: EmailThread) => {
     setSelectedThread(thread)

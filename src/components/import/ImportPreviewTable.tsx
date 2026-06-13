@@ -141,14 +141,14 @@ export function ImportPreviewTable({
 
       applyMappingChange(header, value)
     },
-    [mapping, fieldDefs, applyMappingChange],
+    [mapping, fieldDefs, applyMappingChange, setRemapPending],
   )
 
   const confirmRemap = useCallback(() => {
     if (!remapPending) return
     applyMappingChange(remapPending.header, remapPending.value)
     setRemapPending(null)
-  }, [remapPending, applyMappingChange])
+  }, [remapPending, applyMappingChange, setRemapPending])
 
   const existingFields = useMemo(
     () => fieldDefs.filter((fd) => fd.key && fd.key !== 'address' && fd.key !== 'unit_count'),

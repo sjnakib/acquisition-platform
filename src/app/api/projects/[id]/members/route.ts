@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient, listAllUsers, verifyUserExistsByEmail } from '@/lib/supabase/admin'
+import { createAdminClient, fetchUserEmails, verifyUserExistsByEmail } from '@/lib/supabase/admin'
 
 export async function GET(
   req: NextRequest,
@@ -27,11 +27,11 @@ export async function GET(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const memberList = members ?? []
+  const userIds = memberList.map((m) => m.user_id)
 
   // Batch fetch profiles
   let profileByUserId = new Map<string, { full_name: string | null; role: string }>()
   if (memberList.length > 0) {
-    const userIds = memberList.map((m) => m.user_id)
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, full_name, role')
@@ -39,9 +39,8 @@ export async function GET(
     profileByUserId = new Map(profiles?.map((p) => [p.id, { full_name: p.full_name, role: p.role }]) ?? [])
   }
 
-  // Batch fetch emails from auth.users via admin client (paginated)
-  const users = await listAllUsers()
-  const emailByUserId = new Map(users.map((u) => [u.id, u.email]))
+  // Batch fetch emails from auth.users via admin client RPC
+  const emailByUserId = await fetchUserEmails(userIds)
 
   const enriched = memberList.map((m) => {
     const profile = profileByUserId.get(m.user_id)

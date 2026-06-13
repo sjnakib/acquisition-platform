@@ -8,6 +8,7 @@ import {
   untrashDriveFile,
   moveDriveFile,
 } from '@/lib/google/drive'
+import { GoogleAuthError } from '@/lib/google/oauth'
 
 /**
  * GET /api/deals/[id]/drive/files?folderId=...&pageToken=...
@@ -66,6 +67,12 @@ export async function GET(
     })
   } catch (err) {
     console.error('List drive files error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
@@ -143,6 +150,12 @@ export async function POST(
     return NextResponse.json(result, { status: 201 })
   } catch (err) {
     console.error('Upload file error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     if (err instanceof Error && err.message?.includes('not connected')) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }
@@ -202,6 +215,12 @@ export async function DELETE(
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('Delete file error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -286,6 +305,12 @@ export async function PATCH(
     return NextResponse.json({ error: 'No valid action specified' }, { status: 400 })
   } catch (err) {
     console.error('Patch file error:', err)
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

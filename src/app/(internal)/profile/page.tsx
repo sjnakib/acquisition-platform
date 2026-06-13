@@ -70,12 +70,14 @@ function ProfileContent() {
     },
   })
 
-  useEffect(() => {
+  const [prevData, setPrevData] = useState<typeof data | null>(null)
+  if (data !== prevData) {
+    setPrevData(data)
     if (data) {
       setEditName(data.profile?.full_name ?? '')
       setEditAvatarUrl(data.profile?.avatar_url ?? '')
     }
-  }, [data])
+  }
 
   const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to load profile') : ''
 

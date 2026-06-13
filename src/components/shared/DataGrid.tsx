@@ -1274,6 +1274,12 @@ export function DataGrid<T>({
       const dealId = (row as Record<string, unknown>).id as string | undefined
       if (!dealId) return
 
+      const rowData = row as Record<string, unknown>
+      const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
+      
+      // Save original value for rollback
+      const originalValue = dealFields ? dealFields.find((df) => df?.field_definitions?.key === col.key)?.value : undefined
+
       toast.promise(
         fetch(`/api/deals/${dealId}/fields`, {
           method: 'PATCH',
@@ -1290,6 +1296,18 @@ export function DataGrid<T>({
           loading: 'Updating...',
           success: () => { showSaveSuccess({ rowIndex, colIndex }); return 'Updated' },
           error: (err) => {
+            // Revert optimistic update on failure
+            if (dealFields) {
+              const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
+              if (existing) {
+                if (originalValue !== undefined) {
+                  existing.value = originalValue
+                } else {
+                  const idx = dealFields.indexOf(existing)
+                  if (idx !== -1) dealFields.splice(idx, 1)
+                }
+              }
+            }
             const label = col.header
             return `Failed to save "${label}": ${err instanceof Error ? err.message : 'Network error'}`
           },
@@ -1297,8 +1315,6 @@ export function DataGrid<T>({
       )
 
       // Optimistic local update — mutate deal_fields so the cell renders the new value immediately
-      const rowData = row as Record<string, unknown>
-      const dealFields = rowData.deal_fields as Array<{ value: string | null; field_definitions: { key: string } | null }> | null | undefined
       if (dealFields) {
         const existing = dealFields.find((df) => df?.field_definitions?.key === col.key)
         if (existing) {

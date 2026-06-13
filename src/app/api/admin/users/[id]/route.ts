@@ -30,8 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'Cannot change your own role' }, { status: 400 })
     }
 
-    const profileUpdates: Record<string, any> = {}
-    const userMetadataUpdates: Record<string, any> = {}
+    const profileUpdates: Record<string, unknown> = {}
+    const userMetadataUpdates: Record<string, unknown> = {}
 
     if (body.role) {
       // Get old role to verify changes and clean up memberships

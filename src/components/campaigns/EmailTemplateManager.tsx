@@ -705,7 +705,7 @@ export function EmailTemplateManager({
                       </div>
                     </div>
                     {/* Email body render */}
-                    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-white dark:bg-[var(--color-surface-0)] min-h-0">
+                    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-[var(--color-surface-0)] min-h-0">
                       <div
                         className="text-[13px] text-[var(--color-text-primary)] space-y-3 leading-relaxed break-words outline-none"
                         style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}

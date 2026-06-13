@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient, listAllUsers, verifyUserExistsByEmail } from '@/lib/supabase/admin'
+import { createAdminClient, fetchUserEmails, verifyUserExistsByEmail } from '@/lib/supabase/admin'
 import { addSponsorSchema } from '@/lib/validations/project.schema'
 
 export async function GET(
@@ -23,11 +23,11 @@ export async function GET(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const sponsorList = data ?? []
+  const userIds = sponsorList.map((s) => s.user_id)
 
   // Batch fetch profiles
   let profileByUserId = new Map<string, string | null>()
   if (sponsorList.length > 0) {
-    const userIds = sponsorList.map((s) => s.user_id)
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, full_name')
@@ -35,9 +35,8 @@ export async function GET(
     profileByUserId = new Map(profiles?.map((p) => [p.id, p.full_name]) ?? [])
   }
 
-  // Batch fetch emails from auth.users via admin client (paginated)
-  const users = await listAllUsers()
-  const emailByUserId = new Map(users.map((u) => [u.id, u.email]))
+  // Batch fetch emails from auth.users via admin client RPC
+  const emailByUserId = await fetchUserEmails(userIds)
 
   const enriched = sponsorList.map((s) => ({
     id: s.id,

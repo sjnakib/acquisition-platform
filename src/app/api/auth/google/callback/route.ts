@@ -61,14 +61,20 @@ export async function GET(req: NextRequest) {
     let connectionId: string
 
     if (existing) {
-      // Update existing connection with fresh tokens
-      await supabase.from('google_connections').update({
+      // Update existing connection with fresh tokens.
+      // Google only issues refresh_token on first consent — subsequent
+      // re-auth flows return refresh_token: undefined.  Preserve the
+      // existing refresh_token when Google does not issue a new one.
+      const updateData: Record<string, unknown> = {
         access_token: tokens.access_token!,
-        refresh_token: tokens.refresh_token ?? null,
         token_type: tokens.token_type ?? null,
         expiry: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
         scopes: tokens.scope?.split(' ') ?? null,
-      }).eq('id', existing.id)
+      }
+      if (tokens.refresh_token) {
+        updateData.refresh_token = tokens.refresh_token
+      }
+      await supabase.from('google_connections').update(updateData).eq('id', existing.id)
       connectionId = existing.id
     } else {
       // Insert new connection

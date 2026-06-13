@@ -1,5 +1,5 @@
 import { google } from 'googleapis'
-import { getAuthedClientByConnection } from './oauth'
+import { callWithConnection } from './oauth'
 
 /**
  * Look up display names for email addresses from Gmail's interaction history
@@ -18,49 +18,47 @@ export async function lookupNamesByEmail(
   if (!emails.length) return result
 
   try {
-    const auth = await getAuthedClientByConnection(connectionId)
-    const people = google.people({ version: 'v1', auth })
+    return await callWithConnection(connectionId, async (auth) => {
+      const people = google.people({ version: 'v1', auth })
+      const uniqueEmails = [...new Set(emails.map((e) => e.toLowerCase()))]
+      const batchSize = 10
 
-    // otherContacts.search supports up to ~500 results; we query in small batches
-    // Each query is an email search against the account's interaction history
-    const uniqueEmails = [...new Set(emails.map((e) => e.toLowerCase()))]
-    const batchSize = 10
+      for (let i = 0; i < uniqueEmails.length; i += batchSize) {
+        const batch = uniqueEmails.slice(i, i + batchSize)
 
-    for (let i = 0; i < uniqueEmails.length; i += batchSize) {
-      const batch = uniqueEmails.slice(i, i + batchSize)
+        for (const email of batch) {
+          try {
+            const res = await people.otherContacts.search({
+              query: email,
+              readMask: 'names,emailAddresses',
+              pageSize: 3,
+            })
 
-      for (const email of batch) {
-        try {
-          const res = await people.otherContacts.search({
-            query: email,
-            readMask: 'names,emailAddresses',
-            pageSize: 3,
-          })
+            const otherContacts = res.data.results ?? []
+            for (const contact of otherContacts) {
+              const person = contact.person
+              if (!person) continue
 
-          const otherContacts = res.data.results ?? []
-          for (const contact of otherContacts) {
-            const person = contact.person
-            if (!person) continue
+              const personEmails = person.emailAddresses ?? []
+              const match = personEmails.find(
+                (e) => e.value?.toLowerCase() === email,
+              )
+              if (!match) continue
 
-            // Match by email address to ensure we have the right person
-            const personEmails = person.emailAddresses ?? []
-            const match = personEmails.find(
-              (e) => e.value?.toLowerCase() === email,
-            )
-            if (!match) continue
-
-            // Extract display name
-            const displayName = person.names?.[0]?.displayName
-            if (displayName) {
-              result.set(email, displayName)
+              const displayName = person.names?.[0]?.displayName
+              if (displayName) {
+                result.set(email, displayName)
+              }
+              break
             }
-            break // found match for this email, move to next
+          } catch {
+            // Skip individual lookup errors — non-fatal
           }
-        } catch {
-          // Skip individual lookup errors — non-fatal
         }
       }
-    }
+
+      return result
+    })
   } catch {
     // Connection or auth error — return empty, caller falls back
   }
