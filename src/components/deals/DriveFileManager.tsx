@@ -266,6 +266,25 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     })
   }, [fetchFolderChildren])
 
+  // ── Sync drive metadata to deals table after file loads ──
+  const syncDriveMetadata = useCallback(async (files: DriveFileItem[], folderId: string | null) => {
+    try {
+      const fileCount = files.filter((f) => !f.isFolder).length
+      const folderUrl = folderId ? `https://drive.google.com/drive/folders/${folderId}` : null
+      await fetch(`/api/deals/${dealId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drive_file_count: fileCount,
+          drive_folder_url: folderUrl,
+          drive_folder_id: folderId,
+        }),
+      })
+    } catch {
+      // Non-critical — don't show error to user
+    }
+  }, [dealId])
+
   // ── Fetch (Support Soft Refreshes) ──
 
   const fetchFiles = useCallback(async (folderId?: string | null, isSoft = false) => {
@@ -298,6 +317,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             setFiles(fetchedFiles)
             setDealFolderId(data.dealFolderId)
             triggerBackgroundFolderFetches(fetchedFiles)
+            syncDriveMetadata(fetchedFiles, data.dealFolderId ?? null)
           } else {
             if (await checkAuthExpired(res)) return
             toast.error(data.error ?? 'Failed to load files')
@@ -318,6 +338,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         setDealFolderId(data.dealFolderId)
         if (!folderId) setCurrentFolderId(data.dealFolderId)
         triggerBackgroundFolderFetches(fetchedFiles)
+        if (!folderId) syncDriveMetadata(fetchedFiles, data.dealFolderId ?? null)
       } else {
         if (await checkAuthExpired(res)) return
         toast.error(data.error ?? 'Failed to load files')
@@ -327,7 +348,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     } finally {
       setRefreshing(false)
     }
-  }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches])
+  }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches, syncDriveMetadata])
 
   const { data: dealData } = useQuery<{ drive_folder_id?: string | null; project_id?: string }>({
     queryKey: ['deal', dealId, 'drive', 'folder'],

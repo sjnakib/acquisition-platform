@@ -8,6 +8,7 @@ const SORT_COLUMNS: Record<string, string> = {
   score: 'score',
   created_at: 'created_at',
   last_email_sent_on: 'last_email_sent_on',
+  response_type: 'response_type',
   campaign: 'campaigns(name)',
   portfolio: 'portfolios!deals_portfolio_id_fkey(name)',
 }

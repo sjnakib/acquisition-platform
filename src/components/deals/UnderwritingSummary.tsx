@@ -22,7 +22,7 @@ interface UnderwritingData {
   equity_multiple?: number | null
   cash_on_cash_pct?: number | null
   profit?: number | null
-  proceed_with_loi?: boolean | null
+  loi_recommendation?: boolean | null
   uw_notes?: string | null
 }
 
@@ -84,7 +84,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
           equity_multiple: formData.equity_multiple,
           cash_on_cash_pct: formData.cash_on_cash_pct,
           profit: formData.profit,
-          proceed_with_loi: formData.proceed_with_loi,
+          loi_recommendation: formData.loi_recommendation,
           uw_notes: formData.uw_notes,
         }),
       })
@@ -267,6 +267,8 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
+              {numberField('Asking Price', 'asking_price', { readOnly: true, format: fmtCurrency })}
+              {numberField('Price / Unit', 'price_per_unit', { readOnly: true, format: fmtCurrency })}
               {numberField('Purchase Price', 'purchase_price', { placeholder: 'e.g. 15000000' })}
               {numberField('Purchase Price / Unit', 'purchase_price_per_unit', { readOnly: true, format: fmtCurrency })}
               {numberField('CAPEX Allocation', 'capex', { placeholder: 'e.g. 1200000' })}
@@ -275,6 +277,9 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
                 {numberField('Target Occupancy', 'occupancy_pct', { suffix: '%', placeholder: 'e.g. 95' })}
               </div>
             </div>
+            <p className="text-[10px] text-[var(--color-text-tertiary)] -mt-2 italic">
+              Asking Price and Price/Unit are set in the Deal Room tab evaluation.
+            </p>
 
             {/* Purchase vs Asking Price Analysis */}
             {asking && purchase && (
@@ -330,18 +335,18 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
             </h4>
 
             <div className="space-y-3 flex-1 flex flex-col justify-center">
-              {/* Option A: Yes, Proceed */}
+              {/* Option A: Recommend LOI */}
               <button
                 type="button"
-                onClick={() => update('proceed_with_loi', true)}
+                onClick={() => update('loi_recommendation', true)}
                 className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group ${
-                  formData?.proceed_with_loi === true
+                  formData?.loi_recommendation === true
                     ? 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] shadow-xs'
                     : 'border-[var(--color-surface-2)] bg-transparent hover:border-[var(--color-surface-3)]'
                 }`}
               >
                 <div className={`mt-0.5 rounded-full p-0.5 flex-shrink-0 border ${
-                  formData?.proceed_with_loi === true
+                  formData?.loi_recommendation === true
                     ? 'bg-[var(--color-success-border)] text-white border-transparent'
                     : 'bg-transparent text-transparent border-[var(--color-surface-3)] group-hover:border-[var(--color-text-tertiary)]'
                 }`}>
@@ -349,28 +354,28 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
                 </div>
                 <div>
                   <span className={`text-xs font-bold block ${
-                    formData?.proceed_with_loi === true ? 'text-[var(--color-success-text)]' : 'text-[var(--color-text-primary)]'
+                    formData?.loi_recommendation === true ? 'text-[var(--color-success-text)]' : 'text-[var(--color-text-primary)]'
                   }`}>
-                    Proceed to LOI
+                    Recommend LOI
                   </span>
                   <span className="text-[10px] text-[var(--color-text-tertiary)] block mt-0.5 leading-normal">
-                    Analyst recommendation is solid. Move deal forward to draft Letter of Intent.
+                    Underwriting thresholds met. Move deal forward to draft Letter of Intent.
                   </span>
                 </div>
               </button>
 
-              {/* Option B: Hold / No */}
+              {/* Option B: Hold */}
               <button
                 type="button"
-                onClick={() => update('proceed_with_loi', false)}
+                onClick={() => update('loi_recommendation', false)}
                 className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group ${
-                  formData?.proceed_with_loi === false
+                  formData?.loi_recommendation === false
                     ? 'border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] shadow-xs'
                     : 'border-[var(--color-surface-2)] bg-transparent hover:border-[var(--color-surface-3)]'
                 }`}
               >
                 <div className={`mt-0.5 rounded-full p-0.5 flex-shrink-0 border ${
-                  formData?.proceed_with_loi === false
+                  formData?.loi_recommendation === false
                     ? 'bg-[var(--color-danger-border)] text-white border-transparent'
                     : 'bg-transparent text-transparent border-[var(--color-surface-3)] group-hover:border-[var(--color-text-tertiary)]'
                 }`}>
@@ -378,12 +383,12 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
                 </div>
                 <div>
                   <span className={`text-xs font-bold block ${
-                    formData?.proceed_with_loi === false ? 'text-[var(--color-danger-text)]' : 'text-[var(--color-text-primary)]'
+                    formData?.loi_recommendation === false ? 'text-[var(--color-danger-text)]' : 'text-[var(--color-text-primary)]'
                   }`}>
-                    Hold Deal in Screening
+                    Hold in Screening
                   </span>
                   <span className="text-[10px] text-[var(--color-text-tertiary)] block mt-0.5 leading-normal">
-                    Underwriting return thresholds not met. Flag for further diligence or pricing renegotiation.
+                    Return thresholds not met. Flag for further diligence or pricing renegotiation.
                   </span>
                 </div>
               </button>

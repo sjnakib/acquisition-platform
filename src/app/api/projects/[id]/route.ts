@@ -112,3 +112,54 @@ export async function PATCH(
 
   return NextResponse.json({ success: true })
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
+    return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
+  }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+
+  // Read google_connection_id before deletion for orphan cleanup.
+  // The FK has ON DELETE SET NULL, so the project row's reference will be
+  // cleared — but the google_connections row will remain as an orphan.
+  const { data: project } = await supabase
+    .from('projects')
+    .select('google_connection_id')
+    .eq('id', id)
+    .single()
+
+  if (!project) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+
+  const { error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    // RLS violations surface as Postgres errors (e.g. "no rows deleted" or
+    // permission errors). Map to 403 for clarity.
+    if (error.message.includes('row-level security') || error.code === '42501') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Clean up google_connection if it's now orphaned (no other projects
+  // reference it). Handles token revocation and row deletion.
+  const connectionId = project.google_connection_id as string | undefined
+  if (connectionId) {
+    await cleanupOrphanedConnection(connectionId)
+  }
+
+  return NextResponse.json({ success: true })
+}

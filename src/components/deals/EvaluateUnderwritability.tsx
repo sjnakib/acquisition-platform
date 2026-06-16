@@ -21,7 +21,6 @@ interface UnderwritingData {
   market_price_per_unit?: number | null
   delta_pct?: number | null
   cap_rate?: number | null
-  sale_rent_comps?: string | null
 }
 
 interface Props {
@@ -77,7 +76,6 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
           market_price_per_unit: formData.market_price_per_unit,
           delta_pct: formData.delta_pct,
           cap_rate: formData.cap_rate,
-          sale_rent_comps: formData.sale_rent_comps,
         }),
       })
       if (!res.ok) {
@@ -96,9 +94,29 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
 
   const autoComputePricePerUnit = useCallback((askingPrice: number) => {
     if (unitCount && unitCount > 0) {
-      setFormData((prev) => prev ? { ...prev, price_per_unit: Math.round(askingPrice / unitCount) } : prev)
+      setFormData((prev) => {
+        if (!prev) return prev
+        const pricePerUnit = Math.round(askingPrice / unitCount)
+        const marketPrice = prev.market_price_per_unit
+        const delta = (marketPrice && marketPrice !== 0)
+          ? Number((((pricePerUnit - marketPrice) / marketPrice) * 100).toFixed(3))
+          : prev.delta_pct
+        return { ...prev, price_per_unit: pricePerUnit, delta_pct: delta }
+      })
     }
   }, [unitCount])
+
+  const autoComputeDelta = useCallback((marketPrice: number | null) => {
+    if (!marketPrice) return
+    setFormData((prev) => {
+      if (!prev) return prev
+      const pricePerUnit = prev.price_per_unit
+      const delta = (pricePerUnit && marketPrice !== 0)
+        ? Number((((pricePerUnit - marketPrice) / marketPrice) * 100).toFixed(3))
+        : prev.delta_pct
+      return { ...prev, delta_pct: delta }
+    })
+  }, [])
 
   if (isLoading) {
     return (
@@ -108,26 +126,35 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
     )
   }
 
-  function numberField(label: string, field: keyof UnderwritingData, suffix?: string) {
+  function numberField(label: string, field: keyof UnderwritingData, opts?: { suffix?: string; readOnly?: boolean }) {
     const val = formData?.[field]
+    const isReadOnly = opts?.readOnly
     return (
       <div className="space-y-1">
         <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
           {label}
         </label>
-        <Input
-          type="number"
-          value={val != null ? String(val) : ''}
-          onChange={(e) => {
-            const v = e.target.value === '' ? null : Number(e.target.value)
-            update(field, v)
-            if (field === 'asking_price' && v) autoComputePricePerUnit(v)
-          }}
-          placeholder="—"
-          className="h-8 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
-        />
-        {suffix && (
-          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{suffix}</span>
+        {isReadOnly ? (
+          <div className="h-8 px-3 rounded-md border border-[var(--color-surface-2)] bg-[var(--color-surface-1)] flex items-center text-[13px] font-mono text-[var(--color-text-secondary)]">
+            {val != null ? (opts?.suffix ? `${val}${opts.suffix}` : String(val)) : '—'}
+          </div>
+        ) : (
+          <Input
+            type="number"
+            value={val != null ? String(val) : ''}
+            onChange={(e) => {
+              const v = e.target.value === '' ? null : Number(e.target.value)
+              update(field, v)
+              if (field === 'asking_price' && v) autoComputePricePerUnit(v)
+              if (field === 'market_price_per_unit' && v) autoComputeDelta(v)
+              if (field === 'price_per_unit' && v) autoComputeDelta(formData?.market_price_per_unit ?? null)
+            }}
+            placeholder="—"
+            className="h-8 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
+          />
+        )}
+        {opts?.suffix && (
+          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{opts.suffix}</span>
         )}
       </div>
     )
@@ -153,16 +180,16 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-        {numberField('Asking Price', 'asking_price', 'total')}
+        {numberField('Asking Price', 'asking_price', { suffix: 'total' })}
         {numberField('Price / Unit', 'price_per_unit')}
         {numberField('Population (1-Mile)', 'population_1mi')}
-        {numberField('Population Growth %', 'population_growth_pct', '%')}
-        {numberField('Rent Growth % (12 Mo)', 'rent_growth_12mo_pct', '%')}
-        {numberField('Rent Growth % (Forecast)', 'rent_growth_forecast_pct', '%')}
-        {numberField('Vacancy Rate %', 'vacancy_rate_pct', '%')}
+        {numberField('Population Growth %', 'population_growth_pct', { suffix: '%' })}
+        {numberField('Rent Growth % (12 Mo)', 'rent_growth_12mo_pct', { suffix: '%' })}
+        {numberField('Rent Growth % (Forecast)', 'rent_growth_forecast_pct', { suffix: '%' })}
+        {numberField('Vacancy Rate %', 'vacancy_rate_pct', { suffix: '%' })}
         {numberField('Market Price / Unit', 'market_price_per_unit')}
-        {numberField('Delta % (Market vs Subject)', 'delta_pct', '%')}
-        {numberField('Cap Rate', 'cap_rate', '%')}
+        {numberField('Delta % (Market vs Subject)', 'delta_pct', { suffix: '%', readOnly: true })}
+        {numberField('Cap Rate', 'cap_rate', { suffix: '%' })}
       </div>
 
       <div className="space-y-1">
@@ -181,19 +208,6 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
         </select>
       </div>
 
-      <div className="space-y-1">
-        <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
-          Sale & Rent Comps
-        </label>
-        <textarea
-          value={formData?.sale_rent_comps ?? ''}
-          onChange={(e) => { update('sale_rent_comps', e.target.value); setDirty(true) }}
-          placeholder="Notes on sale and rent comparables..."
-          rows={3}
-          className="w-full text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-md px-3 py-2 focus:border-[var(--color-accent)] outline-none resize-none"
-          style={{ color: 'var(--color-text-primary)' }}
-        />
-      </div>
     </div>
   )
 }

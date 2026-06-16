@@ -10,7 +10,7 @@ interface Profile {
 }
 
 interface ApprovalPanelProps {
-  proceedWithLoi: boolean | null
+  loiRecommendation: boolean | null
   uwAnalystId: string | null
   uwCompletionDate: string | null
   reviewer1Id: string | null
@@ -22,7 +22,7 @@ interface ApprovalPanelProps {
 }
 
 export function ApprovalPanel({
-  proceedWithLoi, uwAnalystId, uwCompletionDate,
+  loiRecommendation, uwAnalystId, uwCompletionDate,
   reviewer1Id, review1Date, reviewer2Id, review2Date,
   profiles, onChange,
 }: ApprovalPanelProps) {
@@ -31,10 +31,10 @@ export function ApprovalPanel({
       <h3 className="text-[15px] font-medium" style={{ color: 'var(--color-text-primary)' }}>Approval & Review Tracking</h3>
 
       <div className="flex items-center justify-between">
-        <label className="text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>Proceed with LOI</label>
+        <label className="text-[13px]" style={{ color: 'var(--color-text-secondary)' }}>LOI Recommendation</label>
         <Switch
-          checked={proceedWithLoi === true}
-          onCheckedChange={(v) => onChange({ proceed_with_loi: v })}
+          checked={loiRecommendation === true}
+          onCheckedChange={(v) => onChange({ loi_recommendation: v })}
         />
       </div>
 

@@ -86,7 +86,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const rows: { deal_id: string; field_id: string; value: string | null }[] = []
   const skipped: string[] = []
 
+  // Blocklist: keys that belong to underwriting, LOI, or deals tables — not deal_fields
+  const BLOCKED_FIELD_KEYS = new Set([
+    'asking_price', 'price_per_unit', 'purchase_price', 'purchase_price_per_unit',
+    'capex', 'capex_per_unit', 'irr', 'irr_pct', 'equity_multiple', 'em',
+    'cash_on_cash', 'coc', 'cash_on_cash_pct', 'profit', 'occupancy_pct',
+    'population_1mi', 'population_growth_pct', 'rent_growth_12mo_pct',
+    'rent_growth_forecast_pct', 'rent_growth_fwd_pct', 'vacancy_rate_pct',
+    'market_price_per_unit', 'delta_pct', 'cap_rate', 'underwritability_status',
+    'proceed_with_loi', 'loi_recommendation', 'sale_rent_comps', 'uw_notes',
+    'offered_price', 'final_price', 'close_date', 'loi_outcome',
+    'loi_email', 'last_loi_email_sent_at',
+    'stage', 'score', 'portfolio', 'created_at', 'date_added',
+    'last_email_sent_on', 'response_type', 'drive_folder_url', 'drive_folder_id',
+    'drive_file_count', 'outreach_emails', 'is_archived', 'is_portfolio',
+    'deal_room_link', 'docs_count',
+    'pl', 'pl_date', 'pnl', 'pnl_date', 'rent_roll', 'rent_roll_date',
+    'om', 'tax_bill', 'capex_schedule', 'market_report', 'market_reports',
+  ])
+
   for (const [key, value] of Object.entries(body)) {
+    if (BLOCKED_FIELD_KEYS.has(key)) {
+      skipped.push(key)
+      continue
+    }
     const fieldId = defMap.get(key)
     if (!fieldId) {
       skipped.push(key)

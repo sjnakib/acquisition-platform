@@ -23,6 +23,26 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
   const [editValue, setEditValue] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Blocklist: field keys that belong to underwriting, LOI, or deals tables.
+  // These are managed by dedicated UI components and should not appear here.
+  const SYSTEM_FIELD_KEYS = new Set([
+    'asking_price', 'price_per_unit', 'purchase_price', 'purchase_price_per_unit',
+    'capex', 'capex_per_unit', 'irr', 'irr_pct', 'equity_multiple', 'em',
+    'cash_on_cash', 'coc', 'cash_on_cash_pct', 'profit', 'occupancy_pct',
+    'population_1mi', 'population_growth_pct', 'rent_growth_12mo_pct',
+    'rent_growth_forecast_pct', 'rent_growth_fwd_pct', 'vacancy_rate_pct',
+    'market_price_per_unit', 'delta_pct', 'cap_rate', 'underwritability_status',
+    'proceed_with_loi', 'loi_recommendation', 'sale_rent_comps', 'uw_notes',
+    'offered_price', 'final_price', 'close_date', 'loi_outcome',
+    'loi_email', 'last_loi_email_sent_at',
+    'stage', 'score', 'portfolio', 'created_at', 'date_added',
+    'last_email_sent_on', 'response_type', 'drive_folder_url', 'drive_folder_id',
+    'drive_file_count', 'outreach_emails', 'is_archived', 'is_portfolio',
+    'deal_room_link', 'docs_count',
+    'pl', 'pl_date', 'pnl', 'pnl_date', 'rent_roll', 'rent_roll_date',
+    'om', 'tax_bill', 'capex_schedule', 'market_report', 'market_reports',
+  ])
+
   const { data: fields, isLoading: loading } = useQuery<FieldsMap>({
     queryKey: ['deal', dealId, 'fields'],
     queryFn: async () => {
@@ -96,9 +116,10 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
 
   // Filter and sort entries based on search query
   const entries = Object.entries(fields)
+    .filter(([key]) => !SYSTEM_FIELD_KEYS.has(key))
     .filter(([, def]) => def.label)
-    .filter(([, def]) => 
-      !searchQuery.trim() || 
+    .filter(([, def]) =>
+      !searchQuery.trim() ||
       def.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
       displayValue(def).toLowerCase().includes(searchQuery.toLowerCase())
     )

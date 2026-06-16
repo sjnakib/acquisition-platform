@@ -447,7 +447,13 @@ export async function POST(
       if (dealHadSuccess) {
         const transition = canTransition('lead' as DealStage, 'outreach' as DealStage)
         if (transition.ok) {
-          await supabase.from('deals').update({ stage: 'outreach' }).eq('id', deal.id)
+          await supabase.from('deals').update({
+            stage: 'outreach',
+            last_email_sent_on: new Date().toISOString(),
+          }).eq('id', deal.id)
+        } else {
+          // Still update last_email_sent_on even if stage transition is blocked
+          await supabase.from('deals').update({ last_email_sent_on: new Date().toISOString() }).eq('id', deal.id)
         }
       }
     }

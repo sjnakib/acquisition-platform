@@ -39,6 +39,10 @@ interface DealHeader {
   score: string | null
   created_at: string
   portfolio_id: string | null
+  last_email_sent_on: string | null
+  response_type: string | null
+  drive_file_count: number | null
+  outreach_emails: string[] | null
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
   portfolio_details?: { id: string; name: string; description: string | null }[] | null
 }
@@ -128,6 +132,8 @@ export default function DealDetailView({
   const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
 
   const portfolioDescription = deal.portfolio_details?.[0]?.description ?? null
+  const portfolioName = deal.portfolio_details?.[0]?.name ?? null
+  const outreachEmails = deal.outreach_emails ?? []
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 64px)' }}>
@@ -168,10 +174,20 @@ export default function DealDetailView({
                 </span>
               </>
             ) : null}
+            {deal.response_type ? (
+              <>
+                <span style={{ color: 'var(--color-text-tertiary)' }} className="text-xs select-none">
+                  •
+                </span>
+                <span className="text-xs font-medium capitalize" style={{ color: 'var(--color-text-secondary)' }}>
+                  {deal.response_type.replace(/_/g, ' ')}
+                </span>
+              </>
+            ) : null}
           </div>
           {portfolioDescription ? (
             <p className="text-xs leading-normal" style={{ color: 'var(--color-text-secondary)' }}>
-              {portfolioDescription}
+              Portfolio: {portfolioDescription}
             </p>
           ) : null}
         </div>
@@ -201,7 +217,7 @@ export default function DealDetailView({
           <TabsContent className="overflow-y-auto" value="overview" keepMounted>
             <div className="space-y-6">
               {/* KPI highlight cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
                 <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(30,91,63,0.08)] border border-[rgba(30,91,63,0.15)] text-[var(--color-accent)] flex-shrink-0">
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -210,7 +226,7 @@ export default function DealDetailView({
                   </div>
                   <div>
                     <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
-                      Created
+                      Date Added
                     </span>
                     <p className="text-[13px] font-bold mt-0.5 font-mono text-[var(--color-text-primary)]">
                       {formatDate(deal.created_at)}
@@ -263,7 +279,63 @@ export default function DealDetailView({
                     </p>
                   </div>
                 </div>
+
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(59,130,246,0.08)] border border-[rgba(59,130,246,0.15)] text-[rgb(59,130,246)] flex-shrink-0">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
+                      Last Email Sent
+                    </span>
+                    <p className="text-[13px] font-bold mt-0.5 font-mono text-[var(--color-text-primary)]">
+                      {deal.last_email_sent_on ? formatDate(deal.last_email_sent_on) : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border p-4 shadow-xs flex items-center gap-3 bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[rgba(16,185,129,0.08)] border border-[rgba(16,185,129,0.15)] text-[rgb(16,185,129)] flex-shrink-0">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-tertiary)] block">
+                      Deal Room Docs
+                    </span>
+                    <p className="text-[13px] font-bold mt-0.5 font-mono text-[var(--color-text-primary)]">
+                      {deal.drive_file_count ?? '—'}
+                    </p>
+                  </div>
+                </div>
               </div>
+
+              {/* Email Targets card */}
+              {outreachEmails.length > 0 && (
+                <div className="rounded-xl border p-6 shadow-xs bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">
+                  <div className="mb-4 pb-3 border-b border-[var(--color-surface-2)]">
+                    <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                      Email Targets
+                    </h3>
+                    <p className="text-[11px] text-[var(--color-text-tertiary)] mt-0.5">
+                      {outreachEmails.length} recipient{outreachEmails.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {outreachEmails.map((email, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-[12px] font-medium bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] text-[var(--color-text-primary)]"
+                      >
+                        {email}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Property Fields card */}
               <div className="rounded-xl border p-6 shadow-xs bg-[var(--color-surface-0)] border-[var(--color-surface-2)]">

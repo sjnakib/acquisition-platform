@@ -22,9 +22,6 @@ interface LOIRecord {
   close_date: string | null
   fallen_through_reason: string | null
   fallen_through_date: string | null
-  insurance_declarations: boolean | null
-  vendor_service_contracts: boolean | null
-  utility_bills: boolean | null
   loi_email: string | null
   last_loi_email_sent_at: string | null
 }
@@ -103,14 +100,13 @@ export function LOIDetail({ dealId }: Props) {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          insurance_declarations: loi.insurance_declarations,
-          vendor_service_contracts: loi.vendor_service_contracts,
-          utility_bills: loi.utility_bills,
           loi_email: loi.loi_email,
+          last_loi_email_sent_at: loi.last_loi_email_sent_at,
           outcome: loi.outcome,
           final_price: loi.final_price,
           close_date: loi.close_date,
           fallen_through_reason: loi.fallen_through_reason,
+          fallen_through_date: loi.fallen_through_date,
           offered_price: loi.offered_price,
         }),
       })
@@ -408,71 +404,27 @@ export function LOIDetail({ dealId }: Props) {
         </div>
       )}
 
-      {/* Document tracking & Email Communication Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Diligence Checklist */}
-        <div className="lg:col-span-3 rounded-xl border p-5 bg-[var(--color-surface-0)] border-[var(--color-surface-2)] shadow-xs space-y-3">
-          <h4 className="text-[12px] font-bold text-[var(--color-text-primary)] pb-1.5 border-b border-[var(--color-surface-2)] flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4 text-[var(--color-accent)]" />
-            Required Diligence Checklist
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              { key: 'insurance_declarations', label: 'Insurance Declarations', desc: 'Coverages & policies' },
-              { key: 'vendor_service_contracts', label: 'Vendor Service Contracts', desc: 'Waste, elevator, laundry' },
-              { key: 'utility_bills', label: 'Utility Bills', desc: 'Gas, electric, water logs' },
-            ].map(({ key, label, desc }) => {
-              const checked = !!(loi[key as keyof LOIRecord])
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => updateLoi(key, !checked)}
-                  className={`flex flex-col items-start gap-1 p-3 rounded-xl border transition-all text-left shadow-xs ${
-                    checked
-                      ? 'bg-[var(--color-success-bg)] border-[var(--color-success-border)] text-[var(--color-success-text)]'
-                      : 'bg-[var(--color-surface-1)] border-[var(--color-surface-3)] hover:border-[var(--color-surface-3)]/80 text-[var(--color-text-secondary)]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 w-full justify-between">
-                    <span className="text-xs font-bold">{label}</span>
-                    {checked ? (
-                      <CheckCircle2 size={14} className="fill-current text-[var(--color-success-text)]" />
-                    ) : (
-                      <div className="w-3.5 h-3.5 rounded border border-[var(--color-surface-3)]" />
-                    )}
-                  </div>
-                  <span className="text-[10px] text-[var(--color-text-tertiary)] block mt-0.5 leading-normal">
-                    {desc}
-                  </span>
-                </button>
-              )
-            })}
+      {/* LOI Email Communication Block */}
+      <div className="rounded-xl border p-5 bg-[var(--color-surface-0)] border-[var(--color-surface-2)] shadow-xs space-y-4">
+        <h4 className="text-[12px] font-bold text-[var(--color-text-primary)] pb-1.5 border-b border-[var(--color-surface-2)] flex items-center gap-1.5">
+          <FileText className="h-4 w-4 text-[var(--color-accent)]" />
+          LOI Email Dispatch
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-secondary)]">Email for LOI</label>
+            <Input
+              type="email"
+              value={loi.loi_email ?? ''}
+              onChange={(e) => updateLoi('loi_email', e.target.value || null)}
+              placeholder="broker@example.com"
+              className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+            />
           </div>
-        </div>
-
-        {/* Communication Block */}
-        <div className="lg:col-span-2 rounded-xl border p-5 bg-[var(--color-surface-0)] border-[var(--color-surface-2)] shadow-xs space-y-4">
-          <h4 className="text-[12px] font-bold text-[var(--color-text-primary)] pb-1.5 border-b border-[var(--color-surface-2)] flex items-center gap-1.5">
-            <FileText className="h-4 w-4 text-[var(--color-accent)]" />
-            LOI Email Dispatch
-          </h4>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-secondary)]">Broker Email for LOI</label>
-              <Input
-                type="email"
-                value={loi.loi_email ?? ''}
-                onChange={(e) => updateLoi('loi_email', e.target.value || null)}
-                placeholder="broker@example.com"
-                className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
-              />
-            </div>
-            <div className="flex justify-between items-center pt-1.5 text-[11px]">
-              <span className="font-semibold text-[var(--color-text-secondary)]">Last Dispatched:</span>
-              <span className="font-mono text-[var(--color-text-tertiary)]">
-                {loi.last_loi_email_sent_at ? formatDate(loi.last_loi_email_sent_at) : 'Never sent'}
-              </span>
+          <div className="space-y-1">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--color-text-secondary)]">Last Email for LOI Sent On</label>
+            <div className="h-8 px-3 rounded-md border border-[var(--color-surface-2)] bg-[var(--color-surface-1)] flex items-center text-[13px] font-mono text-[var(--color-text-secondary)]">
+              {loi.last_loi_email_sent_at ? formatDate(loi.last_loi_email_sent_at) : 'Never sent'}
             </div>
           </div>
         </div>

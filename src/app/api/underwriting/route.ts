@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { deal_id, ...uwData } = body
 
-    // Compute per-unit auto fields from unit_count
+    // Compute per-unit and delta auto fields from unit_count
     if (uwData.asking_price && deal_id) {
       const { data: dealFields } = await supabase
         .from('deal_fields')
@@ -25,13 +25,22 @@ export async function POST(req: NextRequest) {
       const units = unitsField?.value ? parseInt(unitsField.value, 10) || null : null
       if (units && units > 0) {
         const asking = Number(uwData.asking_price)
-        if (!uwData.price_per_unit) uwData.price_per_unit = asking / units
+        if (!uwData.price_per_unit) uwData.price_per_unit = Math.round(asking / units)
         if (uwData.purchase_price && !uwData.purchase_price_per_unit) {
-          uwData.purchase_price_per_unit = Number(uwData.purchase_price) / units
+          uwData.purchase_price_per_unit = Math.round(Number(uwData.purchase_price) / units)
         }
         if (uwData.capex && !uwData.capex_per_unit) {
-          uwData.capex_per_unit = Number(uwData.capex) / units
+          uwData.capex_per_unit = Math.round(Number(uwData.capex) / units)
         }
+      }
+    }
+
+    // Auto-compute delta_pct from price_per_unit and market_price_per_unit
+    if (uwData.price_per_unit && uwData.market_price_per_unit && Number(uwData.market_price_per_unit) !== 0) {
+      if (!uwData.delta_pct) {
+        uwData.delta_pct = Number(
+          (((Number(uwData.price_per_unit) - Number(uwData.market_price_per_unit)) / Number(uwData.market_price_per_unit)) * 100).toFixed(3)
+        )
       }
     }
 

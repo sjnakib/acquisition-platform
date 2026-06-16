@@ -101,6 +101,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // Update last_email_sent_on when email was actually sent (not just scheduled)
+    if (!scheduledAt && result) {
+      await supabase.from('deals').update({ last_email_sent_on: new Date().toISOString() }).eq('id', dealId)
+    }
+
+    // Check if the email recipient matches one of the Email for LOI addresses, and update last_loi_email_sent_at if so
+    if (!scheduledAt && result && to) {
+      const recipientEmails = String(to)
+        .split(/[,;]/)
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean)
+
+      const { data: loiRecord } = await supabase
+        .from('loi_records')
+        .select('id, loi_email')
+        .eq('deal_id', dealId)
+        .maybeSingle()
+
+      if (loiRecord?.loi_email) {
+        const loiEmails = loiRecord.loi_email
+          .split(/[,;]/)
+          .map((e: string) => e.trim().toLowerCase())
+          .filter(Boolean)
+
+        const hasMatch = recipientEmails.some((email) => loiEmails.includes(email))
+        if (hasMatch) {
+          await supabase
+            .from('loi_records')
+            .update({ last_loi_email_sent_at: new Date().toISOString() })
+            .eq('id', loiRecord.id)
+        }
+      }
+    }
+
     // Link attachments to the outreach record
     if (attachment_ids?.length && outreach) {
       await supabase

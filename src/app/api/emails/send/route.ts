@@ -114,6 +114,33 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Update last_email_sent_on so the deals table reflects the most recent send
+    await supabase.from('deals').update({ last_email_sent_on: new Date().toISOString() }).eq('id', deal_id)
+
+    // Check if the email recipient matches one of the Email for LOI addresses, and update last_loi_email_sent_at if so
+    if (contact.email && contact.email.length > 0) {
+      const recipientEmail = contact.email[0].toLowerCase()
+      const { data: loiRecord } = await supabase
+        .from('loi_records')
+        .select('id, loi_email')
+        .eq('deal_id', deal_id)
+        .maybeSingle()
+
+      if (loiRecord?.loi_email) {
+        const loiEmails = loiRecord.loi_email
+          .split(/[,;]/)
+          .map((e: string) => e.trim().toLowerCase())
+          .filter(Boolean)
+
+        if (loiEmails.includes(recipientEmail)) {
+          await supabase
+            .from('loi_records')
+            .update({ last_loi_email_sent_at: new Date().toISOString() })
+            .eq('id', loiRecord.id)
+        }
+      }
+    }
+
     return NextResponse.json(outreach)
   } catch (err) {
     console.error('Email send error:', err)

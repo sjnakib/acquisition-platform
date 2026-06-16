@@ -33,13 +33,13 @@ npm run db:reset     # reset + re-seed local DB
 - **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
 - **`src/proxy.ts`** handles auth routing. Reads role from JWT `app_metadata` (no DB round-trip). Legacy routes (`/dashboard`, `/deals`, `/overview`, etc.) redirect → `/projects`. `/invite` routes treated as public auth pages. Matcher explicitly excludes `api` routes — each API route does its own auth. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS)
-- **17 API route domains, 67 route files** — admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import, batch), emails, field-definitions, invitations, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting
+- **17 API route domains, 68 route files** — admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import, batch), emails, field-definitions, invitations, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting
 - **Three user roles:** `admin | internal | client`. Admin = super-admin: sees all projects, manages users via `/admin` panel, can create/delete accounts. Internal = team member scoped to assigned projects via `project_members` table (migration 0045). Client = sponsor scoped to projects via `sponsors` table.
 - **RLS helper `is_staff()`** returns true for admin OR internal. All internal-only policies use this instead of `get_my_role() = 'internal'` (migration 0045). `createAdminClient()` (service role) bypasses RLS — ONLY for Gmail webhook + `/api/admin/*`.
 - **Supabase client layer (5 files):** `client.ts` (browser), `server.ts` (server/API), `middleware.ts` (proxy helper), `admin.ts` (service role), `types.ts` (manual placeholder)
 - **Data fetching: TanStack Query** (`@tanstack/react-query` v5). All hooks use `useQuery`/`useMutation` with `queryClient.invalidateQueries()` for cache invalidation. Query keys follow `['resource', id]` pattern. Mutations invalidate related queries (e.g. creating a portfolio invalidates both `['portfolios']` and `['deals']` since portfolios create linked deals). `ReactQueryProvider` is default-exported with module-level `new QueryClient()` (NOT wrapped in `useState`).
 - **Components** in `src/components/` by domain: `ui/`, `shared/`, `auth/`, `dashboard/`, `deals/`, `client/`, `import/`, `campaigns/`, `portfolios/`, `projects/`
-- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`. Files: `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeal`, `useDeals`, `useGridInteraction`, `usePortfolios`, `useSidebarCollapsed`.
+- **Hooks** in `src/lib/hooks/` (NOT `src/hooks/`). shadcn config aliases `@/hooks` but actual imports use `@/lib/hooks/`. Files: `useAuth`, `useCallQueue`, `useCampaigns`, `useColumnOrder`, `useColumnWidths`, `useDeal`, `useDeals`, `useGoogleConnection`, `useGridInteraction`, `usePortfolios`, `useSidebarCollapsed`.
 - **Other lib files:** `batch-delete.ts`, `directory-traversal.ts`, `navigation.ts` (sidebar nav item definitions), `stage-machine.ts`, `rate-limit.ts`, `brand.ts`, `page-headings.ts`, `turnstile.ts`, `utils.ts`.
 - **`src/lib/validations/`** — 11 Zod schemas: `auth`, `call`, `campaign`, `contact`, `deal`, `import`, `invitation`, `password-reset`, `portfolio`, `project`, `template`. API routes import from here for request body validation.
 - **`src/lib/import/`** — `file-parser.ts` (ExcelJS CoStar .xlsx parsing), `mapping.ts` (field mapping logic).
@@ -63,6 +63,7 @@ npm run db:reset     # reset + re-seed local DB
 - **Drive-linked deal rooms:** Each deal can link a Google Drive folder (`drive_folders` table, migration 0041). `DriveFileManager` component provides file browsing, upload, and breadcrumb navigation within the deal detail view. API: `/api/deals/[id]/drive/files`.
 - **Dashboard analytics:** `KPIScorecard`, `ConversionChart`, `FunnelMetrics`, `PipelineTable`, plus newer `CallStatistics`, `PipelineAnalytics`, `TopOpportunities` (per-project pipeline analytics).
 - **Password reset (migrations 0052-0054):** Self-service reset via branded email links. `password_resets` table stores token+email+expiry (RLS bypassed via service role). `find_user_by_email(p_email)` function for direct `auth.users` lookup (replaces fragile client-side `listUsers()` pattern). `get_user_emails(p_user_ids)` for batched email lookup. Reset emails sent via system Gmail connection. API routes at `/api/auth/reset-password` (request) and `/api/auth/reset-password/[token]` (confirm). `/reset-password/:token` page has `Referrer-Policy: no-referrer` to prevent token leakage.
+- **Field cleanup (migration 0055):** Unified field storage — financial/underwriting fields → `underwriting` table only, system fields → `deals` table only, imported property fields → `deal_fields` only. Deleted 57 stale `field_definitions` keys that duplicated columns in other tables. Added `drive_file_count` to deals. Consolidated LOI email columns (`email_for_loi` → `loi_email`, `last_email_for_loi_sent_on` → `last_loi_email_sent_at`). Renamed `proceed_with_loi` → `loi_recommendation` on underwriting. Trimmed stale document checklist items.
 - **Realtime:** Enabled via migration 0036 for live updates.
 - **Brand:** `src/lib/brand.ts` (`BRAND.name = 'Acquire'`, `BRAND.tagline = 'Acquisition Platform'`). **Page headings:** `src/lib/page-headings.ts`.
 
@@ -74,6 +75,7 @@ npm run db:reset     # reset + re-seed local DB
 - `supabase gen types` uses `--project-ref` not `--project-id`; output is broken — `src/lib/supabase/types.ts` is a manual placeholder.
 - `vercel.json` missing (needed for Gmail watch cron).
 - Upstash Redis required locally for rate limiting.
+- 55 migrations exist (0001–0055), all applied.
 - Vitest configured (`vitest.config.ts`, node env, globals) but no test files written yet.
 - `next.config.ts` `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
 - CSP headers in `next.config.ts` — adding external APIs/scripts/iframes requires updating CSP. Also sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy: strict-origin-when-cross-origin`. Per-route override: `/reset-password/:token` sets `Referrer-Policy: no-referrer` to prevent token leakage via Referer header.
@@ -87,7 +89,7 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (54 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (55 exist, PLAN.md describes 17). |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
 | `docs/architecture/overview.md` | System overview |
