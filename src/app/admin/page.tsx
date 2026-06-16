@@ -4,7 +4,6 @@ import { useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Shield, Plus, Trash2, Users, FolderKanban, Search, ShieldCheck, UserCheck, MailQuestion, Eye, Building2, Mail, Clock, XCircle, Copy, Check } from 'lucide-react'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +17,7 @@ import { UserDetailDrawer } from '@/components/admin/UserDetailDrawer'
 import { ProjectDetailDrawer } from '@/components/admin/ProjectDetailDrawer'
 import { DisconnectEmailDialog } from '@/components/admin/DisconnectEmailDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
 
 interface UserProject {
   id: string
@@ -183,27 +183,7 @@ function AdminDashboardContent() {
   })
 
   // System Email Connection
-  const { data: systemEmail = { connected: false, google_email: null } } = useQuery<{
-    connected: boolean
-    google_email: string | null
-  }>({
-    queryKey: ['admin', 'system-email'],
-    queryFn: async () => {
-      const res = await fetch('/api/admin/system-email')
-      if (!res.ok) return { connected: false, google_email: null }
-      return res.json()
-    },
-  })
-
-  async function disconnectSystemEmail() {
-    const res = await fetch('/api/admin/system-email', { method: 'DELETE' })
-    if (!res.ok) {
-      const data = await res.json()
-      throw new Error(data.error ?? 'Failed to disconnect')
-    }
-    toast.success('System email disconnected')
-    queryClient.invalidateQueries({ queryKey: ['admin', 'system-email'] })
-  }
+  const { status: connStatus, googleEmail, reconnectUrl, disconnect } = useGoogleConnection()
 
   // Stats Calculations
   const stats = {
@@ -234,7 +214,7 @@ function AdminDashboardContent() {
           className="p-5 rounded-xl border flex items-center justify-between"
           style={{
             background: 'var(--color-surface-0)',
-            borderColor: systemEmail.connected ? 'var(--color-accent-light)' : 'var(--color-surface-2)',
+            borderColor: connStatus === 'connected' ? 'var(--color-accent-light)' : connStatus === 'expired' ? 'var(--color-warning-border)' : 'var(--color-surface-2)',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
@@ -242,9 +222,9 @@ function AdminDashboardContent() {
             <div
               className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{
-                background: systemEmail.connected ? 'var(--color-accent-bg)' : 'var(--color-surface-1)',
-                color: systemEmail.connected ? 'var(--accent)' : 'var(--color-text-tertiary)',
-                border: `1px solid ${systemEmail.connected ? 'var(--color-accent-light)' : 'var(--color-surface-2)'}`,
+                background: connStatus === 'connected' ? 'var(--color-accent-bg)' : connStatus === 'expired' ? 'var(--color-warning-bg)' : 'var(--color-surface-1)',
+                color: connStatus === 'connected' ? 'var(--accent)' : connStatus === 'expired' ? 'var(--color-warning-text)' : 'var(--color-text-tertiary)',
+                border: `1px solid ${connStatus === 'connected' ? 'var(--color-accent-light)' : connStatus === 'expired' ? 'var(--color-warning-border)' : 'var(--color-surface-2)'}`,
               }}
             >
               <Mail size={16} />
@@ -254,22 +234,47 @@ function AdminDashboardContent() {
                 System Email
               </h3>
               <p className="text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>
-                {systemEmail.connected
-                  ? `Connected as ${systemEmail.google_email}`
-                  : 'Not connected — invitation emails will fail'}
+                {connStatus === 'expired'
+                  ? `Expired — ${googleEmail} needs re-authorization`
+                  : connStatus === 'connected'
+                    ? `Connected as ${googleEmail}`
+                    : 'Not connected — invitation emails will fail'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {systemEmail.connected ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDisconnectDialogOpen(true)}
-                className="h-8 text-[11px] border-[var(--color-surface-3)]"
-              >
-                Disconnect
-              </Button>
+            {connStatus === 'connected' ? (
+              <>
+                <Badge variant="success" size="sm">Connected</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDisconnectDialogOpen(true)}
+                  className="h-8 text-[11px] border-[var(--color-surface-3)]"
+                >
+                  Disconnect
+                </Button>
+              </>
+            ) : connStatus === 'expired' ? (
+              <>
+                <Badge variant="warning" size="sm">Expired</Badge>
+                <Button
+                  size="sm"
+                  className="h-8 text-[11px]"
+                  style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
+                  asChild
+                >
+                  <a href={reconnectUrl ?? '#'}>Reconnect</a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDisconnectDialogOpen(true)}
+                  className="h-8 text-[11px] border-[var(--color-surface-3)]"
+                >
+                  Disconnect
+                </Button>
+              </>
             ) : (
               <Button
                 size="sm"
@@ -724,7 +729,7 @@ function AdminDashboardContent() {
       <DisconnectEmailDialog
         open={disconnectDialogOpen}
         onClose={() => setDisconnectDialogOpen(false)}
-        onConfirm={disconnectSystemEmail}
+        onConfirm={disconnect}
       />
     </>
   )

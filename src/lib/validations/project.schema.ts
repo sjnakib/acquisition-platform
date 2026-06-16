@@ -8,6 +8,7 @@ export const createProjectSchema = z.object({
 export const patchProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
+  google_connection_id: z.string().uuid().nullable().optional(),
 })
 
 export const addSponsorSchema = z.object({

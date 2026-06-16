@@ -5,7 +5,8 @@ export async function GET(req: NextRequest) {
   try {
     const projectId = req.nextUrl.searchParams.get('projectId') ?? undefined
     const type = req.nextUrl.searchParams.get('type') ?? undefined
-    const url = getAuthUrl(projectId, type)
+    const returnTo = req.nextUrl.searchParams.get('returnTo') ?? undefined
+    const url = getAuthUrl(projectId, type, returnTo)
     return NextResponse.redirect(url)
   } catch (err) {
     console.error('Google auth error:', err)

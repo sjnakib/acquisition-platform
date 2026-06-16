@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { sendEmail } from '@/lib/google/gmail'
+import { GoogleAuthError } from '@/lib/google/oauth'
 import { emailSendRateLimit } from '@/lib/rate-limit'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
 import { formatNameFromEmail } from '@/lib/utils'
@@ -130,6 +131,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: campaignId } = await params
+  let jobResults: JobResult[] = []
 
   try {
     if (req.headers.get('origin') !== process.env.NEXT_PUBLIC_APP_URL) {
@@ -279,7 +281,7 @@ export async function POST(
     // Create or resume job
     const existingJobId = body.jobId as string | undefined
     const jobId = existingJobId ?? crypto.randomUUID()
-    const jobResults: JobResult[] = []
+    jobResults = []
     const previousSent = existingJobId ? (jobs.get(existingJobId)?.sent ?? 0) : 0
 
     jobs.set(jobId, {
@@ -417,6 +419,14 @@ export async function POST(
 
           await new Promise((r) => setTimeout(r, 300))
         } catch (err) {
+          if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+            // Stop sending — auth expired. Return partial results + auth error.
+            return NextResponse.json({
+              results: jobResults,
+              error: 'google_auth_expired',
+              message: 'Google authentication expired. Please reconnect in Settings.',
+            }, { status: 401 })
+          }
           const message = err instanceof Error ? err.message : 'Unknown error'
           jobResults.push({ dealId: deal.id, dealName, recipient: recipientEmail, success: false, error: message })
 
@@ -455,6 +465,13 @@ export async function POST(
       results: jobResults,
     })
   } catch (err) {
+    if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+      return NextResponse.json({
+        results: jobResults,
+        error: 'google_auth_expired',
+        message: 'Google authentication expired. Please reconnect in Settings.',
+      }, { status: 401 })
+    }
     console.error('Campaign send-emails error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedClientByConnection } from '@/lib/google/oauth'
+import { callWithConnection } from '@/lib/google/oauth'
 
 export async function GET() {
   // Require admin authentication
@@ -23,18 +23,19 @@ export async function GET() {
 
     for (const conn of connections) {
       try {
-        const auth = await getAuthedClientByConnection(conn.id, { useAdminClient: true })
-        const gmail = google.gmail({ version: 'v1', auth })
-        const watchRes = await gmail.users.watch({
-          userId: 'me',
-          requestBody: {
-            topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/gmail-notifications`,
-            labelIds: ['INBOX'],
-          },
-        })
-        await supabase.from('google_connections').update({
-          last_history_id: watchRes.data.historyId ?? null,
-        }).eq('id', conn.id)
+        await callWithConnection(conn.id, async (auth) => {
+          const gmail = google.gmail({ version: 'v1', auth })
+          const watchRes = await gmail.users.watch({
+            userId: 'me',
+            requestBody: {
+              topicName: `projects/${process.env.GOOGLE_CLOUD_PROJECT_ID}/topics/gmail-notifications`,
+              labelIds: ['INBOX'],
+            },
+          })
+          await supabase.from('google_connections').update({
+            last_history_id: watchRes.data.historyId ?? null,
+          }).eq('id', conn.id)
+        }, { useAdminClient: true })
       } catch (err) {
         console.error(`Failed to refresh watch for connection ${conn.id}:`, err)
       }

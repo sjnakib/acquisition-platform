@@ -64,11 +64,13 @@ export async function invalidateConnection(connectionId: string): Promise<void> 
   if (conn?.connection_type === 'system') {
     console.error(
       `[oauth] System Google connection ${connectionId} has invalid_grant. ` +
-      'Admin must reconnect in admin settings.'
+      'Nullifying tokens. Admin must reconnect in admin settings.'
     )
-    return
   }
 
+  // Nullify tokens for both project and system connections.
+  // This allows the admin panel and project settings to detect the expired
+  // state via token_valid: false and show a reconnect prompt.
   await adminClient.from('google_connections').update({
     access_token: null,
     refresh_token: null,
@@ -120,14 +122,18 @@ export function getOAuthClient() {
   )
 }
 
-export function getAuthUrl(projectId?: string, type?: string) {
+export function getAuthUrl(projectId?: string, type?: string, returnTo?: string) {
   const oauth = getOAuthClient()
-  const statePayload = type === 'system'
-    ? { type: 'system' }
-    : projectId
-      ? { projectId }
-      : null
-  const state = statePayload
+  const statePayload: Record<string, string> = {}
+  if (type === 'system') {
+    statePayload.type = 'system'
+  } else if (projectId) {
+    statePayload.projectId = projectId
+  }
+  if (returnTo) {
+    statePayload.returnTo = returnTo
+  }
+  const state = Object.keys(statePayload).length > 0
     ? Buffer.from(JSON.stringify(statePayload)).toString('base64url')
     : undefined
   return oauth.generateAuthUrl({

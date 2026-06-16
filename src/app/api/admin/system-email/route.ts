@@ -20,13 +20,16 @@ export async function GET() {
   const admin = createAdminClient()
   const { data } = await admin
     .from('google_connections')
-    .select('google_email')
+    .select('google_email, access_token, refresh_token')
     .eq('connection_type', 'system')
     .maybeSingle()
+
+  const hasTokens = !!(data?.access_token || data?.refresh_token)
 
   return NextResponse.json({
     connected: !!data,
     google_email: data?.google_email ?? null,
+    token_valid: hasTokens,
   })
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { emailSendRateLimit } from '@/lib/rate-limit'
 import { sendEmail } from '@/lib/google/gmail'
+import { GoogleAuthError } from '@/lib/google/oauth'
 import { render } from '@react-email/render'
 import OutreachEmail from '@/lib/email/templates/outreach'
 import { canTransition, type DealStage } from '@/lib/stage-machine'
@@ -78,6 +79,12 @@ export async function POST(req: NextRequest) {
     try {
       result = await sendEmail(connectionId, contact.email[0]!, `Acquisition Inquiry — ${propertyLabel}`, html)
     } catch (err: unknown) {
+      if (err instanceof GoogleAuthError && err.code === 'invalid_grant') {
+        return NextResponse.json({
+          error: 'google_auth_expired',
+          message: 'Google authentication expired. Please reconnect in Settings.',
+        }, { status: 401 })
+      }
       const status = err instanceof Error && err.message?.includes('not found') ? 'invalid_address' : 'gmail_error'
       await supabase.from('email_outreach').insert({
         deal_id,

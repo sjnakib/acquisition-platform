@@ -14,6 +14,8 @@ import { EmailTemplateManager } from '@/components/campaigns/EmailTemplateManage
 import { CampaignEmailView } from '@/components/campaigns/CampaignEmailView'
 import { Tooltip } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
+import { GoogleReconnectDialog } from '@/components/shared/GoogleReconnectDialog'
 
 interface Campaign {
   id: string; name: string; market: string; listing_type: string | null
@@ -199,17 +201,9 @@ export default function CampaignDetailPage() {
 
   // Gmail connection status — requires project_id from campaign
   const projectId = campaign?.project_id
-  const { data: gmailConnected = false } = useQuery<boolean>({
-    queryKey: ['project', projectId, 'gmail-status'],
-    queryFn: async () => {
-      if (!projectId) return false
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`)
-      if (!res.ok) return false
-      const json = await res.json()
-      return !!json.google_connections?.google_email
-    },
-    enabled: !!projectId,
-  })
+  const { status: connStatus, googleEmail, reconnectUrl } = useGoogleConnection(projectId ?? undefined)
+  const gmailConnected = connStatus === 'connected' && !!projectId
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false)
 
   const handleCampaignUpdate = async (updates: Partial<Campaign>) => {
     try {
@@ -322,7 +316,9 @@ export default function CampaignDetailPage() {
                   projectId={projectId}
                   leadsCount={total}
                   gmailConnected={gmailConnected}
+                  onAuthExpired={() => setReconnectDialogOpen(true)}
                   onCampaignUpdate={handleCampaignUpdate}
+                  connectionStatus={connStatus}
                 />
               ) : (
                 <div style={sectionStyle}>
@@ -357,6 +353,62 @@ export default function CampaignDetailPage() {
                   <div><div style={labelStyle}>Market</div><div style={valueStyle}>{campaign.market}</div></div>
                   <div><div style={labelStyle}>Listing Type</div><div style={valueStyle}>{campaign.listing_type?.replace(/_/g, ' ') ?? 'Any'}</div></div>
                 </div>
+              </div>
+
+              {/* Gmail Connection Status */}
+              <div style={sectionStyle}>
+                <div style={sectionTitleStyle}><Mail className="h-3.5 w-3.5" />Sending Identity</div>
+                {!projectId ? (
+                  <div style={mutedStyle}>No project linked.</div>
+                ) : connStatus === 'connected' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: 'var(--color-success-text)' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-success-solid)', display: 'inline-block' }} />
+                      Gmail Connected
+                    </div>
+                    <div style={{ fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)', color: 'var(--color-text-secondary)', background: 'var(--color-surface-1)', padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-surface-2)', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                      {googleEmail}
+                    </div>
+                  </div>
+                ) : connStatus === 'expired' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: 'var(--color-warning-text)' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-warning-solid)', display: 'inline-block' }} />
+                      Gmail Connection Expired
+                    </div>
+                    <div style={{ fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)', color: 'var(--color-text-secondary)', background: 'var(--color-surface-1)', padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-surface-2)', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                      {googleEmail}
+                    </div>
+                    <button
+                      onClick={() => setReconnectDialogOpen(true)}
+                      style={{
+                        fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 'var(--radius-md)',
+                        background: 'var(--accent)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer',
+                        width: '100%', textAlign: 'center',
+                      }}
+                    >
+                      Reconnect Gmail
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500, color: 'var(--color-warning-text)' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-warning-solid)', display: 'inline-block' }} />
+                      Gmail Disconnected
+                    </div>
+                    <div style={mutedStyle}>Connect a Gmail account to send outreach emails.</div>
+                    <button
+                      onClick={() => router.push(`/projects/${projectId}/settings`)}
+                      style={{
+                        fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 'var(--radius-md)',
+                        background: 'var(--accent)', color: 'var(--color-text-inverse)', border: 'none', cursor: 'pointer',
+                        width: '100%', textAlign: 'center',
+                      }}
+                    >
+                      Connect Gmail Account
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -435,6 +487,11 @@ export default function CampaignDetailPage() {
           setGridKey((k) => k + 1)
           queryClient.invalidateQueries({ queryKey: ['deals', { campaign_id: id }] })
         }}
+      />
+      <GoogleReconnectDialog
+        open={reconnectDialogOpen}
+        onOpenChange={setReconnectDialogOpen}
+        reconnectUrl={reconnectUrl ?? `/api/auth/google?projectId=${projectId}`}
       />
     </div>
   )

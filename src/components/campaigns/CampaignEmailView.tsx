@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ExternalLink, Mail } from 'lucide-react'
+import { Building2, ExternalLink, Mail, AlertTriangle } from 'lucide-react'
 import { EmailThreadList, type EmailThread, type EmailThreadListHandle } from '@/components/shared/EmailThreadList'
 import { EmailMessagePanel, type EmailMessage } from '@/components/shared/EmailMessagePanel'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
+import { GoogleReconnectDialog } from '@/components/shared/GoogleReconnectDialog'
 
 interface CampaignEmailViewProps {
   campaignId: string
@@ -15,6 +17,8 @@ interface CampaignEmailViewProps {
 
 export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewProps) {
   const router = useRouter()
+  const { status: connStatus, reconnectUrl } = useGoogleConnection(projectId)
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false)
 
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set())
@@ -84,6 +88,7 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
         >
           <EmailThreadList
             ref={threadListRef}
+            onAuthExpired={() => setReconnectDialogOpen(true)}
             apiBase={`/api/campaigns/${encodeURIComponent(campaignId)}/emails`}
             projectId={projectId}
             onThreadClick={handleThreadClick}
@@ -114,6 +119,26 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
             // Loading connection status
             <div className="flex-1 flex items-center justify-center">
               <LoadingSpinner size="lg" />
+            </div>
+          ) : !gmailConnected && connStatus === 'expired' ? (
+            // Google auth expired state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
+              <div className="text-center space-y-3 px-6 max-w-md">
+                <AlertTriangle size={36} style={{ color: 'var(--color-warning-text)', opacity: 0.7, margin: '0 auto' }} />
+                <h3 className="text-[14px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  Google Connection Expired
+                </h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Your Google authorization has expired. Reconnect to continue using email and Drive features.
+                </p>
+                <button
+                  onClick={() => setReconnectDialogOpen(true)}
+                  className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline mt-2"
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+                >
+                  Reconnect Now
+                </button>
+              </div>
             </div>
           ) : !gmailConnected ? (
             // Gmail disconnected state
@@ -184,6 +209,14 @@ export function CampaignEmailView({ campaignId, projectId }: CampaignEmailViewPr
           )}
         </div>
       </div>
+
+      {/* ═══ Google reconnect dialog ════════════════════════════════════════ */}
+      <GoogleReconnectDialog
+        open={reconnectDialogOpen}
+        onOpenChange={setReconnectDialogOpen}
+        reconnectUrl={reconnectUrl ?? `/api/auth/google?projectId=${projectId}`}
+        onDismiss={() => setGmailConnected(false)}
+      />
     </div>
   )
 }

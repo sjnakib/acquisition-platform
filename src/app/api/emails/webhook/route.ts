@@ -1,7 +1,7 @@
 import { OAuth2Client } from 'google-auth-library'
 import { google } from 'googleapis'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getAuthedClientByConnection } from '@/lib/google/oauth'
+import { callWithConnection } from '@/lib/google/oauth'
 import { NextRequest, NextResponse } from 'next/server'
 
 const pubsubClient = new OAuth2Client()
@@ -39,39 +39,40 @@ export async function POST(req: NextRequest) {
 
     if (!connectionRow) return NextResponse.json({ ok: true })
 
-    const auth = await getAuthedClientByConnection(connectionRow.id, { useAdminClient: true })
-    const gmailClient = google.gmail({ version: 'v1', auth })
+    await callWithConnection(connectionRow.id, async (auth) => {
+      const gmailClient = google.gmail({ version: 'v1', auth })
 
-    const historyRes = await gmailClient.users.history.list({
-      userId: 'me',
-      startHistoryId: connectionRow.last_history_id ?? notification.historyId,
-      historyTypes: ['messageAdded'],
-      labelId: 'INBOX',
-    })
+      const historyRes = await gmailClient.users.history.list({
+        userId: 'me',
+        startHistoryId: connectionRow.last_history_id ?? notification.historyId,
+        historyTypes: ['messageAdded'],
+        labelId: 'INBOX',
+      })
 
-    for (const historyItem of historyRes.data.history ?? []) {
-      for (const msg of historyItem.messagesAdded ?? []) {
-        const threadId = msg.message?.threadId
-        if (!threadId) continue
+      for (const historyItem of historyRes.data.history ?? []) {
+        for (const msg of historyItem.messagesAdded ?? []) {
+          const threadId = msg.message?.threadId
+          if (!threadId) continue
 
-        const { data: outreach } = await supabase
-          .from('email_outreach')
-          .select('id, status')
-          .eq('gmail_thread_id', threadId)
-          .single()
+          const { data: outreach } = await supabase
+            .from('email_outreach')
+            .select('id, status')
+            .eq('gmail_thread_id', threadId)
+            .single()
 
-        if (outreach && outreach.status === 'sent') {
-          await supabase.from('email_outreach').update({
-            status: 'replied',
-            responded_at: new Date().toISOString(),
-          }).eq('id', outreach.id)
+          if (outreach && outreach.status === 'sent') {
+            await supabase.from('email_outreach').update({
+              status: 'replied',
+              responded_at: new Date().toISOString(),
+            }).eq('id', outreach.id)
+          }
         }
       }
-    }
 
-    await supabase.from('google_connections').update({
-      last_history_id: notification.historyId,
-    }).eq('id', connectionRow.id)
+      await supabase.from('google_connections').update({
+        last_history_id: notification.historyId,
+      }).eq('id', connectionRow.id)
+    }, { useAdminClient: true })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

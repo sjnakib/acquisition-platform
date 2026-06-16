@@ -8,6 +8,7 @@ import {
   Mail,
   Reply,
   FolderKanban,
+  AlertTriangle,
   ExternalLink as ExternalLinkIcon,
   X,
   Minimize2,
@@ -40,6 +41,8 @@ import {
 import { Button } from '@/components/ui/button'
 import type { ComposeSendData, AttachmentFile, EmailComposerHandle } from '@/components/shared/EmailComposer'
 import type { EmailMessage } from '@/components/shared/EmailMessagePanel'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
+import { GoogleReconnectDialog } from '@/components/shared/GoogleReconnectDialog'
 
 // ── Lazy-loaded heavy components ────────────────────────────────────────────
 
@@ -64,6 +67,8 @@ interface DealEmailViewProps {
 export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProps) {
   const queryClient = useQueryClient()
   const isActive = useIsTabActive()
+  const { status: connStatus, reconnectUrl } = useGoogleConnection(projectId)
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false)
 
   // ── Selected thread ────────────────────────────────────────────────────
   const [selectedThread, setSelectedThread] = useState<EmailThread | null>(null)
@@ -183,7 +188,13 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
         })
       }
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to send'),
+    onError: (err) => {
+      if (err instanceof Error && err.message.includes('google_auth_expired')) {
+        setReconnectDialogOpen(true)
+        return
+      }
+      toast.error(err instanceof Error ? err.message : 'Failed to send')
+    },
   })
 
   // ── TanStack Query: delete message mutation ────────────────────────────
@@ -491,6 +502,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
           <EmailThreadList
             ref={threadListRef}
             enabled={isActive}
+            onAuthExpired={() => setReconnectDialogOpen(true)}
             apiBase={`/api/deals/${dealId}/emails`}
             actionApiBase={`/api/deals/${dealId}/emails/threads`}
             projectId={projectId ?? ''}
@@ -555,6 +567,26 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
             // Loading connection status
             <div className="flex-1 flex items-center justify-center">
               <LoadingSpinner size="lg" />
+            </div>
+          ) : !gmailConnected && connStatus === 'expired' ? (
+            // Google auth expired state
+            <div className="flex-1 flex items-center justify-center animate-message-fade-in">
+              <div className="text-center space-y-3 px-6 max-w-md">
+                <AlertTriangle size={36} style={{ color: 'var(--color-warning-text)', opacity: 0.7, margin: '0 auto' }} />
+                <h3 className="text-[14px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  Google Connection Expired
+                </h3>
+                <p className="text-[12px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Your Google authorization has expired. Reconnect to continue using email and Drive features.
+                </p>
+                <button
+                  onClick={() => setReconnectDialogOpen(true)}
+                  className="inline-flex h-8 px-4 rounded-full text-[12px] font-medium transition-colors items-center no-underline mt-2"
+                  style={{ background: 'var(--color-accent)', color: 'var(--color-text-inverse)' }}
+                >
+                  Reconnect Now
+                </button>
+              </div>
             </div>
           ) : !gmailConnected ? (
             // Gmail disconnected state
@@ -869,6 +901,14 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ═══ Google reconnect dialog ════════════════════════════════════════ */}
+      <GoogleReconnectDialog
+        open={reconnectDialogOpen}
+        onOpenChange={setReconnectDialogOpen}
+        reconnectUrl={reconnectUrl ?? `/api/auth/google?projectId=${projectId}`}
+        onDismiss={() => setGmailConnected(false)}
+      />
     </div>
   )
 }

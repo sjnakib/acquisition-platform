@@ -3,6 +3,18 @@ import { google } from 'googleapis'
 import { createClient } from '@/lib/supabase/server'
 import { exchangeCode, getGoogleEmail, getOAuthClient, cleanupOrphanedConnection } from '@/lib/google/oauth'
 
+/** Build a redirect URL, preserving the returnTo path when available. */
+function buildRedirect(reqUrl: string, path: string, returnTo: string | null): URL {
+  const target = returnTo ?? path
+  const separator = target.includes('?') ? '&' : '?'
+  return new URL(`${target}${separator}gmail=connected`, reqUrl)
+}
+
+/** Build an error redirect URL, preserving returnTo when available. */
+function buildErrorRedirect(reqUrl: string, fallback: string): URL {
+  return new URL(fallback, reqUrl)
+}
+
 export async function GET(req: NextRequest) {
   try {
     const code = req.nextUrl.searchParams.get('code')
@@ -15,6 +27,7 @@ export async function GET(req: NextRequest) {
     // Decode state (handles both base64 and base64url)
     let projectId: string | null = null
     let connectionType: 'project' | 'system' = 'project'
+    let returnTo: string | null = null
     if (stateParam) {
       try {
         const normalized = stateParam.replace(/-/g, '+').replace(/_/g, '/')
@@ -23,6 +36,11 @@ export async function GET(req: NextRequest) {
           connectionType = 'system'
         } else {
           projectId = decoded.projectId ?? null
+        }
+        // Validate returnTo: only relative paths (no open redirect)
+        const rawReturn = decoded.returnTo as string | undefined
+        if (rawReturn && !rawReturn.includes('//') && !rawReturn.startsWith('http:')) {
+          returnTo = rawReturn
         }
       } catch {
         console.warn('Failed to decode OAuth state param')
@@ -104,7 +122,7 @@ export async function GET(req: NextRequest) {
 
     // --- System connection: no project linking, no watch ---
     if (connectionType === 'system') {
-      return NextResponse.redirect(new URL('/admin?gmail=connected', req.url))
+      return NextResponse.redirect(buildRedirect(req.url, '/admin', returnTo))
     }
 
     // --- Project connection: link to project + register watch ---
@@ -149,7 +167,7 @@ export async function GET(req: NextRequest) {
       // Non-fatal — watch can be re-registered via refresh-watch
     }
 
-    return NextResponse.redirect(new URL(`/projects/${projectId}/settings?gmail=connected`, req.url))
+    return NextResponse.redirect(buildRedirect(req.url, `/projects/${projectId}/settings`, returnTo))
   } catch (err) {
     console.error('Google callback error:', err)
     return NextResponse.redirect(new URL('/projects?gmail=error', req.url))

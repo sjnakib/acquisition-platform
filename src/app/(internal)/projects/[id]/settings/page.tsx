@@ -15,6 +15,8 @@ import { Trash2, Plus, Save, Folder, ExternalLink, Settings, Users, Link2, Alert
 import { DriveFolderPicker } from '@/components/projects/DriveFolderPicker'
 import { toast } from 'sonner'
 import { RemoveSponsorDialog } from '@/components/projects/RemoveSponsorDialog'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
+import { DisconnectGoogleDialog } from '@/components/projects/DisconnectGoogleDialog'
 
 interface Sponsor {
   id: string
@@ -132,14 +134,17 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     }
   }
 
-  const gmailConnected = !!project?.google_connections?.google_email
-  const gmailEmail = project?.google_connections?.google_email ?? null
+  const { status: connStatus, googleEmail: gmailEmail, reconnectUrl } = useGoogleConnection(projectId)
+  const gmailConnected = connStatus === 'connected' || connStatus === 'expired'
+  const gmailExpired = connStatus === 'expired'
+  const [showDisconnectDialog, setShowDisconnectDialog] = useState(false)
 
   // Check Gmail connection status from URL param after OAuth redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('gmail') === 'connected') {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['google-connection', projectId] })
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [projectId, queryClient])
@@ -241,6 +246,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['google-connection', projectId] })
       toast.success('Gmail disconnected')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to disconnect Gmail'),
@@ -422,6 +428,32 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             </div>
           </div>
 
+          {gmailExpired && (
+            <div className="mb-6 rounded-xl border border-[var(--color-warning-border)] p-4 bg-[var(--color-warning-bg)] flex gap-3 items-start animate-item-entrance">
+              <AlertTriangle size={18} className="text-[var(--color-warning-text)] flex-shrink-0 mt-0.5" />
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-semibold text-[var(--color-warning-text)]">
+                    Connection Expired
+                  </span>
+                  <p className="text-[11px] leading-relaxed text-[var(--color-warning-text)]">
+                    Your Google authorization has expired. Reconnect to restore email campaigns and Google Drive features.
+                  </p>
+                </div>
+                <Button
+                  asChild
+                  size="sm"
+                  style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
+                  className="h-8 text-xs font-semibold flex-shrink-0 self-start sm:self-center hover:opacity-90"
+                >
+                  <a href={reconnectUrl ?? `/api/auth/google?projectId=${projectId}`}>
+                    Reconnect Now
+                  </a>
+                </Button>
+              </div>
+            </div>
+          )}
+
           {!gmailConnected ? (
             <div className="flex flex-col items-center justify-center text-center p-8 border border-dashed border-[var(--color-surface-3)] rounded-xl bg-[var(--color-canvas)] py-10">
               <div className="w-12 h-12 rounded-full bg-[var(--color-surface-0)] border border-[var(--color-surface-2)] flex items-center justify-center shadow-xs mb-4">
@@ -484,8 +516,22 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                     </div>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0 self-end sm:self-center">
-                    <Badge variant="success" dot size="sm">Connected</Badge>
-                    <Button variant="outline" size="sm" onClick={disconnectGmail} disabled={disconnectGmailMutation.isPending} className="h-8 text-xs border-[var(--color-surface-3)] hover:bg-[var(--color-danger-border)] hover:text-[var(--color-danger-text)] bg-[var(--color-surface-0)] transition-colors duration-200">
+                    {gmailExpired ? (
+                      <>
+                        <Badge variant="warning" dot size="sm">Expired</Badge>
+                        <Button
+                          asChild
+                          size="sm"
+                          style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}
+                          className="h-8 text-xs font-semibold hover:opacity-90 shadow-2xs"
+                        >
+                          <a href={reconnectUrl ?? `/api/auth/google?projectId=${projectId}`}>Reconnect</a>
+                        </Button>
+                      </>
+                    ) : (
+                      <Badge variant="success" dot size="sm">Connected</Badge>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => setShowDisconnectDialog(true)} disabled={disconnectGmailMutation.isPending} className="h-8 text-xs border-[var(--color-surface-3)] hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger-text)] bg-[var(--color-surface-0)] transition-colors duration-200">
                       {disconnectGmailMutation.isPending ? <LoadingSpinner size="sm" /> : 'Disconnect Account'}
                     </Button>
                   </div>
@@ -513,7 +559,11 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-[var(--color-text-primary)]">Gmail outreach & reply tracking</span>
-                          <span className="text-[9px] font-semibold bg-[var(--color-success-bg)] text-[var(--color-success-text)] px-1.5 py-0.5 rounded-full border border-[var(--color-success-border)]">Active</span>
+                          {gmailExpired ? (
+                            <span className="text-[9px] font-semibold bg-[var(--color-warning-bg)] text-[var(--color-warning-text)] px-1.5 py-0.5 rounded-full border border-[var(--color-warning-border)] animate-pulse">Connection Expired</span>
+                          ) : (
+                            <span className="text-[9px] font-semibold bg-[var(--color-success-bg)] text-[var(--color-success-text)] px-1.5 py-0.5 rounded-full border border-[var(--color-success-border)]">Active</span>
+                          )}
                         </div>
                         <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5 leading-relaxed">
                           Automated email sequences and incoming owner responses synchronize directly through this Google Account.
@@ -542,7 +592,12 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
                           </svg>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Drive workspace storage</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-[var(--color-text-primary)]">Google Drive workspace storage</span>
+                            {gmailExpired && (
+                              <span className="text-[9px] font-semibold bg-[var(--color-warning-bg)] text-[var(--color-warning-text)] px-1.5 py-0.5 rounded-full border border-[var(--color-warning-border)] animate-pulse">Inactive</span>
+                            )}
+                          </div>
                           <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5 leading-relaxed">
                             Organizes checklist items and documents in the project&apos;s Drive folder under the same account.
                           </p>
@@ -735,6 +790,15 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             onConfirm={async () => {
               if (!removingSponsor) return
               await removeSponsor(removingSponsor.id)
+            }}
+          />
+
+          <DisconnectGoogleDialog
+            open={showDisconnectDialog}
+            onOpenChange={setShowDisconnectDialog}
+            googleEmail={gmailEmail}
+            onConfirm={async () => {
+              await disconnectGmailMutation.mutateAsync()
             }}
           />
         </div>

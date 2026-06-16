@@ -68,6 +68,8 @@ export interface EmailThreadListProps {
   /** When false, disables the thread list query. Default true. Use for gating
    *  data fetching on tab visibility with keepMounted tabs. */
   enabled?: boolean
+  /** Called when the server returns google_auth_expired (tokens were valid but now expired). */
+  onAuthExpired?: () => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -375,6 +377,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
     onLoad,
     prefetchMessageConfig,
     enabled = true,
+    onAuthExpired,
   }, ref) {
     const patchUrl = actionApiBase ?? apiBase
     const queryClient = useQueryClient()
@@ -407,6 +410,10 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
           }
         }
         if (res.status === 401) {
+          const body = await res.json().catch(() => ({}))
+          if (body.error === 'google_auth_expired') {
+            onAuthExpired?.()
+          }
           // Auth expired — return disconnected state so UI shows reconnect banner
           return { threads: [], gmailConnected: false, googleEmail: null }
         }

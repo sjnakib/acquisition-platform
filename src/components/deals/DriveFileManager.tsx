@@ -8,7 +8,7 @@ import {
   Folder, FolderOpen, File, FileText, Image, Table2,
   MoreHorizontal, Upload, FolderPlus, RefreshCw, Check, X,
   Trash2, Pencil, ExternalLink, LayoutList, LayoutGrid,
-  ChevronDown, ChevronRight, ChevronUp, FolderUp, Plus, Link, Loader2,
+  ChevronDown, ChevronRight, ChevronUp, FolderUp, Plus, Link, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,8 @@ import { DriveBreadcrumb, type BreadcrumbSegment } from './DriveBreadcrumb'
 import { formatDate } from '@/lib/utils'
 import { traverseDirectory, supportsDirectoryDrop, type TraversedFile } from '@/lib/directory-traversal'
 import { UploadPanel, type UploadItem } from '@/components/shared/UploadPanel'
+import { useGoogleConnection } from '@/lib/hooks/useGoogleConnection'
+import { GoogleReconnectDialog } from '@/components/shared/GoogleReconnectDialog'
 
 // ── Types ──
 
@@ -231,6 +233,8 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             fetchFolderChildren(sub.id)
           })
         }
+      } else if (await checkAuthExpired(res)) {
+        return
       }
     } catch (err) {
       loadedFolderIdsRef.current.delete(folderId)
@@ -295,6 +299,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             setDealFolderId(data.dealFolderId)
             triggerBackgroundFolderFetches(fetchedFiles)
           } else {
+            if (await checkAuthExpired(res)) return
             toast.error(data.error ?? 'Failed to load files')
           }
         } else {
@@ -314,6 +319,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         if (!folderId) setCurrentFolderId(data.dealFolderId)
         triggerBackgroundFolderFetches(fetchedFiles)
       } else {
+        if (await checkAuthExpired(res)) return
         toast.error(data.error ?? 'Failed to load files')
       }
     } catch {
@@ -349,6 +355,23 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
   const loading = dealData === undefined
 
+  // ── Google auth expiry detection ──
+  const projectId = dealData?.project_id
+  const { status: connStatus, reconnectUrl } = useGoogleConnection(projectId)
+  const [authExpired, setAuthExpired] = useState(false)
+  const [reconnectDialogOpen, setReconnectDialogOpen] = useState(false)
+
+  const checkAuthExpired = async (res: Response): Promise<boolean> => {
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      if (data?.error === 'google_auth_expired') {
+        setAuthExpired(true)
+        return true
+      }
+    }
+    return false
+  }
+
   // Track initial fetch so it only runs once (preserved across tab switches via keepMounted)
   const initialFetchDoneRef = useRef(false)
 
@@ -370,6 +393,10 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             setDealFolderId(data.dealFolderId)
             triggerBackgroundFolderFetches(fetchedFiles)
           } else {
+            if (data.error === 'google_auth_expired') {
+              setAuthExpired(true)
+              return
+            }
             toast.error(data.error ?? 'Failed to load files')
           }
         })
@@ -395,6 +422,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         toast.success('Deal room created')
         await fetchFiles(data.drive_folder_id)
       } else {
+        if (await checkAuthExpired(res)) return
         toast.error(data.error ?? 'Failed to create deal room')
       }
     } catch {
@@ -418,6 +446,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         toast.success('Deal room deleted')
       } else {
         const data = await res.json().catch(() => ({}))
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to delete deal room')
       }
     } catch {
@@ -562,6 +591,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
+          if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
           throw new Error(data.error ?? 'Batch folder creation failed')
         }
 
@@ -981,6 +1011,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           setFiles(previousFiles)
           setFolderContents(previousContents)
           const data = await res.json()
+          if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
           toast.error(data.error ?? 'Failed to move item')
         }
       } catch {
@@ -1374,6 +1405,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
       } else {
         const data = await res.json()
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to create folder')
       }
     } catch {
@@ -1430,6 +1462,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       } else {
         setFiles(previous)
         const data = await res.json()
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to rename')
       }
     } catch {
@@ -1478,6 +1511,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       } else {
         setFiles(previous)
         const data = await res.json()
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to delete')
       }
     } catch {
@@ -1593,6 +1627,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         setFiles(previousFiles)
         setFolderContents(previousFolderContents)
         const data = await res.json()
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to delete selected items')
       }
     } catch {
@@ -1639,6 +1674,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
       } else {
         const data = await res.json()
+        if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
         toast.error(data.error ?? 'Failed to restore items')
         fetchFiles(currentFolderId ?? dealFolderId, true)
       }
@@ -1848,6 +1884,34 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         <div className="rounded-lg border divide-y overflow-hidden" style={{ borderColor: 'var(--color-surface-2)' }}>
           {Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)}
         </div>
+      </div>
+    )
+  }
+
+  // ── Render: auth expired ──
+
+  if (authExpired || connStatus === 'expired') {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4 border border-dashed rounded-lg" style={{ borderColor: 'var(--color-surface-3)' }}>
+        <AlertTriangle size={32} style={{ color: 'var(--color-warning-text)' }} />
+        <div className="text-center space-y-1.5 px-4">
+          <h3 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+            Google Connection Expired
+          </h3>
+          <p className="text-[11px] max-w-[340px] leading-relaxed" style={{ color: 'var(--color-text-tertiary)' }}>
+            Your Google authorization has expired. Reconnect to access Drive files.
+          </p>
+        </div>
+        <Button onClick={() => setReconnectDialogOpen(true)} size="sm"
+          style={{ background: 'var(--accent)', color: 'var(--color-text-inverse)' }}>
+          Reconnect Google Account
+        </Button>
+        <GoogleReconnectDialog
+          open={reconnectDialogOpen}
+          onOpenChange={setReconnectDialogOpen}
+          reconnectUrl={reconnectUrl || `/api/auth/google?projectId=${projectId}`}
+          onDismiss={() => setAuthExpired(false)}
+        />
       </div>
     )
   }

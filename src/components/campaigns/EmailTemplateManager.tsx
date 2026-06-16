@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/lib/hooks/useAuth'
 import { toast } from 'sonner'
 import { EmailComposer, type MergeField, type EmailComposerHandle } from '@/components/shared/EmailComposer'
+import { type GoogleConnectionStatus } from '@/lib/hooks/useGoogleConnection'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ interface Props {
   leadsCount: number
   gmailConnected: boolean
   onCampaignUpdate: (data: Partial<Campaign>) => void
+  /** Called when the API returns google_auth_expired during send. */
+  onAuthExpired?: () => void
+  connectionStatus?: GoogleConnectionStatus
 }
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -132,7 +136,7 @@ function resolveMergeFields(template: string, deal: PreviewDeal | null, campaign
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function EmailTemplateManager({
-  campaign, projectId, leadsCount, gmailConnected, onCampaignUpdate,
+  campaign, projectId, leadsCount, gmailConnected, onAuthExpired, onCampaignUpdate, connectionStatus,
 }: Props) {
   const { data: user } = useAuth()
   const queryClient = useQueryClient()
@@ -516,6 +520,11 @@ export function EmailTemplateManager({
       setSendResults(allResults.length > 0 ? allResults : [{ dealId: '', dealName: 'Send incomplete', recipient: '', success: false, error: 'Maximum send batches reached. Some emails may not have been sent.' }])
       setSendComplete(true)
     } catch (err) {
+      if (err instanceof Error && err.message.includes('google_auth_expired')) {
+        onAuthExpired?.()
+        toast.error('Google authentication expired. Please reconnect.')
+        return
+      }
       setSendResults([{ dealId: '', dealName: 'Send failed', recipient: '', success: false, error: err instanceof Error ? err.message : 'Failed to send emails' }])
       setSendComplete(true)
     } finally { setSending(false) }
@@ -594,9 +603,24 @@ export function EmailTemplateManager({
 
         <div className="flex items-center gap-3">
           {!gmailConnected && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-[var(--radius-md)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-xs text-[var(--color-warning-text)] font-medium animate-pulse">
-              <AlertTriangle className="h-3.5 w-3.5" />Connect Gmail Account to Send
-            </div>
+            connectionStatus === 'expired' ? (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-[var(--radius-md)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-xs text-[var(--color-warning-text)] font-semibold animate-pulse">
+                <AlertTriangle className="h-3.5 w-3.5 text-[var(--color-warning-text)]" />
+                <span>Gmail Connection Expired — Reconnect to Send</span>
+                <button
+                  type="button"
+                  onClick={onAuthExpired}
+                  className="underline ml-1 font-bold hover:opacity-90 cursor-pointer"
+                  style={{ color: 'var(--color-warning-text)' }}
+                >
+                  Reconnect
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-[var(--radius-md)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] text-xs text-[var(--color-warning-text)] font-medium animate-pulse">
+                <AlertTriangle className="h-3.5 w-3.5" />Connect Gmail Account to Send
+              </div>
+            )
           )}
           {gmailConnected && leadsCount === 0 && (
             <span className="text-xs text-[var(--color-text-tertiary)] flex items-center gap-1.5">
