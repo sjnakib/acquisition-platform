@@ -1,6 +1,6 @@
 'use client'
 
-import { useReducer, useCallback, useRef, useEffect } from 'react'
+import { useReducer, useCallback, useRef, useEffect, useState } from 'react'
 import type { CellAddress, CellRange, GridInteractionState } from '@/lib/types/grid'
 import { cellAddressEqual, isInRange, rangeNormalize } from '@/lib/types/grid'
 import { toast } from 'sonner'
@@ -69,30 +69,59 @@ function jumpBoundary(
   const result = { ...addr }
   if (direction === 'right') {
     const cur = getCellValue(result.rowIndex, result.colIndex)
-    const isEmpty = !cur || cur === '—'
-    if (isEmpty) {
-      result.colIndex = clampCol(result.colIndex + 1, colCount)
-    } else {
+    const isCurEmpty = !cur || cur === '—'
+    
+    if (isCurEmpty) {
       while (result.colIndex < colCount - 1) {
-        const next = getCellValue(result.rowIndex, result.colIndex + 1)
-        if (!next || next === '—') break
         result.colIndex++
+        const val = getCellValue(result.rowIndex, result.colIndex)
+        if (val && val !== '—') break
+      }
+    } else {
+      const nextVal = result.colIndex < colCount - 1 ? getCellValue(result.rowIndex, result.colIndex + 1) : null
+      const isNextEmpty = !nextVal || nextVal === '—'
+      if (isNextEmpty) {
+        while (result.colIndex < colCount - 1) {
+          result.colIndex++
+          const val = getCellValue(result.rowIndex, result.colIndex)
+          if (val && val !== '—') break
+        }
+      } else {
+        while (result.colIndex < colCount - 1) {
+          const val = getCellValue(result.rowIndex, result.colIndex + 1)
+          if (!val || val === '—') break
+          result.colIndex++
+        }
       }
     }
-    // Skip excluded columns (spec §3.6)
     while (excludeColIndices?.has(result.colIndex) && result.colIndex < colCount - 1) {
       result.colIndex++
     }
   } else if (direction === 'left') {
     const cur = getCellValue(result.rowIndex, result.colIndex)
-    const isEmpty = !cur || cur === '—'
-    if (isEmpty) {
-      result.colIndex = clampCol(result.colIndex - 1, colCount)
-    } else {
+    const isCurEmpty = !cur || cur === '—'
+    
+    if (isCurEmpty) {
       while (result.colIndex > 0) {
-        const prev = getCellValue(result.rowIndex, result.colIndex - 1)
-        if (!prev || prev === '—') break
         result.colIndex--
+        const val = getCellValue(result.rowIndex, result.colIndex)
+        if (val && val !== '—') break
+      }
+    } else {
+      const prevVal = result.colIndex > 0 ? getCellValue(result.rowIndex, result.colIndex - 1) : null
+      const isPrevEmpty = !prevVal || prevVal === '—'
+      if (isPrevEmpty) {
+        while (result.colIndex > 0) {
+          result.colIndex--
+          const val = getCellValue(result.rowIndex, result.colIndex)
+          if (val && val !== '—') break
+        }
+      } else {
+        while (result.colIndex > 0) {
+          const val = getCellValue(result.rowIndex, result.colIndex - 1)
+          if (!val || val === '—') break
+          result.colIndex--
+        }
       }
     }
     while (excludeColIndices?.has(result.colIndex) && result.colIndex > 0) {
@@ -100,26 +129,56 @@ function jumpBoundary(
     }
   } else if (direction === 'down') {
     const cur = getCellValue(result.rowIndex, result.colIndex)
-    const isEmpty = !cur || cur === '—'
-    if (isEmpty) {
-      result.rowIndex = clampRow(result.rowIndex + 1, rowCount)
-    } else {
+    const isCurEmpty = !cur || cur === '—'
+    
+    if (isCurEmpty) {
       while (result.rowIndex < rowCount - 1) {
-        const next = getCellValue(result.rowIndex + 1, result.colIndex)
-        if (!next || next === '—') break
         result.rowIndex++
+        const val = getCellValue(result.rowIndex, result.colIndex)
+        if (val && val !== '—') break
+      }
+    } else {
+      const nextVal = result.rowIndex < rowCount - 1 ? getCellValue(result.rowIndex + 1, result.colIndex) : null
+      const isNextEmpty = !nextVal || nextVal === '—'
+      if (isNextEmpty) {
+        while (result.rowIndex < rowCount - 1) {
+          result.rowIndex++
+          const val = getCellValue(result.rowIndex, result.colIndex)
+          if (val && val !== '—') break
+        }
+      } else {
+        while (result.rowIndex < rowCount - 1) {
+          const val = getCellValue(result.rowIndex + 1, result.colIndex)
+          if (!val || val === '—') break
+          result.rowIndex++
+        }
       }
     }
   } else if (direction === 'up') {
     const cur = getCellValue(result.rowIndex, result.colIndex)
-    const isEmpty = !cur || cur === '—'
-    if (isEmpty) {
-      result.rowIndex = clampRow(result.rowIndex - 1, rowCount)
-    } else {
+    const isCurEmpty = !cur || cur === '—'
+    
+    if (isCurEmpty) {
       while (result.rowIndex > 0) {
-        const prev = getCellValue(result.rowIndex - 1, result.colIndex)
-        if (!prev || prev === '—') break
         result.rowIndex--
+        const val = getCellValue(result.rowIndex, result.colIndex)
+        if (val && val !== '—') break
+      }
+    } else {
+      const prevVal = result.rowIndex > 0 ? getCellValue(result.rowIndex - 1, result.colIndex) : null
+      const isPrevEmpty = !prevVal || prevVal === '—'
+      if (isPrevEmpty) {
+        while (result.rowIndex > 0) {
+          result.rowIndex--
+          const val = getCellValue(result.rowIndex, result.colIndex)
+          if (val && val !== '—') break
+        }
+      } else {
+        while (result.rowIndex > 0) {
+          const val = getCellValue(result.rowIndex - 1, result.colIndex)
+          if (!val || val === '—') break
+          result.rowIndex--
+        }
       }
     }
   }
@@ -158,7 +217,7 @@ function lastNavigableCol(colCount: number, exclude: Set<number>): number {
   return ci
 }
 
-function initialInteractionState(): GridInteractionState {
+function initialInteractionState(excludeColIndices?: Set<number>): GridInteractionState {
   return {
     focusCell: null,
     anchorCell: null,
@@ -166,7 +225,7 @@ function initialInteractionState(): GridInteractionState {
     editingCell: null,
     draftValue: '',
     mode: 'NONE',
-    excludeColIndices: new Set(),
+    excludeColIndices: excludeColIndices ?? new Set(),
   }
 }
 
@@ -176,7 +235,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       if (!state.focusCell) {
         const col = firstNavigableCol(action.colCount, state.excludeColIndices)
         const addr = { rowIndex: 0, colIndex: col }
-        return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+        return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
       }
       const fc = state.focusCell
       let newCol = fc.colIndex
@@ -186,13 +245,13 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       }
       newRow = clampRow(newRow, action.rowCount)
       const newAddr: CellAddress = { rowIndex: newRow, colIndex: newCol }
-      return { ...initialInteractionState(), focusCell: newAddr, anchorCell: newAddr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: newAddr, anchorCell: newAddr }
     }
 
     case 'JUMP_BOUNDARY': {
       if (!state.focusCell) return state
       const newAddr = jumpBoundary(state.focusCell, action.direction, action.rowCount, action.colCount, action.data, action.getCellValue, state.excludeColIndices)
-      return { ...initialInteractionState(), focusCell: newAddr, anchorCell: newAddr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: newAddr, anchorCell: newAddr }
     }
 
     case 'JUMP_HOME': {
@@ -200,7 +259,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
         if (action.ctrl) {
           const col = firstNavigableCol(action.colCount, state.excludeColIndices)
           const addr = { rowIndex: 0, colIndex: col }
-          return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+          return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
         }
         return state
       }
@@ -209,7 +268,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
         : firstNavigableCol(action.colCount, state.excludeColIndices)
       const row = action.ctrl ? 0 : state.focusCell.rowIndex
       const newAddr = { rowIndex: row, colIndex: col }
-      return { ...initialInteractionState(), focusCell: newAddr, anchorCell: newAddr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: newAddr, anchorCell: newAddr }
     }
 
     case 'JUMP_END': {
@@ -219,14 +278,14 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
         : lastNavigableCol(action.colCount, state.excludeColIndices)
       const row = action.ctrl ? action.rowCount - 1 : state.focusCell.rowIndex
       const newAddr = { rowIndex: row, colIndex: col }
-      return { ...initialInteractionState(), focusCell: newAddr, anchorCell: newAddr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: newAddr, anchorCell: newAddr }
     }
 
     case 'PAGE_UP_DOWN': {
       if (!state.focusCell) return state
       const delta = action.direction === 'down' ? action.pageSize : -action.pageSize
       const newAddr = moveAddress(state.focusCell, delta, 0, action.rowCount, action.colCount)
-      return { ...initialInteractionState(), focusCell: newAddr, anchorCell: newAddr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: newAddr, anchorCell: newAddr }
     }
 
     case 'EXTEND_RANGE': {
@@ -290,7 +349,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
     }
 
     case 'SET_FOCUS': {
-      return { ...initialInteractionState(), focusCell: action.address, anchorCell: action.address }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: action.address, anchorCell: action.address }
     }
 
     case 'SET_ANCHOR': {
@@ -299,7 +358,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
 
     case 'START_DRAG': {
       return {
-        ...initialInteractionState(),
+        ...initialInteractionState(state.excludeColIndices),
         focusCell: action.address,
         anchorCell: action.address,
         selectionRanges: [{ start: action.address, end: action.address }],
@@ -322,7 +381,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       if (existing && state.focusCell && cellAddressEqual(action.address, state.focusCell)) {
         const filtered = state.selectionRanges.filter((r) => !isInRange(action.address, r))
         if (filtered.length === 0) {
-          return { ...initialInteractionState(), focusCell: action.address, anchorCell: action.address, excludeColIndices: state.excludeColIndices }
+          return { ...initialInteractionState(state.excludeColIndices), focusCell: action.address, anchorCell: action.address }
         }
         return { ...state, selectionRanges: filtered, mode: filtered.length > 1 ? 'MULTI_RANGE' : 'CELL_RANGE' }
       }
@@ -342,7 +401,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
             const allRange: CellRange = { start: { rowIndex: 0, colIndex: fc }, end: { rowIndex: action.totalRowCount - 1, colIndex: lc } }
             return { ...state, selectionRanges: [allRange], mode: 'CELL_RANGE' }
           }
-          return { ...initialInteractionState() }
+          return { ...initialInteractionState(state.excludeColIndices) }
         }
       }
       const fc = firstNavigableCol(action.colCount, state.excludeColIndices)
@@ -390,7 +449,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       }
       if (newRow >= action.rowCount) return state
       const addr = { rowIndex: newRow, colIndex: newCol }
-      return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
     }
 
     case 'TAB_PREV': {
@@ -412,7 +471,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       }
       if (newRow < 0) return state
       const addr = { rowIndex: newRow, colIndex: newCol }
-      return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
     }
 
     case 'ENTER_NEXT': {
@@ -420,7 +479,7 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       const newRow = state.focusCell.rowIndex + 1
       if (newRow >= action.rowCount) return state
       const addr = { rowIndex: newRow, colIndex: state.focusCell.colIndex }
-      return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
     }
 
     case 'ENTER_PREV': {
@@ -428,11 +487,11 @@ function reducer(state: GridInteractionState, action: Action): GridInteractionSt
       const newRow = state.focusCell.rowIndex - 1
       if (newRow < 0) return state
       const addr = { rowIndex: newRow, colIndex: state.focusCell.colIndex }
-      return { ...initialInteractionState(), focusCell: addr, anchorCell: addr }
+      return { ...initialInteractionState(state.excludeColIndices), focusCell: addr, anchorCell: addr }
     }
 
     case 'SET_MODE_ROW': {
-      return { ...initialInteractionState(), mode: 'ROW' }
+      return { ...initialInteractionState(state.excludeColIndices), mode: 'ROW' }
     }
 
     case 'CLEAR_ROW_SELECTION': {
@@ -481,8 +540,9 @@ export function useGridInteraction(config: GridInteractionConfig) {
   const [state, dispatch] = useReducer(
     (s: GridInteractionState, a: Action) => reducer(s, a),
     undefined,
-    () => ({ ...initialInteractionState(), excludeColIndices: config.excludeColIndices ?? new Set() }),
+    () => ({ ...initialInteractionState(config.excludeColIndices), excludeColIndices: config.excludeColIndices ?? new Set() }),
   )
+  const [isDragging, setIsDragging] = useState(false)
   const dragRef = useRef(false)
   const autoScrollRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null)
   const configRef = useRef(config)
@@ -909,21 +969,32 @@ export function useGridInteraction(config: GridInteractionConfig) {
       return
     }
 
-    if ((key === 'Delete' || key === 'Backspace') && !isEditing && state.selectionRanges.length > 0) {
-      e.preventDefault()
-      const deletedCells: { rowIndex: number; colIndex: number }[] = []
-      for (const range of state.selectionRanges) {
-        const n = rangeNormalize(range)
-        for (let r = n.start.rowIndex; r <= n.end.rowIndex; r++) {
-          for (let col = n.start.colIndex; col <= n.end.colIndex; col++) {
-            if (c.editableColumns.has(col)) {
-              deletedCells.push({ rowIndex: r, colIndex: col })
+    if ((key === 'Delete' || key === 'Backspace') && !isEditing) {
+      const ranges = state.selectionRanges.length > 0
+        ? state.selectionRanges
+        : state.focusCell
+        ? [{ start: state.focusCell, end: state.focusCell }]
+        : []
+      if (ranges.length > 0) {
+        e.preventDefault()
+        const deletedCells: { rowIndex: number; colIndex: number }[] = []
+        for (const range of ranges) {
+          const n = rangeNormalize(range)
+          for (let r = n.start.rowIndex; r <= n.end.rowIndex; r++) {
+            for (let col = n.start.colIndex; col <= n.end.colIndex; col++) {
+              if (c.editableColumns.has(col)) {
+                deletedCells.push({ rowIndex: r, colIndex: col })
+              }
             }
           }
         }
-      }
-      for (const cell of deletedCells) {
-        c.onCellEdit(cell.rowIndex, cell.colIndex, '')
+        if (c.onBatchEdit && deletedCells.length > 0) {
+          c.onBatchEdit(deletedCells.map((cell) => ({ rowIndex: cell.rowIndex, colIndex: cell.colIndex, value: '' })))
+        } else {
+          for (const cell of deletedCells) {
+            c.onCellEdit(cell.rowIndex, cell.colIndex, '')
+          }
+        }
       }
       return
     }
@@ -946,14 +1017,12 @@ export function useGridInteraction(config: GridInteractionConfig) {
       dispatch({ type: 'START_EDIT', address: focusCellRef.current, value: '' })
       return
     }
-
-    // Spec §14.6: Ctrl+/ or ? opens keyboard shortcut help panel
     if (key === '/' && isCtrl) {
       e.preventDefault()
       toast.info('Keyboard shortcut help: coming soon')
       return
     }
-  }, [isEditing, commitEdit])
+  }, [isEditing, commitEdit, state.focusCell, state.mode, state.selectionRanges])
 
   const onCellMouseDown = useCallback((address: CellAddress, e: React.MouseEvent) => {
     // Spec §6.3: Click another cell while in edit mode commits the edit
@@ -979,6 +1048,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
       return
     }
     dragRef.current = true
+    setIsDragging(true)
     const handleMouseMove = (ev: MouseEvent) => {
       mousePosRef.current = { x: ev.clientX, y: ev.clientY }
     }
@@ -987,6 +1057,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUpDoc)
       mousePosRef.current = null
+      setIsDragging(false)
     }
     document.addEventListener('mouseup', handleMouseUpDoc)
     dispatch({ type: 'START_DRAG', address })
@@ -1000,6 +1071,7 @@ export function useGridInteraction(config: GridInteractionConfig) {
   const onCellMouseUp = useCallback(() => {
     if (!dragRef.current) return
     dragRef.current = false
+    setIsDragging(false)
     dispatch({ type: 'END_DRAG' })
   }, [])
 
@@ -1014,8 +1086,11 @@ export function useGridInteraction(config: GridInteractionConfig) {
   }, [])
 
   const onCellClick = useCallback((address: CellAddress) => {
-    // Respect modifier keys — ctrl/shift click selects, does not edit
-    if (!modifierRef.current && configRef.current.instantEditColumns?.has(address.colIndex)) {
+    if (modifierRef.current) {
+      // Respect modifier keys — selection already handled in mousedown
+      return
+    }
+    if (configRef.current.instantEditColumns?.has(address.colIndex)) {
       const curVal = configRef.current.getCellValue(address.rowIndex, address.colIndex)
       const val = curVal === '—' ? '' : curVal
       dispatch({ type: 'START_EDIT', address, value: val })
@@ -1037,5 +1112,6 @@ export function useGridInteraction(config: GridInteractionConfig) {
     onCellMouseUp,
     onCellDoubleClick,
     onCellClick,
+    isDragging,
   }
 }

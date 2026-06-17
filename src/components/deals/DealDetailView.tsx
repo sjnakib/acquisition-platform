@@ -132,7 +132,6 @@ export default function DealDetailView({
   const unitCount = unitsField?.value ? parseInt(unitsField.value, 10) : null
 
   const portfolioDescription = deal.portfolio_details?.[0]?.description ?? null
-  const portfolioName = deal.portfolio_details?.[0]?.name ?? null
   const outreachEmails = deal.outreach_emails ?? []
 
   return (

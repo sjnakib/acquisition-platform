@@ -8,19 +8,21 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDeal } from '@/lib/hooks/useDeal'
+import { cn } from '@/lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface UnderwritingData {
   underwritability_status?: string | null
-  asking_price?: number | null
-  price_per_unit?: number | null
-  population_1mi?: number | null
-  population_growth_pct?: number | null
-  rent_growth_12mo_pct?: number | null
-  rent_growth_forecast_pct?: number | null
-  vacancy_rate_pct?: number | null
-  market_price_per_unit?: number | null
-  delta_pct?: number | null
-  cap_rate?: number | null
+  asking_price?: number | string | null
+  price_per_unit?: number | string | null
+  population_1mi?: number | string | null
+  population_growth_pct?: number | string | null
+  rent_growth_12mo_pct?: number | string | null
+  rent_growth_forecast_pct?: number | string | null
+  vacancy_rate_pct?: number | string | null
+  market_price_per_unit?: number | string | null
+  delta_pct?: number | string | null
+  cap_rate?: number | string | null
 }
 
 interface Props {
@@ -28,16 +30,10 @@ interface Props {
   unitCount: number | null
 }
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'Not evaluated' },
-  { value: 'go', label: 'Go / Underwritable' },
-  { value: 'no_go', label: 'No-Go / Not Underwritable' },
-  { value: 'maybe', label: 'Maybe' },
-]
-
 export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
   const queryClient = useQueryClient()
   const [dirty, setDirty] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   const { data: deal, isLoading } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
 
@@ -50,33 +46,68 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
     setFormData((deal.underwriting ?? {}) as UnderwritingData)
     setFormDealId(dealId)
     setDirty(false)
+    setErrors({})
   }
 
-  const update = useCallback((field: string, value: string | number | null) => {
+  const validateField = useCallback((field: string, rawVal: string): string | null => {
+    const trimmed = rawVal.trim()
+    if (trimmed === '') return null // Empty/null is valid (clearing)
+
+    if (field === 'underwritability_status') return null
+
+    const val = Number(trimmed)
+    if (isNaN(val)) return 'Must be a valid number'
+
+    // Positive numeric checks
+    if (['asking_price', 'price_per_unit', 'market_price_per_unit', 'cap_rate'].includes(field)) {
+      if (val < 0) return 'Must be a non-negative amount'
+    }
+
+    // Positive integer check
+    if (field === 'population_1mi') {
+      if (val < 0) return 'Must be a non-negative count'
+      if (!Number.isInteger(val)) return 'Must be a whole number'
+    }
+
+    // Percentage check
+    if (field === 'vacancy_rate_pct') {
+      if (val < 0 || val > 100) return 'Must be between 0% and 100%'
+    }
+
+    return null
+  }, [])
+
+  const update = useCallback((field: string, value: string) => {
     setFormData((prev) => prev ? { ...prev, [field]: value === '' ? null : value } : prev)
     setDirty(true)
-  }, [])
+
+    const err = validateField(field, value)
+    setErrors((prev) => ({ ...prev, [field]: err ?? '' }))
+  }, [validateField])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!formData) throw new Error('No data')
+      
+      const parsedData = {
+        deal_id: dealId,
+        underwritability_status: formData.underwritability_status === 'none' || !formData.underwritability_status ? null : formData.underwritability_status,
+        asking_price: formData.asking_price != null ? Number(formData.asking_price) : null,
+        price_per_unit: formData.price_per_unit != null ? Number(formData.price_per_unit) : null,
+        population_1mi: formData.population_1mi != null ? Number(formData.population_1mi) : null,
+        population_growth_pct: formData.population_growth_pct != null ? Number(formData.population_growth_pct) : null,
+        rent_growth_12mo_pct: formData.rent_growth_12mo_pct != null ? Number(formData.rent_growth_12mo_pct) : null,
+        rent_growth_forecast_pct: formData.rent_growth_forecast_pct != null ? Number(formData.rent_growth_forecast_pct) : null,
+        vacancy_rate_pct: formData.vacancy_rate_pct != null ? Number(formData.vacancy_rate_pct) : null,
+        market_price_per_unit: formData.market_price_per_unit != null ? Number(formData.market_price_per_unit) : null,
+        delta_pct: formData.delta_pct != null ? Number(formData.delta_pct) : null,
+        cap_rate: formData.cap_rate != null ? Number(formData.cap_rate) : null,
+      }
+
       const res = await fetch('/api/underwriting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deal_id: dealId,
-          underwritability_status: formData.underwritability_status,
-          asking_price: formData.asking_price,
-          price_per_unit: formData.price_per_unit,
-          population_1mi: formData.population_1mi,
-          population_growth_pct: formData.population_growth_pct,
-          rent_growth_12mo_pct: formData.rent_growth_12mo_pct,
-          rent_growth_forecast_pct: formData.rent_growth_forecast_pct,
-          vacancy_rate_pct: formData.vacancy_rate_pct,
-          market_price_per_unit: formData.market_price_per_unit,
-          delta_pct: formData.delta_pct,
-          cap_rate: formData.cap_rate,
-        }),
+        body: JSON.stringify(parsedData),
       })
       if (!res.ok) {
         const json = await res.json()
@@ -97,7 +128,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
       setFormData((prev) => {
         if (!prev) return prev
         const pricePerUnit = Math.round(askingPrice / unitCount)
-        const marketPrice = prev.market_price_per_unit
+        const marketPrice = prev.market_price_per_unit ? Number(prev.market_price_per_unit) : null
         const delta = (marketPrice && marketPrice !== 0)
           ? Number((((pricePerUnit - marketPrice) / marketPrice) * 100).toFixed(3))
           : prev.delta_pct
@@ -110,7 +141,7 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
     if (!marketPrice) return
     setFormData((prev) => {
       if (!prev) return prev
-      const pricePerUnit = prev.price_per_unit
+      const pricePerUnit = prev.price_per_unit ? Number(prev.price_per_unit) : null
       const delta = (pricePerUnit && marketPrice !== 0)
         ? Number((((pricePerUnit - marketPrice) / marketPrice) * 100).toFixed(3))
         : prev.delta_pct
@@ -126,35 +157,51 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
     )
   }
 
+  const hasErrors = Object.values(errors).some(Boolean)
+
   function numberField(label: string, field: keyof UnderwritingData, opts?: { suffix?: string; readOnly?: boolean }) {
     const val = formData?.[field]
     const isReadOnly = opts?.readOnly
+    const err = errors[field]
+    const hasError = !!err
+
     return (
       <div className="space-y-1">
-        <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+        <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-secondary)' }}>
           {label}
         </label>
         {isReadOnly ? (
-          <div className="h-8 px-3 rounded-md border border-[var(--color-surface-2)] bg-[var(--color-surface-1)] flex items-center text-[13px] font-mono text-[var(--color-text-secondary)]">
+          <div className="h-8 px-3 rounded-md border border-[var(--color-surface-2)] bg-[var(--color-surface-1)] flex items-center text-[13px] font-mono font-semibold text-[var(--color-text-secondary)]">
             {val != null ? (opts?.suffix ? `${val}${opts.suffix}` : String(val)) : '—'}
           </div>
         ) : (
-          <Input
-            type="number"
-            value={val != null ? String(val) : ''}
-            onChange={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value)
-              update(field, v)
-              if (field === 'asking_price' && v) autoComputePricePerUnit(v)
-              if (field === 'market_price_per_unit' && v) autoComputeDelta(v)
-              if (field === 'price_per_unit' && v) autoComputeDelta(formData?.market_price_per_unit ?? null)
-            }}
-            placeholder="—"
-            className="h-8 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)]"
-          />
-        )}
-        {opts?.suffix && (
-          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>{opts.suffix}</span>
+          <div className="relative flex flex-col gap-1 w-full">
+            <Input
+              type="text"
+              value={val != null ? String(val) : ''}
+              onChange={(e) => {
+                const rawVal = e.target.value
+                update(field, rawVal)
+                
+                const v = rawVal === '' ? null : Number(rawVal)
+                if (v !== null && !isNaN(v) && v >= 0) {
+                  if (field === 'asking_price') autoComputePricePerUnit(v)
+                  if (field === 'market_price_per_unit') autoComputeDelta(v)
+                  if (field === 'price_per_unit') autoComputeDelta(formData?.market_price_per_unit ? Number(formData.market_price_per_unit) : null)
+                }
+              }}
+              placeholder="—"
+              className={cn(
+                "h-8 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] transition-all",
+                hasError && "border-[var(--color-danger-border)] focus:border-[var(--color-danger-border)] focus:ring-1 focus:ring-[var(--color-danger-border)] bg-[rgba(239,68,68,0.03)] animate-card-shake"
+              )}
+            />
+            {err && (
+              <span className="text-[10px] text-[var(--color-danger-text)] font-semibold mt-0.5 leading-none animate-tab-entrance">
+                {err}
+              </span>
+            )}
+          </div>
         )}
       </div>
     )
@@ -172,8 +219,13 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
           </p>
         </div>
         {dirty && (
-          <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px]">
-            <Save size={13} />
+          <Button 
+            size="sm" 
+            onClick={() => saveMutation.mutate()} 
+            disabled={saveMutation.isPending || hasErrors} 
+            className="bg-[var(--color-accent)] border-none text-[var(--color-text-inverse)] h-8 text-[12px] gap-1.5"
+          >
+            {saveMutation.isPending ? <LoadingSpinner size="sm" /> : <Save size={13} />}
             {saveMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
         )}
@@ -193,19 +245,25 @@ export function EvaluateUnderwritability({ dealId, unitCount }: Props) {
       </div>
 
       <div className="space-y-1">
-        <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-tertiary)' }}>
+        <label className="text-[11px] font-medium uppercase tracking-[0.03em]" style={{ color: 'var(--color-text-secondary)' }}>
           Underwritable?
         </label>
-        <select
-          value={formData?.underwritability_status ?? ''}
-          onChange={(e) => { update('underwritability_status', e.target.value || null); setDirty(true) }}
-          className="h-8 text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-md px-2 w-full focus:border-[var(--color-accent)] outline-none"
-          style={{ color: 'var(--color-text-primary)' }}
+        <Select
+          value={formData?.underwritability_status ?? 'none'}
+          onValueChange={(val) => {
+            update('underwritability_status', val === 'none' ? '' : val)
+          }}
         >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+          <SelectTrigger className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full focus:ring-0">
+            <SelectValue placeholder="Not evaluated" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Not evaluated</SelectItem>
+            <SelectItem value="go">Go / Underwritable</SelectItem>
+            <SelectItem value="no_go">No-Go / Not Underwritable</SelectItem>
+            <SelectItem value="maybe">Maybe</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
     </div>

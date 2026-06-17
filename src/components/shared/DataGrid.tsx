@@ -264,8 +264,12 @@ const RowRenderer = memo(function RowRendererInner<T>({
                   className="absolute inset-0 w-full h-full px-3 text-[13px] outline-none"
                   style={{
                     background: 'var(--color-surface-0)',
-                    border: `2px solid ${S.accent}`,
-                    boxShadow: `0 0 0 4px color-mix(in srgb, ${S.accent} 20%, transparent)`,
+                    border: validationFlashCell && cellAddressEqual(addr, validationFlashCell)
+                      ? '2px solid var(--color-error, #ef4444)'
+                      : `2px solid ${S.accent}`,
+                    boxShadow: validationFlashCell && cellAddressEqual(addr, validationFlashCell)
+                      ? '0 0 0 4px color-mix(in srgb, var(--color-error, #ef4444) 20%, transparent)'
+                      : `0 0 0 4px color-mix(in srgb, ${S.accent} 20%, transparent)`,
                     fontFamily: 'var(--font-dm-sans)',
                     color: 'var(--color-text-primary)',
                     borderRadius: 'var(--radius-sm)',
@@ -322,18 +326,35 @@ const RowRenderer = memo(function RowRendererInner<T>({
   if (prevProps.flashingCell !== nextProps.flashingCell) return false
   if (prevProps.validationFlashCell !== nextProps.validationFlashCell) return false
   if (prevProps.saveSuccessCell !== nextProps.saveSuccessCell) return false
+  
+  const rowIndex = prevProps.rowIndex
   const pf = prevProps.interactionState.focusCell
   const nf = nextProps.interactionState.focusCell
-  if (pf !== nf && (pf?.rowIndex !== nf?.rowIndex)) return false
+  if (pf !== nf) {
+    if (pf?.rowIndex === rowIndex || nf?.rowIndex === rowIndex) {
+      return false
+    }
+  }
+
   const pe = prevProps.interactionState.editingCell
   const ne = nextProps.interactionState.editingCell
-  if (pe !== ne && (pe?.rowIndex !== ne?.rowIndex)) return false
+  if (pe !== ne) {
+    if (pe?.rowIndex === rowIndex || ne?.rowIndex === rowIndex) {
+      return false
+    }
+  }
+
   const pr = prevProps.interactionState.selectionRanges
   const nr = nextProps.interactionState.selectionRanges
-  if (pr !== nr && pr.length !== nr.length) return false
   if (pr !== nr) {
-    for (let i = 0; i < pr.length; i++) {
-      if (pr[i] !== nr[i]) return false
+    const colCount = prevProps.columns.length
+    for (let c = 0; c < colCount; c++) {
+      const addr = { rowIndex, colIndex: c }
+      const wasSelected = pr.length > 0 && isInAnyRange(addr, pr)
+      const isSelected = nr.length > 0 && isInAnyRange(addr, nr)
+      if (wasSelected !== isSelected) {
+        return false
+      }
     }
   }
   return true
@@ -1135,6 +1156,7 @@ export function DataGrid<T>({
   } | null>(null)
   const resizeRafRef = useRef<number | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+  const innerGridRef = useRef<HTMLDivElement>(null)
   const [selectedColKeys, setSelectedColKeys] = useState<Set<string>>(new Set())
   const lastShiftClickColRef = useRef<string | null>(null)
 
@@ -1349,15 +1371,27 @@ export function DataGrid<T>({
 
   const scrollToCol = useCallback((colIndex: number) => {
     if (!scrollRef.current) return
-    let offset = S.rowNumW
+    let offset = S.checkboxW + S.rowNumW
     for (let i = 0; i < colIndex; i++) {
       const col = orderedColumns[i]
       if (col) offset += computedWidths[col.key] ?? 100
     }
     const colW = orderedColumns[colIndex] ? (computedWidths[orderedColumns[colIndex]!.key] ?? 100) : 100
     const containerW = scrollRef.current.clientWidth
-    if (offset < scrollRef.current.scrollLeft || offset + colW > scrollRef.current.scrollLeft + containerW) {
-      scrollRef.current.scrollLeft = offset
+    const scrollLeft = scrollRef.current.scrollLeft
+
+    const stickyLeftW = S.checkboxW + S.rowNumW
+    const lastIdx = orderedColumns.length - 1
+    const hasStickyActions = lastIdx >= 0 && orderedColumns[lastIdx]!.key === 'actions'
+    const stickyRightW = hasStickyActions ? (computedWidths[orderedColumns[lastIdx]!.key] ?? 100) : 0
+
+    const minScroll = offset - stickyLeftW
+    const maxScroll = offset + colW - containerW + stickyRightW
+
+    if (offset < scrollLeft + stickyLeftW) {
+      scrollRef.current.scrollLeft = minScroll
+    } else if (offset + colW > scrollLeft + containerW - stickyRightW) {
+      scrollRef.current.scrollLeft = maxScroll
     }
   }, [orderedColumns, computedWidths])
 
@@ -1538,7 +1572,7 @@ export function DataGrid<T>({
 
   useEffect(() => {
     if (prevEditingCellRef.current && !state.editingCell) {
-      gridRef.current?.focus()
+      innerGridRef.current?.focus()
     }
     prevEditingCellRef.current = state.editingCell
   }, [state.editingCell])
@@ -1725,6 +1759,7 @@ export function DataGrid<T>({
         suppressHydrationWarning
       >
         <div
+          ref={innerGridRef}
           role="grid"
           tabIndex={0}
           aria-activedescendant={focusedId}
@@ -2106,7 +2141,7 @@ export function DataGrid<T>({
       )}
 
       {/* Drag selection overlay — prevents text selection during drag (spec §5.2) */}
-      {state.mode === 'CELL_RANGE' && state.selectionRanges.length > 0 && state.selectionRanges.some((r) => {
+      {interaction.isDragging && state.mode === 'CELL_RANGE' && state.selectionRanges.length > 0 && state.selectionRanges.some((r) => {
         const n = rangeNormalize(r)
         return n.start.rowIndex !== n.end.rowIndex || n.start.colIndex !== n.end.colIndex
       }) && (

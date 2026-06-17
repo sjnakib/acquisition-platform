@@ -200,12 +200,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         query = `(${baseQuery}) label:INBOX`
       } else if (folder === 'archived') {
         query = `(${baseQuery}) -label:INBOX -label:TRASH -label:SPAM`
-      } else if (folder === 'snoozed') {
-        const snoozedIds = Array.from(snoozedMap.keys())
-        if (snoozedIds.length === 0) {
-          return NextResponse.json({ threads: [], gmailConnected: true })
-        }
-        query = snoozedIds.map((tid) => `id:${tid}`).join(' OR ')
+      } else if (folder === 'sent') {
+        query = `(${baseQuery}) label:SENT`
       }
 
       const listRes = await gmail.users.threads.list({ userId: 'me', q: query, maxResults: 50 })

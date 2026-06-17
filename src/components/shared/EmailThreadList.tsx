@@ -8,15 +8,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatEmailDate } from '@/lib/utils'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,28 +83,7 @@ export function threadAvatarColor(name: string | null): string {
   return `hsl(${hash % 360}, 55%, 50%)`
 }
 
-function getSnoozePresets() {
-  const now = new Date()
 
-  const laterToday = new Date(now)
-  laterToday.setHours(18, 0, 0, 0)
-  if (laterToday.getTime() <= now.getTime()) laterToday.setHours(21, 0, 0, 0)
-
-  const tomorrow = new Date(now)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  tomorrow.setHours(8, 0, 0, 0)
-
-  const nextWeek = new Date(now)
-  const daysUntilMonday = (1 + 7 - now.getDay()) % 7 || 7
-  nextWeek.setDate(nextWeek.getDate() + daysUntilMonday)
-  nextWeek.setHours(8, 0, 0, 0)
-
-  return [
-    { label: 'Later today', value: laterToday.toISOString() },
-    { label: 'Tomorrow morning', value: tomorrow.toISOString() },
-    { label: 'Next week', value: nextWeek.toISOString() },
-  ]
-}
 
 // ── API response shape ───────────────────────────────────────────────────────
 
@@ -134,7 +105,6 @@ interface ThreadRowProps {
   onToggleStar: (threadId: string, e: React.MouseEvent) => void
   onClick: (thread: EmailThread) => void
   onArchive: (threadId: string, e: React.MouseEvent) => void
-  onSnooze: (threadId: string, e: React.MouseEvent) => void
   onToggleRead: (threadId: string, isUnread: boolean, e: React.MouseEvent) => void
   onDelete: (threadId: string, e: React.MouseEvent) => void
   renderMetaRow?: (thread: EmailThread) => ReactNode
@@ -151,7 +121,6 @@ const ThreadRow = memo(function ThreadRow({
   onToggleStar,
   onClick,
   onArchive,
-  onSnooze,
   onToggleRead,
   onDelete,
   renderMetaRow,
@@ -329,11 +298,6 @@ const ThreadRow = memo(function ThreadRow({
             />
           )}
           <ActionIconBtn
-            icon={Clock}
-            label="Snooze"
-            onClick={(e) => onSnooze(thread.threadId, e)}
-          />
-          <ActionIconBtn
             icon={thread.isUnread ? MailOpen : Mail}
             label={thread.isUnread ? 'Mark as read' : 'Mark as unread'}
             onClick={(e) => onToggleRead(thread.threadId, thread.isUnread, e)}
@@ -359,14 +323,12 @@ const ThreadRow = memo(function ThreadRow({
 
 export interface EmailThreadListHandle {
   handleThreadAction: (ids: string[], action: string) => Promise<void>
-  handleSnooze: (ids: string[], until: string) => Promise<void>
 }
 
 export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadListProps>(
   function EmailThreadList({
     apiBase,
     actionApiBase,
-    projectId,
     onThreadClick,
     selectedThreadId,
     renderMetaRow,
@@ -383,12 +345,9 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
     const queryClient = useQueryClient()
 
     // ── UI state (not server state) ──────────────────────────────────────────
-    const [folder, setFolder] = useState<'inbox' | 'snoozed' | 'archived'>('inbox')
+    const [folder, setFolder] = useState<'inbox' | 'sent' | 'archived'>('inbox')
     const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set())
     const [starredThreadIds, setStarredThreadIds] = useState<Set<string>>(new Set())
-    const [snoozingThreadIds, setSnoozingThreadIds] = useState<string[] | null>(null)
-    const [customSnoozeDate, setCustomSnoozeDate] = useState('')
-    const [snoozing, setSnoozing] = useState(false)
     const [pendingActionsCount, setPendingActionsCount] = useState(0)
 
     // ── TanStack Query: thread list ──────────────────────────────────────────
@@ -501,44 +460,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       },
     })
 
-    // ── TanStack Query: snooze mutation ──────────────────────────────────────
 
-    const snoozeMutation = useMutation({
-      mutationFn: async ({ ids, until }: { ids: string[]; until: string }) => {
-        const res = await fetch(patchUrl, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ threadIds: ids, action: 'snooze', snoozedUntil: until }),
-        })
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(body.error ?? 'Snooze failed')
-        }
-      },
-      onMutate: async ({ ids }) => {
-        if (folder === 'inbox') {
-          await queryClient.cancelQueries({ queryKey: ['email-threads', apiBase, folder] })
-          const prev = queryClient.getQueryData<ThreadQueryResult>(['email-threads', apiBase, folder])
-
-          queryClient.setQueryData<ThreadQueryResult>(['email-threads', apiBase, folder], (old) => {
-            if (!old) return undefined
-            return { ...old, threads: old.threads.filter((t) => !ids.includes(t.threadId)) }
-          })
-
-          return { prev }
-        }
-        return { prev: undefined }
-      },
-      onError: (err, _vars, ctx) => {
-        if (ctx?.prev) {
-          queryClient.setQueryData(['email-threads', apiBase, folder], ctx.prev)
-        }
-        toast.error(err instanceof Error ? err.message : 'Snooze failed')
-      },
-      onSettled: () => {
-        queryClient.invalidateQueries({ queryKey: ['email-threads', apiBase, folder] })
-      },
-    })
 
     // ── Tab close prevention ─────────────────────────────────────────────────
 
@@ -621,10 +543,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       )
     }, [threadActionMutation])
 
-    const handleSnoozeClick = useCallback((threadId: string, e: React.MouseEvent) => {
-      e.stopPropagation()
-      setSnoozingThreadIds([threadId])
-    }, [])
+
 
     // ── Bulk actions ─────────────────────────────────────────────────────────
 
@@ -639,30 +558,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       )
     }, [selectedThreadIds, threadActionMutation])
 
-    const handleBulkSnooze = useCallback(() => {
-      const ids = Array.from(selectedThreadIds)
-      if (ids.length === 0) return
-      setSnoozingThreadIds(ids)
-    }, [selectedThreadIds])
 
-    // ── Snooze dialog handlers ───────────────────────────────────────────────
-
-    const handleSnoozeConfirm = useCallback(async (ids: string[], until: string) => {
-      setSnoozing(true)
-      setSelectedThreadIds(new Set())
-      setPendingActionsCount((prev) => prev + 1)
-      try {
-        await snoozeMutation.mutateAsync({ ids, until })
-        setSnoozingThreadIds(null)
-        setCustomSnoozeDate('')
-        toast.success(ids.length > 1 ? `${ids.length} threads snoozed` : 'Snoozed')
-      } catch {
-        // Error toast handled by mutation's onError
-      } finally {
-        setSnoozing(false)
-        setPendingActionsCount((prev) => Math.max(0, prev - 1))
-      }
-    }, [snoozeMutation])
 
     // ── Imperative handle (for parent ref access) ────────────────────────────
 
@@ -676,21 +572,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
           setPendingActionsCount((prev) => Math.max(0, prev - 1))
         }
       },
-      handleSnooze: async (ids: string[], until: string) => {
-        setSnoozing(true)
-        setSelectedThreadIds(new Set())
-        setPendingActionsCount((prev) => prev + 1)
-        try {
-          await snoozeMutation.mutateAsync({ ids, until })
-          toast.success(ids.length > 1 ? `${ids.length} threads snoozed` : 'Snoozed')
-        } catch {
-          // Error toast handled by mutation's onError
-        } finally {
-          setSnoozing(false)
-          setPendingActionsCount((prev) => Math.max(0, prev - 1))
-        }
-      },
-    }), [threadActionMutation, snoozeMutation])
+    }), [threadActionMutation])
 
     // ── Prefetch handler ─────────────────────────────────────────────────────
 
@@ -740,7 +622,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
           <div className="flex items-center gap-2">
             <Mail size={14} style={{ color: 'var(--color-accent)' }} />
             <span className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-              {folder === 'inbox' ? 'Inbox' : folder === 'snoozed' ? 'Snoozed' : 'Archived'}
+              {folder === 'inbox' ? 'Inbox' : folder === 'sent' ? 'Sent' : 'Archived'}
             </span>
             {!isLoading && (
               <span className="text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -788,7 +670,6 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
               <ActionIconBtn icon={Trash2} label="Delete selected" onClick={() => handleBulkAction('delete')} />
               <ActionIconBtn icon={MailOpen} label="Mark as read" onClick={() => handleBulkAction('markRead')} />
               <ActionIconBtn icon={Mail} label="Mark as unread" onClick={() => handleBulkAction('markUnread')} />
-              <ActionIconBtn icon={Clock} label="Snooze selected" onClick={handleBulkSnooze} />
             </div>
           </div>
         ) : showToolbar ? (
@@ -811,7 +692,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
               className="flex rounded-lg p-0.5 border"
               style={{ borderColor: 'var(--color-surface-3)', background: 'var(--color-surface-2)' }}
             >
-              {(['inbox', 'snoozed', 'archived'] as const).map((f) => (
+              {(['inbox', 'sent', 'archived'] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => {
@@ -826,7 +707,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
                     color: folder === f ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                   }}
                 >
-                  {f === 'inbox' ? 'Inbox' : f === 'snoozed' ? 'Snoozed' : 'Archived'}
+                  {f === 'inbox' ? 'Inbox' : f === 'sent' ? 'Sent' : 'Archived'}
                 </button>
               ))}
             </div>
@@ -857,7 +738,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
             <div className="flex flex-col items-center justify-center py-16 px-4 text-center h-full">
               <Mail size={28} style={{ color: 'var(--color-text-tertiary)', opacity: 0.4, marginBottom: 12 }} />
               <p className="text-[13px] font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                {folder === 'snoozed' ? 'No snoozed threads' : folder === 'archived' ? 'No archived threads' : 'No conversations yet'}
+                {folder === 'sent' ? 'No sent threads' : folder === 'archived' ? 'No archived threads' : 'No conversations yet'}
               </p>
               <p className="text-[11px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
                 {folder === 'inbox' && 'Send outreach emails to start tracking threads.'}
@@ -881,7 +762,6 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
                   onToggleStar={toggleStar}
                   onClick={onThreadClick}
                   onArchive={handleArchive}
-                  onSnooze={handleSnoozeClick}
                   onToggleRead={handleToggleRead}
                   onDelete={handleDelete}
                   renderMetaRow={renderMetaRow}
@@ -892,58 +772,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
           )}
         </div>
 
-        {/* ── Snooze dialog ──────────────────────────────────────────────────── */}
-        <Dialog open={snoozingThreadIds !== null} onOpenChange={(open) => { if (!open) { setSnoozingThreadIds(null); setCustomSnoozeDate('') } }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Snooze thread{snoozingThreadIds && snoozingThreadIds.length > 1 ? 's' : ''}</DialogTitle>
-              <DialogDescription>
-                Thread{snoozingThreadIds && snoozingThreadIds.length > 1 ? 's' : ''} will return to inbox at the selected time.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-2 py-2">
-              {getSnoozePresets().map((preset) => (
-                <button
-                  key={preset.value}
-                  onClick={() => snoozingThreadIds && handleSnoozeConfirm(snoozingThreadIds, preset.value)}
-                  disabled={snoozing}
-                  className="w-full text-left px-4 py-3 rounded-xl border transition-colors hover:bg-[var(--color-surface-1)] text-[13px] font-medium"
-                  style={{ borderColor: 'var(--color-surface-2)', color: 'var(--color-text-primary)' }}
-                >
-                  {preset.label}
-                </button>
-              ))}
-              <div className="border-t pt-3 mt-1" style={{ borderColor: 'var(--color-surface-2)' }}>
-                <label className="text-[11px] font-medium block mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                  Custom date &amp; time
-                </label>
-                <input
-                  type="datetime-local"
-                  value={customSnoozeDate}
-                  onChange={(e) => setCustomSnoozeDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border text-[12px] outline-none"
-                  style={{
-                    borderColor: 'var(--color-surface-3)',
-                    background: 'var(--color-surface-0)',
-                    color: 'var(--color-text-primary)',
-                  }}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" size="sm" onClick={() => { setSnoozingThreadIds(null); setCustomSnoozeDate('') }}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={snoozing || !customSnoozeDate}
-                onClick={() => snoozingThreadIds && customSnoozeDate && handleSnoozeConfirm(snoozingThreadIds, new Date(customSnoozeDate).toISOString())}
-              >
-                {snoozing ? 'Snoozing…' : 'Snooze'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
       </div>
     )
   }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react'
+import { useState, useCallback, useRef, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useIsTabActive } from '@/components/ui/tabs'
@@ -307,8 +307,18 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
 
   // ── Floating compose (new message only) ────────────────────────────────
 
-  const handleContactEmailClick = useCallback((_email: string, _contactId: string) => {
+  const handleContactEmailClick = useCallback((email: string, _contactId: string) => {
     if (!gmailConnected) return
+    void _contactId
+    setComposeTo(email)
+    setComposeCc('')
+    setComposeBcc('')
+    setComposeSubject('')
+    setComposeBody('')
+    setComposeIsReply(false)
+    setComposeIsForward(false)
+    setComposeThreadId(null)
+    setComposeInReplyTo(null)
     setComposeMinimized(false)
     setComposeFullscreen(false)
     setComposeOpen(true)
@@ -856,6 +866,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
                 </div>
               }>
                 <LazyEmailComposer
+                  key={`${composeTo}-${composeSubject}-${composeIsReply}-${composeIsForward}-${composeThreadId}`}
                   ref={emailComposerRef}
                   mode="compose"
                   dealId={dealId}

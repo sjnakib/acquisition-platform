@@ -8,6 +8,8 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Pencil, FileText, Search, MapPin, DollarSign, Building, Users, Info, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface FieldDef {
   value: string | null
@@ -22,6 +24,7 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   // Blocklist: field keys that belong to underwriting, LOI, or deals tables.
   // These are managed by dedicated UI components and should not appear here.
@@ -70,26 +73,77 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
       queryClient.invalidateQueries({ queryKey: ['deal', dealId] }) // Invalidate main deal query for unit count or address updates
       queryClient.invalidateQueries({ queryKey: ['deals'] }) // Invalidate table/list views
       setEditingKey(null)
+      setError(null)
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'Failed to save field')
     },
   })
 
+  const validateField = useCallback((dataType: string, value: string): string | null => {
+    const trimmed = value.trim()
+    if (!trimmed) return null // Null/empty is valid (clearing)
+
+    if (dataType === 'integer') {
+      if (!/^\d+$/.test(trimmed)) {
+        return 'Must be a non-negative whole number'
+      }
+    }
+
+    if (dataType === 'number' || dataType === 'currency') {
+      if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+        return 'Must be a valid non-negative number'
+      }
+      const num = parseFloat(trimmed)
+      if (isNaN(num)) return 'Invalid number'
+    }
+
+    if (dataType === 'url') {
+      try {
+        const url = new URL(trimmed)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          return 'URL must start with http:// or https://'
+        }
+      } catch {
+        return 'Must be a valid URL (e.g. https://example.com)'
+      }
+    }
+
+    if (dataType === 'date') {
+      const timestamp = Date.parse(trimmed)
+      if (isNaN(timestamp)) {
+        return 'Must be a valid date'
+      }
+    }
+
+    return null
+  }, [])
+
   const startEdit = useCallback((key: string, currentValue: string | null) => {
     setEditingKey(key)
     setEditValue(currentValue ?? '')
+    setError(null)
   }, [])
 
   const cancelEdit = useCallback(() => {
     setEditingKey(null)
     setEditValue('')
+    setError(null)
   }, [])
 
   const saveEdit = useCallback(() => {
-    if (!editingKey) return
+    if (!editingKey || !fields) return
+    const def = fields[editingKey]
+    if (!def) return
+
+    const err = validateField(def.data_type, editValue)
+    if (err) {
+      setError(err)
+      return
+    }
+
     saveFieldMutation.mutate({ key: editingKey, value: editValue || null })
-  }, [editingKey, editValue, saveFieldMutation])
+  }, [editingKey, editValue, fields, validateField, saveFieldMutation])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') saveEdit()
@@ -126,58 +180,69 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
     .sort((a, b) => a[1].label.localeCompare(b[1].label))
 
   function renderInput(def: FieldDef) {
+    const hasError = !!error
+    const inputClassName = cn(
+      "h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full transition-all duration-150",
+      hasError && "border-[var(--color-danger-border)] focus:border-[var(--color-danger-border)] focus:ring-1 focus:ring-[var(--color-danger-border)] bg-[rgba(239,68,68,0.03)] animate-card-shake"
+    )
+
     switch (def.data_type) {
       case 'number':
       case 'integer':
       case 'currency':
         return (
           <Input
-            type="number"
+            type="text"
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={(e) => { setEditValue(e.target.value); setError(null); }}
             onKeyDown={handleKeyDown}
             onBlur={saveEdit}
             autoFocus
-            className="h-8 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+            className={cn("font-mono", inputClassName)}
           />
         )
       case 'url':
         return (
           <Input
-            type="url"
+            type="text"
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={(e) => { setEditValue(e.target.value); setError(null); }}
             onKeyDown={handleKeyDown}
             onBlur={saveEdit}
             autoFocus
-            className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+            className={inputClassName}
           />
         )
       case 'boolean':
         return (
-          <select
-            value={editValue}
-            onChange={(e) => { setEditValue(e.target.value); }}
-            onBlur={saveEdit}
-            autoFocus
-            className="h-8 text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-md px-2 focus:border-[var(--color-accent)] outline-none w-full"
-            style={{ color: 'var(--color-text-primary)' }}
+          <Select
+            value={editValue === 'true' ? 'true' : editValue === 'false' ? 'false' : 'none'}
+            onValueChange={(val) => {
+              const mapped = val === 'none' ? '' : val
+              setEditValue(mapped)
+              saveFieldMutation.mutate({ key: editingKey!, value: mapped || null })
+            }}
           >
-            <option value="">—</option>
-            <option value="true">Yes</option>
-            <option value="false">No</option>
-          </select>
+            <SelectTrigger className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full focus:ring-0">
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">—</SelectItem>
+              <SelectItem value="true">Yes</SelectItem>
+              <SelectItem value="false">No</SelectItem>
+            </SelectContent>
+          </Select>
         )
       case 'date':
         return (
           <Input
             type="date"
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={(e) => { setEditValue(e.target.value); setError(null); }}
             onKeyDown={handleKeyDown}
             onBlur={saveEdit}
             autoFocus
-            className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+            className={inputClassName}
           />
         )
       default:
@@ -185,11 +250,11 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
           <Input
             type="text"
             value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
+            onChange={(e) => { setEditValue(e.target.value); setError(null); }}
             onKeyDown={handleKeyDown}
             onBlur={saveEdit}
             autoFocus
-            className="h-8 text-[13px] bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] w-full"
+            className={inputClassName}
           />
         )
     }
@@ -317,9 +382,16 @@ export function DealFieldsEditor({ dealId }: { dealId: string }) {
                             {def.label}
                           </span>
                           {isEditing ? (
-                            <div className="flex items-center gap-1.5 mt-0.5 max-w-[90%]">
-                              {renderInput(def)}
-                              {saveFieldMutation.isPending && <LoadingSpinner size="sm" />}
+                            <div className="flex flex-col gap-1 mt-0.5 max-w-[90%] w-full animate-tab-entrance">
+                              <div className="flex items-center gap-1.5 w-full">
+                                {renderInput(def)}
+                                {saveFieldMutation.isPending && <LoadingSpinner size="sm" />}
+                              </div>
+                              {error && (
+                                <span className="text-[10px] text-[var(--color-danger-text)] font-semibold mt-0.5 leading-none">
+                                  {error}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span

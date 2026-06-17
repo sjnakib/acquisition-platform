@@ -267,6 +267,48 @@ export async function renameDriveFile(
   })
 }
 
+/**
+ * Recursively count all non-folder files in a Drive folder tree.
+ * Uses a single connection context for all API calls.
+ * Used to sync the accurate drive_file_count for a deal room.
+ */
+export async function countAllFilesRecursive(
+  connectionId: string,
+  rootFolderId: string,
+): Promise<number> {
+  return callWithConnection(connectionId, async (auth) => {
+    const drive = google.drive({ version: 'v3', auth })
+    let totalFiles = 0
+    const queue: string[] = [rootFolderId]
+
+    while (queue.length > 0) {
+      const folderId = queue.shift()!
+      let pageToken: string | undefined
+
+      do {
+        const res = await drive.files.list({
+          q: `'${folderId}' in parents and trashed = false`,
+          fields: 'nextPageToken, files(id, name, mimeType)',
+          pageSize: 100,
+          pageToken,
+          orderBy: 'folder, name',
+        })
+
+        for (const file of res.data.files ?? []) {
+          if (file.mimeType === 'application/vnd.google-apps.folder') {
+            queue.push(file.id!)
+          } else {
+            totalFiles++
+          }
+        }
+        pageToken = res.data.nextPageToken ?? undefined
+      } while (pageToken)
+    }
+
+    return totalFiles
+  })
+}
+
 export async function getDriveStorageQuota(
   connectionId: string,
 ): Promise<{

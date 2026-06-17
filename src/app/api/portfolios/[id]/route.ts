@@ -10,7 +10,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data, error } = await supabase
     .from('portfolios')
-    .select('*, deals!deals_portfolio_id_fkey(*)')
+    .select('*, deals!deals_portfolio_id_fkey(*, deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*))')
     .eq('id', id)
     .single()
 

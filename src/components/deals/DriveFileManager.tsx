@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatDistanceToNow } from 'date-fns'
 import {
   Folder, FolderOpen, File, FileText, Image, Table2,
   MoreHorizontal, Upload, FolderPlus, RefreshCw, Check, X,
-  Trash2, Pencil, ExternalLink, LayoutList, LayoutGrid,
-  ChevronDown, ChevronRight, ChevronUp, FolderUp, Plus, Link, Loader2, AlertTriangle,
+  Trash2, Pencil, ExternalLink,
+  ChevronDown, ChevronRight, FolderUp, Plus, Link, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -123,10 +123,12 @@ function SkeletonRow() {
 
 export function DriveFileManager({ dealId, dealName }: { dealId: string; dealName: string }) {
   const isActive = useIsTabActive()
+  const queryClient = useQueryClient()
 
   // Data state
   const [files, setFiles] = useState<DriveFileItem[]>([])
   const [refreshing, setRefreshing] = useState(false)
+  const [initialFilesLoaded, setInitialFilesLoaded] = useState(false)
   const [dealFolderId, setDealFolderId] = useState<string | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [deletingFolder, setDeletingFolder] = useState(false)
@@ -266,24 +268,33 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     })
   }, [fetchFolderChildren])
 
-  // ── Sync drive metadata to deals table after file loads ──
-  const syncDriveMetadata = useCallback(async (files: DriveFileItem[], folderId: string | null) => {
-    try {
-      const fileCount = files.filter((f) => !f.isFolder).length
-      const folderUrl = folderId ? `https://drive.google.com/drive/folders/${folderId}` : null
-      await fetch(`/api/deals/${dealId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          drive_file_count: fileCount,
-          drive_folder_url: folderUrl,
-          drive_folder_id: folderId,
-        }),
-      })
-    } catch {
-      // Non-critical — don't show error to user
+  interface DriveFolderCache {
+    drive_folder_id?: string | null
+    project_id?: string
+    drive_file_count?: number | null
+  }
+
+  interface DealCache {
+    drive_file_count?: number | null
+    [key: string]: unknown
+  }
+
+  // ── Optimistic cache-only count update ──
+  // The API routes (POST/DELETE/PATCH on drive files) atomically maintain
+  // drive_file_count in the deals table. This function only updates the
+  // React Query caches for instant UI feedback. Cache invalidation triggers
+  // a background refetch from DB (the authoritative source).
+  const patchFileCount = useCallback((delta: number) => {
+    const updater = (prev: { drive_file_count?: number | null } | undefined) => {
+      if (!prev) return prev
+      const current = prev.drive_file_count ?? 0
+      return { ...prev, drive_file_count: Math.max(0, current + delta) }
     }
-  }, [dealId])
+    queryClient.setQueryData<DriveFolderCache>(['deal', dealId, 'drive', 'folder'], updater)
+    queryClient.setQueryData<DealCache>(['deal', dealId], updater)
+    queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+    queryClient.invalidateQueries({ queryKey: ['deals'] })
+  }, [dealId, queryClient])
 
   // ── Fetch (Support Soft Refreshes) ──
 
@@ -292,10 +303,16 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     if (isSoft) {
       setRefreshing(true)
     } else {
+      setRefreshing(true)
       setFolderContents({})
       setExpandedFolders(new Set())
       setLoadingFolderCounts(new Set())
       loadedFolderIdsRef.current.clear()
+      // Invalidate TanStack Query caches so they refetch from server
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId, 'drive', 'folder'] })
+      queryClient.invalidateQueries({ queryKey: ['drive', 'storage'] })
+      queryClient.invalidateQueries({ queryKey: ['deal', dealId] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
     }
     
     try {
@@ -317,7 +334,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             setFiles(fetchedFiles)
             setDealFolderId(data.dealFolderId)
             triggerBackgroundFolderFetches(fetchedFiles)
-            syncDriveMetadata(fetchedFiles, data.dealFolderId ?? null)
           } else {
             if (await checkAuthExpired(res)) return
             toast.error(data.error ?? 'Failed to load files')
@@ -338,7 +354,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         setDealFolderId(data.dealFolderId)
         if (!folderId) setCurrentFolderId(data.dealFolderId)
         triggerBackgroundFolderFetches(fetchedFiles)
-        if (!folderId) syncDriveMetadata(fetchedFiles, data.dealFolderId ?? null)
       } else {
         if (await checkAuthExpired(res)) return
         toast.error(data.error ?? 'Failed to load files')
@@ -348,9 +363,9 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
     } finally {
       setRefreshing(false)
     }
-  }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches, syncDriveMetadata])
+  }, [dealId, currentFolderId, dealFolderId, triggerBackgroundFolderFetches, queryClient])
 
-  const { data: dealData } = useQuery<{ drive_folder_id?: string | null; project_id?: string }>({
+  const { data: dealData } = useQuery<{ drive_folder_id?: string | null; project_id?: string; drive_file_count?: number | null }>({
     queryKey: ['deal', dealId, 'drive', 'folder'],
     queryFn: async () => {
       const res = await fetch(`/api/deals/${dealId}`)
@@ -395,6 +410,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
   // Track initial fetch so it only runs once (preserved across tab switches via keepMounted)
   const initialFetchDoneRef = useRef(false)
+  const initialSyncDoneRef = useRef(false)
 
   useEffect(() => {
     if (!dealData || !isActive || initialFetchDoneRef.current) return
@@ -422,11 +438,39 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
           }
         })
         .catch(() => toast.error('Failed to load files'))
+        .finally(() => setInitialFilesLoaded(true))
+
+      // Sync the true file count from Drive (recursive) — one-time per mount.
+      // The API routes maintain the count atomically after this initial seed.
+      if (!initialSyncDoneRef.current) {
+        initialSyncDoneRef.current = true
+        fetch(`/api/deals/${dealId}/drive/sync-count`, { method: 'POST' })
+          .then(async (res) => {
+            if (res.ok) {
+              const syncData = await res.json()
+              if (syncData.synced) {
+                // Update caches with the authoritative count
+                const count = syncData.drive_file_count as number
+                queryClient.setQueryData<DriveFolderCache>(['deal', dealId, 'drive', 'folder'], (prev) => {
+                  if (!prev) return prev
+                  return { ...prev, drive_file_count: count }
+                })
+                queryClient.setQueryData<DealCache>(['deal', dealId], (prev) => {
+                  if (!prev) return prev
+                  return { ...prev, drive_file_count: count }
+                })
+                queryClient.invalidateQueries({ queryKey: ['deals'] })
+              }
+            }
+          })
+          .catch(() => { /* sync is best-effort; API routes keep count accurate */ })
+      }
     } else {
       setFiles([])
       setDealFolderId(null)
+      setInitialFilesLoaded(true)
     }
-  }, [dealData, dealId, isActive, triggerBackgroundFolderFetches])
+  }, [dealData, dealId, isActive, triggerBackgroundFolderFetches, currentFolderId, queryClient])
 
   // Selection helpers moved below computed list rows to avoid TDZ issues
 
@@ -811,8 +855,9 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         processNext()
       })
 
+      const uploadedFileCount = totalFiles - failures
       if (failures > 0) {
-        toast.warning(`Uploaded ${totalFiles - failures} / ${totalFiles} files. ${failures} failed.`)
+        toast.warning(`Uploaded ${uploadedFileCount} / ${totalFiles} files. ${failures} failed.`)
       } else if (totalFiles > 0) {
         toast.success(
           `Uploaded ${totalFiles} file${totalFiles !== 1 ? 's' : ''} in ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`,
@@ -821,6 +866,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         toast.success(`Created ${sortedFolders.length} folder${sortedFolders.length !== 1 ? 's' : ''}`)
       }
       fetchFiles()
+      if (uploadedFileCount > 0) patchFileCount(uploadedFileCount)
     } catch (err) {
       // Mark all in-progress items as error
       setUploadPanelItems((prev) =>
@@ -862,15 +908,6 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
 
     if (folderUploadInputRef.current) folderUploadInputRef.current.value = ''
     await processFolderStructure(filesWithPaths, emptyFolderPaths, targetFolderId)
-  }
-
-  // ── Navigation (Soft Loader Enabled) ──
-
-  const navigateTo = (folderId: string, folderName: string) => {
-    setBreadcrumb((prev) => [...prev, { id: folderId, name: folderName }])
-    setCurrentFolderId(folderId)
-    setFocusIdx(-1)
-    fetchFiles(folderId, true) // soft refresh!
   }
 
   const navigateBreadcrumb = (segment: BreadcrumbSegment | null) => {
@@ -1240,6 +1277,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
       toast.success(`${successCount} file(s) uploaded successfully`)
     }
     fetchFiles(currentFolderId ?? dealFolderId, true)
+    if (successCount > 0) patchFileCount(successCount)
   }
 
   // Helper to trigger upload picker on a folder
@@ -1526,6 +1564,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             onClick: () => undoDelete(),
           },
         })
+        patchFileCount(-1)
         // No soft refresh — optimistic removal is correct.
         // Google Drive eventual consistency can briefly return trashed files
         // in a listing, which would undo the optimistic removal.
@@ -1578,6 +1617,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         toast.success(`"${target.name}" restored successfully`)
         deletedRef.current = null
         fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+        patchFileCount(1)
       } else {
         // Rollback
         setFiles((prev) => prev.filter((f) => f.id !== target.id))
@@ -1643,6 +1683,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
             onClick: () => undoDeleteSelected(),
           },
         })
+        patchFileCount(-targets.length)
         // No soft refresh — optimistic removal is correct (see confirmDelete)
       } else {
         setFiles(previousFiles)
@@ -1693,6 +1734,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         toast.success(`Restored successfully`)
         deletedSelectedItemsRef.current = []
         fetchFiles(currentFolderId ?? dealFolderId, true) // soft refresh
+        patchFileCount(targets.length)
       } else {
         const data = await res.json()
         if (data.error === 'google_auth_expired') { setAuthExpired(true); return }
@@ -2002,14 +2044,38 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         {/* Right Side: Action Clusters */}
         <div className="flex items-center gap-3 flex-wrap">
           {/* Action 1: Refresh (leftmost on the right side) */}
-          <button 
-            onClick={() => fetchFiles(currentFolderId ?? dealFolderId, true)} 
-            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors" 
+          <button
+            onClick={() => {
+              // Hard refresh: clear all local state + TanStack Query caches + re-sync count
+              fetchFiles(currentFolderId ?? dealFolderId, false).then(() => {
+                // Re-sync drive file count from Google Drive
+                fetch(`/api/deals/${dealId}/drive/sync-count`, { method: 'POST' })
+                  .then(async (res) => {
+                    if (res.ok) {
+                      const syncData = await res.json()
+                      if (syncData.synced) {
+                        const count = syncData.drive_file_count as number
+                        queryClient.setQueryData<DriveFolderCache>(['deal', dealId, 'drive', 'folder'], (prev) => {
+                          if (!prev) return prev
+                          return { ...prev, drive_file_count: count }
+                        })
+                        queryClient.setQueryData<DealCache>(['deal', dealId], (prev) => {
+                          if (!prev) return prev
+                          return { ...prev, drive_file_count: count }
+                        })
+                        queryClient.invalidateQueries({ queryKey: ['deals'] })
+                      }
+                    }
+                  })
+                  .catch(() => { /* sync is best-effort */ })
+              })
+            }}
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
             style={{ color: 'var(--color-text-secondary)' }}
             title="Refresh"
-            disabled={refreshing}
+            disabled={loading || refreshing || !initialFilesLoaded}
           >
-            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={(loading || refreshing || !initialFilesLoaded) ? 'animate-spin' : ''} />
           </button>
 
           {/* Divider */}
@@ -2236,7 +2302,7 @@ export function DriveFileManager({ dealId, dealName }: { dealId: string; dealNam
         {/* ── List view (Tree View with Inline Expand/Collapse, Guide Lines, Checklists & Outlines) ── */}
         {listRows.length > 0 && (
           <div className="space-y-1.5 p-2 animate-in fade-in duration-200" style={{ borderColor: 'var(--color-surface-2)' }}>
-            {listRows.map(({ item: file, depth, parentFolderId, isLastChild, ancestorsIsLast }, idx) => {
+            {listRows.map(({ item: file, depth, isLastChild, ancestorsIsLast }, idx) => {
               const { Icon, color } = getFileIcon(file.mimeType, file.isFolder)
               const isFocused = focusIdx === idx
               const isExpanded = expandedFolders.has(file.id)

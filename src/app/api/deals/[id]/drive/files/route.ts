@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   listDriveFiles,
   uploadFileToDriveStream,
@@ -9,6 +10,32 @@ import {
   moveDriveFile,
 } from '@/lib/google/drive'
 import { GoogleAuthError } from '@/lib/google/oauth'
+
+/**
+ * Atomically update drive_file_count using the Postgres RPC function.
+ * Falls back to non-atomic read-then-write if the migration hasn't been applied yet.
+ */
+async function atomicCountDelta(
+  supabase: SupabaseClient,
+  dealId: string,
+  delta: number,
+) {
+  const { error: rpcError } = await supabase.rpc('increment_drive_file_count', {
+    p_deal_id: dealId,
+    p_delta: delta,
+  })
+  if (rpcError) {
+    // Fallback: non-atomic read-then-write (migration 0056 not yet applied)
+    console.warn('RPC increment_drive_file_count unavailable, using fallback:', rpcError.message)
+    const { data: current } = await supabase
+      .from('deals')
+      .select('drive_file_count')
+      .eq('id', dealId)
+      .single()
+    const newCount = Math.max(0, (current?.drive_file_count ?? 0) + delta)
+    await supabase.from('deals').update({ drive_file_count: newCount }).eq('id', dealId)
+  }
+}
 
 /**
  * GET /api/deals/[id]/drive/files?folderId=...&pageToken=...
@@ -147,6 +174,9 @@ export async function POST(
       file.type || 'application/octet-stream',
     )
 
+    // Atomic increment — always, regardless of target folder
+    await atomicCountDelta(supabase, dealId, 1)
+
     return NextResponse.json(result, { status: 201 })
   } catch (err) {
     console.error('Upload file error:', err)
@@ -211,6 +241,9 @@ export async function DELETE(
 
     const fileIds = fileIdsStr ? fileIdsStr.split(',') : [fileId!]
     await Promise.all(fileIds.map((id) => deleteDriveFile(project.google_connection_id, id)))
+
+    // Atomic decrement
+    await atomicCountDelta(supabase, dealId, -fileIds.length)
 
     return NextResponse.json({ success: true })
   } catch (err) {
@@ -289,6 +322,8 @@ export async function PATCH(
 
     if (trashed === false) {
       await Promise.all(targetFileIds.map((id) => untrashDriveFile(project.google_connection_id, id)))
+      // Atomic increment for restored files
+      await atomicCountDelta(supabase, dealId, targetFileIds.length)
       return NextResponse.json({ success: true })
     }
 

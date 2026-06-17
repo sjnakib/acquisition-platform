@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { DataGrid, type ColumnDef } from '@/components/shared/DataGrid'
 import { InlineDropdownEditor } from '@/components/shared/InlineDropdownEditor'
-import { DealScoreBadge } from './DealScoreBadge'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { formatDate, REQUIRED_DEAL_FIELDS } from '@/lib/utils'
@@ -59,8 +58,8 @@ export interface Deal {
   campaigns: { name: string; market: string } | null
   portfolios?: { id: string; name: string } | null
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
-  underwriting?: UnderwritingRow[] | null
-  loi_records?: LoiRecord[] | null
+  underwriting?: UnderwritingRow | UnderwritingRow[] | null
+  loi_records?: LoiRecord | LoiRecord[] | null
   document_checklist?: DocItem[] | null
 }
 
@@ -161,7 +160,7 @@ function fmtBool(val: boolean | null | undefined): string {
 }
 
 export function DealTable({
-  deals, loading, fieldDefs, portfolios, view = 'leads',
+  deals, loading, fieldDefs, portfolios,
   selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className,
   totalRows, page, pageSize, onPageChange, onPageSizeChange,
   selectionActions, selectionMenuActions, topToolbar, filters,
@@ -367,61 +366,69 @@ export function DealTable({
       },
     })
 
-    // ── Deals-only columns ───────────────────────────────────────
-    if (view === 'deals') {
-      const uw = (r: Deal): UnderwritingRow | null => r.underwriting?.[0] ?? null
-      const loi = (r: Deal): LoiRecord | null => r.loi_records?.[0] ?? null
-
-      // Evaluate Underwritability (Deal Room tab fields)
-      const evalCols: ColumnDef<Deal>[] = [
-        { key: 'uw_ask_price', header: 'Asking Price', width: 110, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.asking_price)}</span> },
-        { key: 'uw_ppu_eval', header: 'Price/Unit', width: 90, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.price_per_unit)}</span> },
-        { key: 'uw_pop1', header: 'Population (1-Mile)', width: 120, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtNum(uw(r)?.population_1mi)}</span> },
-        { key: 'uw_popgr', header: 'Population Growth %', width: 130, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.population_growth_pct)}</span> },
-        { key: 'uw_rg12', header: 'Rent Growth % (12 Mo)', width: 135, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.rent_growth_12mo_pct)}</span> },
-        { key: 'uw_rgfwd', header: 'Rent Growth % (Forecast)', width: 140, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.rent_growth_fwd_pct)}</span> },
-        { key: 'uw_vac', header: 'Vacancy Rate %', width: 110, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.vacancy_rate_pct)}</span> },
-        { key: 'uw_mppu', header: 'Market Price/Unit', width: 120, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.market_price_per_unit)}</span> },
-        { key: 'uw_delta', header: 'Delta %', width: 90, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.delta_pct)}</span> },
-        { key: 'uw_caprate', header: 'Cap Rate', width: 90, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.cap_rate)}</span> },
-        { key: 'uw_underwritable', header: 'Underwritable?', width: 110, sortable: false, render: (r) => {
-          const s = uw(r)?.underwritability_status
-          if (!s) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
-          return <Badge variant={s === 'go' ? 'success' : s === 'no_go' ? 'neutral' : 'warning'} size="sm">{s === 'go' ? 'Yes' : s === 'no_go' ? 'No' : 'Maybe'}</Badge>
-        }},
-      ]
-      for (const c of evalCols) cols.push(c)
-
-      // Underwriting Summary (Underwriting tab fields)
-      const summaryCols: ColumnDef<Deal>[] = [
-        { key: 'uws_pur', header: 'Purchase Price', width: 120, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.purchase_price)}</span> },
-        { key: 'uws_ppu2', header: 'Purchase Price/Unit', width: 120, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.purchase_price_per_unit)}</span> },
-        { key: 'uws_capex', header: 'CAPEX', width: 90, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.capex)}</span> },
-        { key: 'uws_occ', header: 'Occupancy %', width: 100, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.occupancy_pct)}</span> },
-        { key: 'uws_irr', header: 'IRR', width: 70, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.irr_pct)}</span> },
-        { key: 'uws_em', header: 'EM', width: 70, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{uw(r)?.equity_multiple != null ? uw(r)!.equity_multiple!.toFixed(2) : '—'}</span> },
-        { key: 'uws_coc', header: 'CoC', width: 70, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.cash_on_cash_pct)}</span> },
-        { key: 'uws_profit', header: 'Profit', width: 90, align: 'right', sortable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.profit)}</span> },
-        { key: 'uws_loi_rec', header: 'LOI Recommendation', width: 130, sortable: false, render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{fmtBool(uw(r)?.loi_recommendation)}</span> },
-      ]
-      for (const c of summaryCols) cols.push(c)
-
-      // LOI Related
-      const loiCols: ColumnDef<Deal>[] = [
-        { key: 'loi_email', header: 'Email for LOI', minWidth: 140, sortable: false, render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{loi(r)?.loi_email || '—'}</span> },
-        { key: 'loi_lasent', header: 'Last Email for LOI Sent On', width: 150, sortable: false, render: (r) => (
-          <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)' }}>
-            {loi(r)?.last_loi_email_sent_at ? formatDate(loi(r)!.last_loi_email_sent_at!) : '—'}
-          </span>
-        )},
-        { key: 'loi_status', header: 'LOI Status', width: 110, sortable: false, render: (r) => {
-          const status = loi(r)?.outcome
-          if (!status) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
-          return <Badge variant={status === 'deal_reached' ? 'success' : status === 'fallen_through' ? 'neutral' : 'warning'} size="sm">{status.replace(/_/g, ' ')}</Badge>
-        }},
-      ]
-      for (const c of loiCols) cols.push(c)
+    // ── Underwriting & LOI columns (all views) ────────────────────
+    // Supabase returns one-to-one relationships (unique FK) as a single object,
+    // not an array. Handle both formats defensively.
+    const uw = (r: Deal): UnderwritingRow | null => {
+      const u = r.underwriting
+      if (!u) return null
+      return Array.isArray(u) ? (u[0] ?? null) : u
     }
+    const loi = (r: Deal): LoiRecord | null => {
+      const l = r.loi_records
+      if (!l) return null
+      return Array.isArray(l) ? (l[0] ?? null) : l
+    }
+
+    // Evaluate Underwritability (Deal Room tab fields)
+    const evalCols: ColumnDef<Deal>[] = [
+      { key: 'uw_ask_price', header: 'Asking Price', width: 110, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.asking_price)}</span> },
+      { key: 'uw_ppu_eval', header: 'Price/Unit', width: 90, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.price_per_unit)}</span> },
+      { key: 'uw_pop1', header: 'Population (1-Mile)', width: 120, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtNum(uw(r)?.population_1mi)}</span> },
+      { key: 'uw_popgr', header: 'Population Growth %', width: 130, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.population_growth_pct)}</span> },
+      { key: 'uw_rg12', header: 'Rent Growth % (12 Mo)', width: 135, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.rent_growth_12mo_pct)}</span> },
+      { key: 'uw_rgfwd', header: 'Rent Growth % (Forecast)', width: 140, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.rent_growth_fwd_pct)}</span> },
+      { key: 'uw_vac', header: 'Vacancy Rate %', width: 110, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.vacancy_rate_pct)}</span> },
+      { key: 'uw_mppu', header: 'Market Price/Unit', width: 120, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.market_price_per_unit)}</span> },
+      { key: 'uw_delta', header: 'Delta %', width: 90, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.delta_pct)}</span> },
+      { key: 'uw_caprate', header: 'Cap Rate', width: 90, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.cap_rate)}</span> },
+      { key: 'uw_underwritable', header: 'Underwritable?', width: 110, sortable: false, editable: false, render: (r) => {
+        const s = uw(r)?.underwritability_status
+        if (!s) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+        return <Badge variant={s === 'go' ? 'success' : s === 'no_go' ? 'neutral' : 'warning'} size="sm">{s === 'go' ? 'Yes' : s === 'no_go' ? 'No' : 'Maybe'}</Badge>
+      }},
+    ]
+    for (const c of evalCols) cols.push(c)
+
+    // Underwriting Summary (Underwriting tab fields)
+    const summaryCols: ColumnDef<Deal>[] = [
+      { key: 'uws_pur', header: 'Purchase Price', width: 120, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.purchase_price)}</span> },
+      { key: 'uws_ppu2', header: 'Purchase Price/Unit', width: 120, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.purchase_price_per_unit)}</span> },
+      { key: 'uws_capex', header: 'CAPEX', width: 90, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.capex)}</span> },
+      { key: 'uws_occ', header: 'Occupancy %', width: 100, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.occupancy_pct)}</span> },
+      { key: 'uws_irr', header: 'IRR', width: 70, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.irr_pct)}</span> },
+      { key: 'uws_em', header: 'EM', width: 70, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{uw(r)?.equity_multiple != null ? uw(r)!.equity_multiple!.toFixed(2) : '—'}</span> },
+      { key: 'uws_coc', header: 'CoC', width: 70, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtPct(uw(r)?.cash_on_cash_pct)}</span> },
+      { key: 'uws_profit', header: 'Profit', width: 90, align: 'right', sortable: false, editable: false, render: (r) => <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)', fontFamily: 'var(--font-jetbrains-mono)' }}>{fmtCurrency(uw(r)?.profit)}</span> },
+      { key: 'uws_loi_rec', header: 'LOI Recommendation', width: 130, sortable: false, editable: false, render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{fmtBool(uw(r)?.loi_recommendation)}</span> },
+    ]
+    for (const c of summaryCols) cols.push(c)
+
+    // LOI Related
+    const loiCols: ColumnDef<Deal>[] = [
+      { key: 'loi_email', header: 'Email for LOI', minWidth: 140, sortable: false, editable: false, render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{loi(r)?.loi_email || '—'}</span> },
+      { key: 'loi_lasent', header: 'Last Email for LOI Sent On', width: 150, sortable: false, editable: false, render: (r) => (
+        <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12, fontFamily: 'var(--font-jetbrains-mono)' }}>
+          {loi(r)?.last_loi_email_sent_at ? formatDate(loi(r)!.last_loi_email_sent_at!) : '—'}
+        </span>
+      )},
+      { key: 'loi_status', header: 'LOI Status', width: 110, sortable: false, editable: false, render: (r) => {
+        const status = loi(r)?.outcome
+        if (!status) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+        return <Badge variant={status === 'deal_reached' ? 'success' : status === 'fallen_through' ? 'neutral' : 'warning'} size="sm">{status.replace(/_/g, ' ')}</Badge>
+      }},
+    ]
+    for (const c of loiCols) cols.push(c)
 
 
     // Filter out excluded columns (e.g. 'portfolio' in portfolio views)
@@ -430,7 +437,7 @@ export function DealTable({
     }
 
     return cols
-  }, [fieldDefs, getFieldValue, view, portfolios, excludeColumns])
+  }, [fieldDefs, getFieldValue, portfolios, excludeColumns])
 
   const fixedSystemKeys = new Set([
     'stage', 'portfolio', 'created_at', 'last_email_sent_on', 'response_type', 'campaign', 'score', 'outreach_emails',

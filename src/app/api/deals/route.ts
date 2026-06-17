@@ -76,18 +76,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data, total: count ?? 0, filtered_total: count ?? 0 })
     }
 
-    // Determine select based on stage context — drop heavy joins for lead-stage views
-    const stages = searchParams.getAll('stage')
-    const onlyLeadStages = stages.length > 0 && stages.every((s) =>
-      ['lead', 'outreach', 'response', 'archived'].includes(s)
-    )
-    const internalLightSelect = onlyLeadStages
-      ? '*, campaigns(name, market), portfolios!deals_portfolio_id_fkey(id, name), deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)'
-      : '*, campaigns(name, market), portfolios!deals_portfolio_id_fkey(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)'
+    // Staff users get all related data. Client users get a lightweight select
+    // — underwriting is excluded for clients because RLS (is_staff()) blocks it.
+    const staffSelect = '*, campaigns(name, market), portfolios!deals_portfolio_id_fkey(id, name), deal_fields(value, field_definitions(key, label, data_type)), underwriting(*), loi_records(*), document_checklist(*), email_outreach(id, status, response_classification), call_briefs(id, call_status, published)'
+    const clientSelect = '*, deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)'
 
-    const selectFields = isStaff
-      ? internalLightSelect
-      : `*, deal_fields(value, field_definitions(key, label, data_type)), call_briefs(id, call_status, published)`
+    const selectFields = isStaff ? staffSelect : clientSelect
 
     let query = supabase
       .from('deals')

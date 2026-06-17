@@ -8,20 +8,21 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Save, Lock, ArrowUpRight, TrendingUp, DollarSign, Percent, Award, CheckCircle2, AlertTriangle, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDeal } from '@/lib/hooks/useDeal'
+import { cn } from '@/lib/utils'
 
 interface UnderwritingData {
   underwritability_status?: string | null
   asking_price?: number | null
   price_per_unit?: number | null
-  purchase_price?: number | null
-  purchase_price_per_unit?: number | null
-  capex?: number | null
-  capex_per_unit?: number | null
-  occupancy_pct?: number | null
-  irr_pct?: number | null
-  equity_multiple?: number | null
-  cash_on_cash_pct?: number | null
-  profit?: number | null
+  purchase_price?: number | string | null
+  purchase_price_per_unit?: number | string | null
+  capex?: number | string | null
+  capex_per_unit?: number | string | null
+  occupancy_pct?: number | string | null
+  irr_pct?: number | string | null
+  equity_multiple?: number | string | null
+  cash_on_cash_pct?: number | string | null
+  profit?: number | string | null
   loi_recommendation?: boolean | null
   uw_notes?: string | null
 }
@@ -34,6 +35,7 @@ interface Props {
 export function UnderwritingSummary({ dealId, unitCount }: Props) {
   const queryClient = useQueryClient()
   const [dirty, setDirty] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   const { data: deal, isLoading } = useDeal<{ underwriting?: Record<string, unknown> }>(dealId)
 
@@ -46,47 +48,88 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     setFormData((deal.underwriting ?? {}) as UnderwritingData)
     setFormDealId(dealId)
     setDirty(false)
+    setErrors({})
   }
 
-  const update = useCallback((field: string, value: string | number | boolean | null) => {
+  const validateField = useCallback((field: string, rawVal: string): string | null => {
+    const trimmed = rawVal.trim()
+    if (trimmed === '') return null // null/empty is valid (clears the field)
+
+    const val = Number(trimmed)
+    if (isNaN(val)) return 'Must be a valid number'
+
+    // Positive numeric checks
+    if (['purchase_price', 'purchase_price_per_unit', 'capex', 'capex_per_unit', 'equity_multiple'].includes(field)) {
+      if (val < 0) return 'Must be a non-negative amount'
+    }
+
+    // Percentage check
+    if (field === 'occupancy_pct') {
+      if (val < 0 || val > 100) return 'Must be between 0% and 100%'
+    }
+
+    return null
+  }, [])
+
+  const update = useCallback((field: string, value: string | boolean | null) => {
     setFormData((prev) => {
       if (!prev) return prev
+      
+      const strVal = typeof value === 'string' ? value : String(value)
       const next = { ...prev, [field]: value === '' ? null : value }
       
       // Auto-compute price per unit and capex per unit inline as user types
       if (unitCount && unitCount > 0) {
-        if (field === 'purchase_price' && typeof value === 'number') {
-          next.purchase_price_per_unit = Math.round(value / unitCount)
+        if (field === 'purchase_price') {
+          const valNum = strVal === '' ? null : Number(strVal)
+          if (valNum !== null && !isNaN(valNum) && valNum >= 0) {
+            next.purchase_price_per_unit = Math.round(valNum / unitCount)
+          } else {
+            next.purchase_price_per_unit = null
+          }
         }
-        if (field === 'capex' && typeof value === 'number') {
-          next.capex_per_unit = Math.round(value / unitCount)
+        if (field === 'capex') {
+          const valNum = strVal === '' ? null : Number(strVal)
+          if (valNum !== null && !isNaN(valNum) && valNum >= 0) {
+            next.capex_per_unit = Math.round(valNum / unitCount)
+          } else {
+            next.capex_per_unit = null
+          }
         }
       }
       return next
     })
     setDirty(true)
-  }, [unitCount])
+    
+    if (typeof value === 'string') {
+      const err = validateField(field, value)
+      setErrors((prev) => ({ ...prev, [field]: err ?? '' }))
+    }
+  }, [unitCount, validateField])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!formData) throw new Error('No data')
+      
+      const parsedData = {
+        deal_id: dealId,
+        purchase_price: formData.purchase_price != null ? Number(formData.purchase_price) : null,
+        purchase_price_per_unit: formData.purchase_price_per_unit != null ? Number(formData.purchase_price_per_unit) : null,
+        capex: formData.capex != null ? Number(formData.capex) : null,
+        capex_per_unit: formData.capex_per_unit != null ? Number(formData.capex_per_unit) : null,
+        occupancy_pct: formData.occupancy_pct != null ? Number(formData.occupancy_pct) : null,
+        irr_pct: formData.irr_pct != null ? Number(formData.irr_pct) : null,
+        equity_multiple: formData.equity_multiple != null ? Number(formData.equity_multiple) : null,
+        cash_on_cash_pct: formData.cash_on_cash_pct != null ? Number(formData.cash_on_cash_pct) : null,
+        profit: formData.profit != null ? Number(formData.profit) : null,
+        loi_recommendation: formData.loi_recommendation,
+        uw_notes: formData.uw_notes,
+      }
+
       const res = await fetch('/api/underwriting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deal_id: dealId,
-          purchase_price: formData.purchase_price,
-          purchase_price_per_unit: formData.purchase_price_per_unit,
-          capex: formData.capex,
-          capex_per_unit: formData.capex_per_unit,
-          occupancy_pct: formData.occupancy_pct,
-          irr_pct: formData.irr_pct,
-          equity_multiple: formData.equity_multiple,
-          cash_on_cash_pct: formData.cash_on_cash_pct,
-          profit: formData.profit,
-          loi_recommendation: formData.loi_recommendation,
-          uw_notes: formData.uw_notes,
-        }),
+        body: JSON.stringify(parsedData),
       })
       if (!res.ok) {
         const json = await res.json()
@@ -110,19 +153,21 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     )
   }
 
-  const fmtCurrency = (v: number | null | undefined) => 
-    v != null ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v) : '—'
+  const fmtCurrency = (v: number | string | null | undefined) => 
+    v != null && !isNaN(Number(v)) ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(v)) : '—'
   
-  const fmtPct = (v: number | null | undefined) => 
-    v != null ? `${Number(v).toFixed(2)}%` : '—'
+  const hasErrors = Object.values(errors).some(Boolean)
 
   function numberField(
     label: string, 
     field: keyof UnderwritingData, 
-    options?: { readOnly?: boolean; suffix?: string; format?: (v: number | null | undefined) => string; placeholder?: string }
+    options?: { readOnly?: boolean; suffix?: string; format?: (v: number | string | null | undefined) => string; placeholder?: string }
   ) {
     const val = formData?.[field]
     const isReadOnly = options?.readOnly
+    const err = errors[field]
+    const hasError = !!err
+
     return (
       <div className="space-y-1.5">
         <label className="text-[10px] font-semibold uppercase tracking-[0.03em] flex items-center gap-1 text-[var(--color-text-secondary)]">
@@ -131,20 +176,30 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
         </label>
         {isReadOnly ? (
           <div className="h-9 px-3 rounded-lg border border-[var(--color-surface-2)] bg-[var(--color-surface-1)] flex items-center text-[13px] font-mono font-semibold text-[var(--color-text-secondary)]">
-            {options?.format ? options.format(val as number | null | undefined) : String(val ?? '—')}
+            {options?.format ? options.format(val as string | number | null | undefined) : String(val ?? '—')}
           </div>
         ) : (
-          <div className="relative flex items-center">
-            <Input
-              type="number"
-              value={val != null ? String(val) : ''}
-              onChange={(e) => update(field, e.target.value === '' ? null : Number(e.target.value))}
-              placeholder={options?.placeholder ?? '—'}
-              className="h-9 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] pr-8"
-            />
-            {options?.suffix && (
-              <span className="absolute right-3 text-[11px] font-mono font-medium text-[var(--color-text-tertiary)]">
-                {options.suffix}
+          <div className="relative flex flex-col gap-1 w-full">
+            <div className="relative flex items-center w-full">
+              <Input
+                type="text"
+                value={val != null ? String(val) : ''}
+                onChange={(e) => update(field, e.target.value)}
+                placeholder={options?.placeholder ?? '—'}
+                className={cn(
+                  "h-9 text-[13px] font-mono bg-[var(--color-surface-1)] border-[var(--color-surface-3)] focus:border-[var(--color-accent)] pr-8 transition-all w-full",
+                  hasError && "border-[var(--color-danger-border)] focus:border-[var(--color-danger-border)] focus:ring-1 focus:ring-[var(--color-danger-border)] bg-[rgba(239,68,68,0.03)] animate-card-shake"
+                )}
+              />
+              {options?.suffix && (
+                <span className="absolute right-3 text-[11px] font-mono font-medium text-[var(--color-text-tertiary)]">
+                  {options.suffix}
+                </span>
+              )}
+            </div>
+            {err && (
+              <span className="text-[10px] text-[var(--color-danger-text)] font-semibold mt-0.5 leading-none animate-tab-entrance">
+                {err}
               </span>
             )}
           </div>
@@ -155,8 +210,8 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
 
   // Calculate pricing discount delta if asking price is available
   const asking = formData?.asking_price
-  const purchase = formData?.purchase_price
-  const pricingDelta = asking && purchase ? ((purchase - asking) / asking) * 100 : null
+  const purchase = formData?.purchase_price ? Number(formData.purchase_price) : null
+  const pricingDelta = asking && purchase && !isNaN(purchase) ? ((purchase - asking) / asking) * 100 : null
 
   return (
     <div className="space-y-6">
@@ -175,7 +230,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
             <Button 
               size="sm" 
               onClick={() => saveMutation.mutate()} 
-              disabled={saveMutation.isPending} 
+              disabled={saveMutation.isPending || hasErrors} 
               className="bg-[var(--color-accent)] hover:bg-[var(--color-accent)]/90 text-[var(--color-text-inverse)] h-8 px-3 text-[12px] font-medium shadow-xs gap-1.5"
             >
               {saveMutation.isPending ? <LoadingSpinner size="sm" /> : <Save size={13} />}
@@ -282,7 +337,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
             </p>
 
             {/* Purchase vs Asking Price Analysis */}
-            {asking && purchase && (
+            {asking && purchase && !isNaN(purchase) && (
               <div className="rounded-lg p-3 border border-[var(--color-surface-3)] bg-[var(--color-surface-1)] text-[12px] space-y-2 mt-2">
                 <div className="flex justify-between font-semibold">
                   <span style={{ color: 'var(--color-text-secondary)' }}>Pricing vs Asking Delta</span>
@@ -334,12 +389,12 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
               LOI Recommendation
             </h4>
 
-            <div className="space-y-3 flex-1 flex flex-col justify-center">
+            <div className="space-y-3 flex-1 flex flex-col justify-center animate-tab-entrance">
               {/* Option A: Recommend LOI */}
               <button
                 type="button"
                 onClick={() => update('loi_recommendation', true)}
-                className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group ${
+                className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group active:scale-[0.98] cursor-pointer ${
                   formData?.loi_recommendation === true
                     ? 'border-[var(--color-success-border)] bg-[var(--color-success-bg)] shadow-xs'
                     : 'border-[var(--color-surface-2)] bg-transparent hover:border-[var(--color-surface-3)]'
@@ -368,7 +423,7 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
               <button
                 type="button"
                 onClick={() => update('loi_recommendation', false)}
-                className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group ${
+                className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start gap-3 relative group active:scale-[0.98] cursor-pointer ${
                   formData?.loi_recommendation === false
                     ? 'border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] shadow-xs'
                     : 'border-[var(--color-surface-2)] bg-transparent hover:border-[var(--color-surface-3)]'
@@ -403,10 +458,10 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
             </h4>
             <textarea
               value={formData?.uw_notes ?? ''}
-              onChange={(e) => update('uw_notes', e.target.value)}
+              onChange={(e) => { setFormData(prev => prev ? { ...prev, uw_notes: e.target.value } : prev); setDirty(true); }}
               placeholder="Underwriting notes, assumptions, or key findings..."
               rows={4}
-              className="w-full text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-lg px-3 py-2.5 focus:border-[var(--color-accent)] focus:ring-0 outline-none resize-none placeholder-[var(--color-text-tertiary)] text-[var(--color-text-primary)]"
+              className="w-full text-[13px] bg-[var(--color-surface-1)] border border-[var(--color-surface-3)] rounded-lg px-3 py-2.5 focus:border-[var(--color-accent)] focus:ring-0 outline-none resize-none placeholder-[var(--color-text-tertiary)] text-[var(--color-text-primary)] transition-all"
             />
           </div>
         </div>
@@ -414,4 +469,3 @@ export function UnderwritingSummary({ dealId, unitCount }: Props) {
     </div>
   )
 }
-
