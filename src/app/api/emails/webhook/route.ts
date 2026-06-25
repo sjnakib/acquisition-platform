@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
             await supabase.from('email_outreach').update({
               status: 'replied',
               responded_at: new Date().toISOString(),
+              needs_review: true,
             }).eq('id', outreach.id)
           }
         }

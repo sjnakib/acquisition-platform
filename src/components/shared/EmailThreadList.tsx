@@ -28,6 +28,8 @@ export interface EmailThread {
   isUnread: boolean
   isInbox: boolean
   snoozedUntil: string | null
+  needsReview: boolean
+  outreachId: string | null
 }
 
 export interface EmailThreadListProps {
@@ -62,6 +64,8 @@ export interface EmailThreadListProps {
   enabled?: boolean
   /** Called when the server returns google_auth_expired (tokens were valid but now expired). */
   onAuthExpired?: () => void
+  /** When true, includes portfolio sibling emails in the results. Appends &portfolio=true to API calls. */
+  includePortfolio?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -340,12 +344,15 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
     prefetchMessageConfig,
     enabled = true,
     onAuthExpired,
+    includePortfolio = false,
   }, ref) {
     const patchUrl = actionApiBase ?? apiBase
     const queryClient = useQueryClient()
 
     // ── UI state (not server state) ──────────────────────────────────────────
     const [folder, setFolder] = useState<'inbox' | 'sent' | 'archived'>('inbox')
+
+    const threadsQueryKey = useMemo(() => ['email-threads', apiBase, folder, includePortfolio] as const, [apiBase, folder, includePortfolio])
     const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set())
     const [starredThreadIds, setStarredThreadIds] = useState<Set<string>>(new Set())
     const [pendingActionsCount, setPendingActionsCount] = useState(0)
@@ -357,9 +364,11 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       isLoading,
       isFetching,
     } = useQuery<ThreadQueryResult>({
-      queryKey: ['email-threads', apiBase, folder],
+      queryKey: threadsQueryKey,
       queryFn: async () => {
-        const res = await fetch(`${apiBase}?folder=${folder}`)
+        const params = new URLSearchParams({ folder })
+        if (includePortfolio) params.set('portfolio', 'true')
+        const res = await fetch(`${apiBase}?${params.toString()}`)
         if (res.ok) {
           const data = await res.json()
           return {
@@ -389,6 +398,18 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
 
     const threads = useMemo(() => queryResult?.threads ?? [], [queryResult?.threads])
     const gmailConnected = queryResult?.gmailConnected ?? true
+
+    // Auto-select and notify parent of matching selectedThreadId thread on load
+    const prevSelectedThreadIdRef = useRef<string | null | undefined>(undefined)
+    useEffect(() => {
+      if (selectedThreadId && selectedThreadId !== prevSelectedThreadIdRef.current && threads.length > 0) {
+        const found = threads.find((t) => t.threadId === selectedThreadId)
+        if (found) {
+          prevSelectedThreadIdRef.current = selectedThreadId
+          onThreadClick(found)
+        }
+      }
+    }, [selectedThreadId, threads, onThreadClick])
 
     // ── onLoad callback (debounced via ref compare) ──────────────────────────
 
@@ -427,10 +448,10 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
         }
       },
       onMutate: async ({ ids, action }) => {
-        await queryClient.cancelQueries({ queryKey: ['email-threads', apiBase, folder] })
-        const prev = queryClient.getQueryData<ThreadQueryResult>(['email-threads', apiBase, folder])
+        await queryClient.cancelQueries({ queryKey: threadsQueryKey })
+        const prev = queryClient.getQueryData<ThreadQueryResult>(threadsQueryKey)
 
-        queryClient.setQueryData<ThreadQueryResult>(['email-threads', apiBase, folder], (old) => {
+        queryClient.setQueryData<ThreadQueryResult>(threadsQueryKey, (old) => {
           if (!old) return undefined
           let updatedThreads = [...old.threads]
           if (action === 'archive' || action === 'delete') {
@@ -451,12 +472,12 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
       },
       onError: (err, _vars, ctx) => {
         if (ctx?.prev) {
-          queryClient.setQueryData(['email-threads', apiBase, folder], ctx.prev)
+          queryClient.setQueryData(threadsQueryKey, ctx.prev)
         }
         toast.error(err instanceof Error ? err.message : 'Action failed')
       },
       onSettled: () => {
-        queryClient.invalidateQueries({ queryKey: ['email-threads', apiBase, folder] })
+        queryClient.invalidateQueries({ queryKey: threadsQueryKey })
       },
     })
 
@@ -633,7 +654,7 @@ export const EmailThreadList = forwardRef<EmailThreadListHandle, EmailThreadList
           <div className="flex items-center gap-1.5">
             {renderHeaderActions?.()}
             <button
-              onClick={() => queryClient.invalidateQueries({ queryKey: ['email-threads', apiBase, folder] })}
+              onClick={() => queryClient.invalidateQueries({ queryKey: threadsQueryKey })}
               className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
               style={{ color: 'var(--color-text-secondary)' }}
               title="Refresh"

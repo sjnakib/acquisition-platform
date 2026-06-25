@@ -82,7 +82,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Get the deal with project and portfolio info and its deal_fields.
     const { data: deal, error: dealError } = await supabase
       .from('deals')
-      .select('id, portfolio_id, project_id, deal_fields(value, field_definitions(key))')
+      .select('id, portfolio_id, project_id, is_portfolio, deal_fields(value, field_definitions(key))')
       .eq('id', dealId)
       .maybeSingle()
 
@@ -102,21 +102,42 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const addressMap = new Map<string, string>()
     addressMap.set(dealId, mainAddress)
 
+    // ── Resolve portfolio context ──────────────────────────────────────────
+
+    let portfolioId: string | null = null
+
+    // If this deal is a portfolio deal (is_portfolio = true), find the portfolio
+    // and its member deals. Portfolio deals always include member deal emails.
+    if (deal.is_portfolio) {
+      const { data: portfolio } = await supabase
+        .from('portfolios')
+        .select('id')
+        .eq('portfolio_deal_id', dealId)
+        .maybeSingle()
+      portfolioId = portfolio?.id ?? null
+    }
+
+    // If this deal is a member of a portfolio and includePortfolio is toggled,
+    // include sibling deals.
+    if (includePortfolio && deal.portfolio_id) {
+      portfolioId = deal.portfolio_id
+    }
+
     // Build the set of deal IDs to include
     const dealIds = [dealId]
 
-    if (includePortfolio && deal.portfolio_id) {
-      const { data: siblings } = await supabase
+    if (portfolioId) {
+      const { data: members } = await supabase
         .from('deals')
         .select('id, deal_fields(value, field_definitions(key))')
-        .eq('portfolio_id', deal.portfolio_id)
+        .eq('portfolio_id', portfolioId)
         .neq('id', dealId)
 
-      for (const s of siblings ?? []) {
-        dealIds.push(s.id)
-        const sFields = (s.deal_fields as unknown as DealField[]) ?? []
-        const addrField = sFields.find((f) => f?.field_definitions?.key === 'address')
-        addressMap.set(s.id, addrField?.value ?? 'Property')
+      for (const m of members ?? []) {
+        dealIds.push(m.id)
+        const mFields = (m.deal_fields as unknown as DealField[]) ?? []
+        const addrField = mFields.find((f) => f?.field_definitions?.key === 'address')
+        addressMap.set(m.id, addrField?.value ?? 'Property')
       }
     }
 
@@ -166,6 +187,46 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .in('deal_id', dealIds)
 
     const trackedEmails = contacts?.flatMap((c) => c.email ?? []).filter((e) => e.length > 0) ?? []
+
+    // For portfolio context: also include emails from past email_outreach records
+    // across the project. This handles the case where a deal was removed from the
+    // portfolio but communication had already occurred — those emails remain tracked.
+    if (portfolioId) {
+      // Current members' outreach records
+      const { data: outreachEmails } = await supabase
+        .from('email_outreach')
+        .select('contacts!inner(email)')
+        .in('deal_id', dealIds)
+        .not('gmail_thread_id', 'is', null)
+
+      const pastTracked = (outreachEmails as unknown as { contacts: { email: string[] | null } | null }[] | null)
+        ?.flatMap((r) => r.contacts?.email ?? [])
+        .filter((e) => e.length > 0) ?? []
+
+      for (const e of pastTracked) {
+        if (!trackedEmails.includes(e)) trackedEmails.push(e)
+      }
+
+      // Also include emails from past communications for deals that may have
+      // been removed from the portfolio. We identify these by looking at all
+      // email_outreach records in the project that have a gmail_thread_id
+      // (indicating actual communication occurred).
+      const { data: projectOutreach } = await supabase
+        .from('email_outreach')
+        .select('contacts!inner(email), deals!inner(project_id)')
+        .eq('deals.project_id', deal.project_id)
+        .not('gmail_thread_id', 'is', null)
+
+      const projectTracked = (projectOutreach as unknown as {
+        contacts: { email: string[] | null } | null
+      }[] | null)
+        ?.flatMap((r) => r.contacts?.email ?? [])
+        .filter((e) => e.length > 0) ?? []
+
+      for (const e of projectTracked) {
+        if (!trackedEmails.includes(e)) trackedEmails.push(e)
+      }
+    }
 
     // Resolve Google connection from the deal's project
     const { data: project } = await supabase

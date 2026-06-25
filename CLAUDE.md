@@ -30,7 +30,7 @@ npm run db:reset     # reset + re-seed local DB
 
 - **Next.js 16.2.6 App Router** — `src/` directory, `@/*` alias
 - **Tailwind CSS v4** (`@tailwindcss/postcss`, no `tailwind.config.ts`)
-- **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access
+- **`strict: true`** + **`noUncheckedIndexedAccess: true`** — use `!` or `?.` on array/record access. `moduleResolution: "Bundler"`.
 - **`src/proxy.ts`** handles auth routing. Reads role from JWT `app_metadata` (no DB round-trip). Legacy routes (`/dashboard`, `/deals`, `/overview`, etc.) redirect → `/projects`. `/invite` routes treated as public auth pages. Matcher explicitly excludes `api` routes — each API route does its own auth. NO `src/middleware.ts` — don't create one.
 - **API route pattern:** auth check → CSRF origin check (mutations) → Zod validation → Supabase anon-key (RLS). Google API routes also catch `instanceof GoogleAuthError` → 401 `{ error: 'google_auth_expired' }`.
 - **17 API route domains, 70 route files** — admin, attachments, auth, ca-credentials, calls, campaigns, contacts, deals (incl. import, batch), emails, field-definitions, invitations, loi, portfolios, projects (incl. sponsors, duplicate), templates, turnstile, underwriting
@@ -76,7 +76,7 @@ npm run db:reset     # reset + re-seed local DB
 - `supabase gen types` uses `--project-ref` not `--project-id`; output is broken — `src/lib/supabase/types.ts` is a manual placeholder.
 - `vercel.json` missing (needed for Gmail watch cron).
 - Upstash Redis required locally for rate limiting.
-- 56 migrations exist (0001–0056), all applied.
+- 57 migrations (0001–0057). 0056 and earlier applied; 0057 (reply review columns on `email_outreach`) pending.
 - Vitest configured (`vitest.config.ts`, node env, globals) but no test files written yet.
 - `next.config.ts` `experimental.serverActions.allowedOrigins` depends on `NEXT_PUBLIC_APP_URL` — must be set in production.
 - CSP headers in `next.config.ts` — adding external APIs/scripts/iframes requires updating CSP. Also sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy: strict-origin-when-cross-origin`. Per-route override: `/reset-password/:token` sets `Referrer-Policy: no-referrer` to prevent token leakage via Referer header.
@@ -90,12 +90,13 @@ npm run db:reset     # reset + re-seed local DB
 
 | Doc | Content |
 |---|---|
-| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (56 exist, PLAN.md describes 17). |
+| `PLAN.md` | Original build blueprint — schema details, Supabase API patterns. Some details diverged in implementation; verify against actual migrations (57 exist, PLAN.md describes 17). |
 | `GOOGLE_AUTH_RECONNECT.md` | Google OAuth reconnect architecture: `GoogleAuthError`, `callWithConnection`, three-state model, coverage matrix |
 | `docs/architecture/ui.md` | Full design system: color tokens, dimensions, theme rules |
 | `EXCEL_TABLE.md` | DataGrid/DealTable spec: keyboard nav, cell editing, clipboard, virtualization |
-| `docs/architecture/overview.md` | System overview |
-| `docs/architecture/database.md` | Database design, RLS, schema |
+| `docs/architecture/overview.md` | System overview. **⚠️ Stale** — 11 stages (now 8), old route structure pre-project-scoping. |
+| `docs/architecture/database.md` | Database design, RLS, schema. **⚠️ Stale** — says 15 migrations, references trimmed entities. |
+| `docs/design/reply-review-flow.md` | Reply review feature design — webhook → `needs_review` flag → human review. Migration 0057. |
 | `docs/guides/developer/` | Dev guides, API conventions |
 | `supabase/seed.sql` | Seed data for local DB reset |
 

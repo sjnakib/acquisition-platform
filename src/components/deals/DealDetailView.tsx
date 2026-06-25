@@ -353,7 +353,14 @@ export default function DealDetailView({
 
           {/* ── Emails tab ────────────────────────────────────────────── */}
           <TabsContent value="emails" keepMounted className="flex-1 min-h-0 flex flex-col">
-            <DealEmailView dealId={dealId} dealName={dealName} projectId={projectId} />
+            <DealEmailView
+              dealId={dealId}
+              dealName={dealName}
+              projectId={projectId}
+              isPortfolioDeal={(deal.portfolio_details?.length ?? 0) > 0}
+              isInPortfolio={deal.portfolio_id != null}
+              reviewThreadId={searchParams.get('reviewThread')}
+            />
           </TabsContent>
 
           {/* ── Documents / Deal Room tab ─────────────────────────────── */}

@@ -55,8 +55,13 @@ export interface Deal {
   drive_file_count?: number | null
   drive_folder_url?: string | null
   outreach_emails: string[] | null
+  campaign_id?: string
+  project_id?: string
   campaigns: { name: string; market: string } | null
   portfolios?: { id: string; name: string } | null
+  has_pending_review?: boolean
+  pending_review_thread_id?: string | null
+  pending_review_count?: number
   deal_fields?: { value: string | null; field_definitions: { key: string; label: string; data_type: string } | null }[] | null
   underwriting?: UnderwritingRow | UnderwritingRow[] | null
   loi_records?: LoiRecord | LoiRecord[] | null
@@ -83,6 +88,7 @@ interface DealTableProps {
   emptyAction?: { label: string; onClick: () => void }
   maxHeight?: number | string
   fillHeight?: boolean
+  projectId?: string
   className?: string
   totalRows?: number
   page?: number
@@ -161,7 +167,7 @@ function fmtBool(val: boolean | null | undefined): string {
 
 export function DealTable({
   deals, loading, fieldDefs, portfolios,
-  selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, className,
+  selectedRowIds, onSelectionChange, emptyAction, maxHeight, fillHeight, projectId, className,
   totalRows, page, pageSize, onPageChange, onPageSizeChange,
   selectionActions, selectionMenuActions, topToolbar, filters,
   activeFilterCount, onClearFilters, allRowsSelected, onSelectAll,
@@ -253,16 +259,42 @@ export function DealTable({
     })
 
     cols.push({
-      key: 'stage', header: 'Stage', minWidth: 120, sortable: true, editable,
+      key: 'stage', header: 'Stage', minWidth: 140, sortable: true, editable,
       accessor: (r) => r.stage,
-      render: (r) => (
-        <div className="flex items-center justify-between w-full gap-1">
-          <Badge variant={stageBadgeVariant[r.stage] ?? 'neutral'} size="sm">
-            {r.stage.replace(/_/g, ' ')}
-          </Badge>
-          <ChevronDown className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
-        </div>
-      ),
+      render: (r) => {
+        const pendingThread = r.has_pending_review ? r.pending_review_thread_id : null
+        const resolvedProjectId = projectId || r.project_id
+        const reviewUrl = pendingThread && resolvedProjectId
+          ? r.campaign_id
+            ? `/projects/${resolvedProjectId}/campaigns/${r.campaign_id}?tab=emails&reviewThread=${pendingThread}`
+            : `/projects/${resolvedProjectId}/deals/${r.id}?tab=emails&reviewThread=${pendingThread}`
+          : null
+
+        return (
+          <div className="flex items-center justify-between w-full gap-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Badge variant={stageBadgeVariant[r.stage] ?? 'neutral'} size="sm">
+                {r.stage.replace(/_/g, ' ')}
+              </Badge>
+               {r.has_pending_review && (
+                <span
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (reviewUrl) router.push(reviewUrl)
+                  }}
+                  title={reviewUrl ? 'Review pending replies' : 'Pending review'}
+                >
+                  <Badge variant="warning" size="sm">
+                    Reply Pending {r.pending_review_count && r.pending_review_count > 1 ? `(${r.pending_review_count})` : ''}
+                  </Badge>
+                </span>
+              )}
+            </div>
+            <ChevronDown className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+          </div>
+        )
+      },
       onSave: async (r, value) => {
         const res = await fetch(`/api/deals/${r.id}`, {
           method: 'PATCH',

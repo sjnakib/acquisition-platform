@@ -12,6 +12,7 @@ export interface CampaignCardProps {
   listingType: string | null
   isActive: boolean
   dealCount: number
+  awaitingReviewCount?: number
   createdAt: string
   projectId?: string
 }
@@ -23,6 +24,7 @@ export function CampaignCard({
   listingType,
   isActive,
   dealCount,
+  awaitingReviewCount,
   createdAt,
   projectId,
 }: CampaignCardProps) {
@@ -67,6 +69,11 @@ export function CampaignCard({
         <Badge variant={isActive ? 'success' : 'neutral'} size="sm">
           {isActive ? 'Active' : 'Inactive'}
         </Badge>
+        {awaitingReviewCount && awaitingReviewCount > 0 ? (
+          <Badge variant="warning" size="sm" className="animate-pulse">
+            {awaitingReviewCount} Reply Pending{awaitingReviewCount > 1 ? 's' : ''}
+          </Badge>
+        ) : null}
       </div>
 
       <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--color-text-secondary)' }}>

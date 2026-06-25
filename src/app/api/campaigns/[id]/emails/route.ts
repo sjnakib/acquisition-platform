@@ -19,6 +19,8 @@ interface OutreachRow {
   gmail_message_id: string | null
   response_classification: string | null
   responded_at: string | null
+  needs_review: boolean
+  snoozed_until: string | null
   contacts: { name: string | null; email: string[] | null } | null
 }
 
@@ -37,6 +39,8 @@ interface ThreadResult {
   isUnread: boolean
   isInbox: boolean
   snoozedUntil: string | null
+  needsReview: boolean
+  outreachId: string | null
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -52,6 +56,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const folder = req.nextUrl.searchParams.get('folder') ?? 'inbox'
+    const reviewMode = req.nextUrl.searchParams.get('review_mode') === 'true'
 
     // ── 1. Fetch campaign → get project_id ──────────────────────────
     const { data: campaign, error: campaignError } = await supabase
@@ -137,6 +142,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       .select(`
         id, deal_id, contact_id, status, sent_at, subject,
         gmail_thread_id, gmail_message_id, response_classification, responded_at,
+        needs_review, snoozed_until,
         contacts(name, email)
       `)
       .in('deal_id', dealIds)
@@ -311,6 +317,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             isUnread,
             isInbox,
             snoozedUntil: snoozeInfo?.until ?? null,
+            needsReview: outreach?.needs_review ?? false,
+            outreachId: outreach?.id ?? null,
           }
         })
       }
@@ -323,10 +331,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // Sort: unread first, then by date descending
-    const sorted = Object.values(threads).sort((a, b) => {
+    let sorted = Object.values(threads).sort((a, b) => {
       if (a.isUnread !== b.isUnread) return a.isUnread ? -1 : 1
       return new Date(b.lastDate ?? 0).getTime() - new Date(a.lastDate ?? 0).getTime()
     })
+
+    // Review mode: only threads needing human review
+    if (reviewMode) {
+      sorted = sorted.filter((t) => t.needsReview)
+    }
 
     return NextResponse.json({ threads: sorted, gmailConnected: true })
   } catch (err) {

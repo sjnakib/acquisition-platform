@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('campaigns')
-      .select('*, deals(count)')
+      .select('*, deals(id, outreach_emails, email_outreach(status, needs_review, snoozed_until))')
       .order('created_at', { ascending: false })
 
     if (projectId) query = query.eq('project_id', projectId)
@@ -20,10 +20,37 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Flatten the deals count: each row gets a deal_count field
+    const now = new Date()
+
+    // Flatten campaign fields and count awaiting review replies
     const flattened = (data ?? []).map((c) => {
-      const { deals, ...rest } = c as { deals: { count: number }[]; [key: string]: unknown }
-      return { ...rest, deal_count: deals?.[0]?.count ?? 0 }
+      const { deals, ...rest } = c as {
+        deals: Array<{
+          id: string
+          outreach_emails: string[] | null
+          email_outreach: Array<{ status: string; needs_review: boolean; snoozed_until: string | null }> | null
+        }>
+        [key: string]: unknown
+      }
+
+      let awaitingReviewCount = 0
+      for (const d of (deals ?? [])) {
+        const outreach = d.email_outreach
+        if (outreach?.length) {
+          const hasPending = outreach.some((o) => {
+            if (!o.needs_review || o.status !== 'replied') return false
+            if (o.snoozed_until && new Date(o.snoozed_until) > now) return false
+            return true
+          })
+          if (hasPending) awaitingReviewCount++
+        }
+      }
+
+      return {
+        ...rest,
+        deal_count: deals?.length ?? 0,
+        awaiting_review_count: awaitingReviewCount,
+      }
     })
 
     return NextResponse.json(flattened)

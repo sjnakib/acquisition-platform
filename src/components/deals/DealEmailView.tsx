@@ -62,9 +62,21 @@ interface DealEmailViewProps {
   dealId: string
   dealName: string | null
   projectId?: string
+  /** Whether this deal is a portfolio deal (is_portfolio = true). When true, member deal emails are tracked by default. */
+  isPortfolioDeal?: boolean
+  /** Whether this deal is a member of a portfolio (portfolio_id is set). When true, the Portfolio toggle can include sibling emails. */
+  isInPortfolio?: boolean
+  reviewThreadId?: string | null
 }
 
-export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProps) {
+export function DealEmailView({
+  dealId,
+  dealName,
+  projectId,
+  isPortfolioDeal = false,
+  isInPortfolio = false,
+  reviewThreadId,
+}: DealEmailViewProps) {
   const queryClient = useQueryClient()
   const isActive = useIsTabActive()
   const { status: connStatus, reconnectUrl } = useGoogleConnection(projectId)
@@ -116,6 +128,8 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
   const [composeFullscreen, setComposeFullscreen] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentFile[]>([])
 
+  const [reviewLoading, setReviewLoading] = useState(false)
+
   const emailComposerRef = useRef<EmailComposerHandle>(null)
   const threadListRef = useRef<EmailThreadListHandle>(null)
 
@@ -145,7 +159,8 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
 
   // ── Portfolio toggle ───────────────────────────────────────────────────
 
-  const [includePortfolio, setIncludePortfolio] = useState(false)
+  const [includePortfolio, setIncludePortfolio] = useState(isPortfolioDeal)
+  const showPortfolioToggle = isPortfolioDeal || isInPortfolio
 
   // ── TanStack Query: send message mutation ──────────────────────────────
 
@@ -273,6 +288,63 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
   }, [])
 
   const expandAllMessages = useCallback(() => setExpandedMessages(new Set(messages.map((m) => m.id))), [messages])
+
+  // ── Review Actions ───────────────────────────────────────────────────────
+
+  const reviewAction = useCallback(async (thread: EmailThread, action: 'confirm' | 'dismiss' | 'snooze') => {
+    if (!thread.outreachId) return
+    setReviewLoading(true)
+    try {
+      const body: Record<string, unknown> = { review_action: action }
+      if (action === 'snooze') {
+        const snoozeDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+        body.snoozed_until = snoozeDate.toISOString()
+      }
+      const res = await fetch(`/api/emails/${thread.outreachId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error ?? 'Action failed')
+      }
+      const verb = action === 'confirm' ? 'confirmed' : action === 'dismiss' ? 'dismissed' : 'snoozed'
+      toast.success(`Reply ${verb}`)
+
+      // Invalidate caches
+      queryClient.invalidateQueries({ queryKey: ['email-threads'] })
+      queryClient.invalidateQueries({ queryKey: ['deals'] })
+
+      // Update selectedThread state locally
+      setSelectedThread((prev) => {
+        if (prev && prev.threadId === thread.threadId) {
+          return {
+            ...prev,
+            needsReview: false,
+            snoozedUntil: action === 'snooze' ? body.snoozed_until as string : prev.snoozedUntil,
+          }
+        }
+        return prev
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setReviewLoading(false)
+    }
+  }, [queryClient])
+
+  const handleConfirm = useCallback((thread: EmailThread) => {
+    reviewAction(thread, 'confirm')
+  }, [reviewAction])
+
+  const handleDismiss = useCallback((thread: EmailThread) => {
+    reviewAction(thread, 'dismiss')
+  }, [reviewAction])
+
+  const handleSnooze = useCallback((thread: EmailThread) => {
+    reviewAction(thread, 'snooze')
+  }, [reviewAction])
   const collapseAllMessages = useCallback(() => setExpandedMessages(new Set()), [])
 
   // ── Delete message handler ─────────────────────────────────────────────
@@ -515,13 +587,14 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
             onAuthExpired={() => setReconnectDialogOpen(true)}
             apiBase={`/api/deals/${dealId}/emails`}
             actionApiBase={`/api/deals/${dealId}/emails/threads`}
+            includePortfolio={includePortfolio}
             projectId={projectId ?? ''}
             onLoad={({ googleEmail, gmailConnected }) => {
               setGoogleEmail(googleEmail)
               setGmailConnected(gmailConnected)
             }}
             onThreadClick={handleThreadClick}
-            selectedThreadId={selectedThread?.threadId ?? null}
+            selectedThreadId={selectedThread?.threadId || reviewThreadId || null}
             prefetchMessageConfig={(thread) => ({
               queryKey: ['email-messages', dealId, thread.threadId],
               url: `/api/deals/${dealId}/emails/threads?threadId=${thread.threadId}&dealId=${dealId}`,
@@ -537,25 +610,27 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
                 </span>
               ) : null
             }
-            renderHeaderActions={() => (
-              <div className="flex items-center gap-1">
-                {/* Portfolio toggle */}
-                <button
-                  onClick={() => {
-                    setIncludePortfolio(!includePortfolio)
-                    setSelectedThread(null)
-                  }}
-                  className="flex items-center gap-1.5 h-6 px-2 rounded-full text-[10px] font-medium transition-colors"
-                  style={{
-                    background: includePortfolio ? 'var(--color-accent-bg)' : 'transparent',
-                    color: includePortfolio ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
-                  }}
-                  title="Include portfolio emails"
-                >
-                  <FolderKanban size={11} /> Portfolio
-                </button>
-              </div>
-            )}
+            renderHeaderActions={() =>
+              showPortfolioToggle ? (
+                <div className="flex items-center gap-1">
+                  {/* Portfolio toggle */}
+                  <button
+                    onClick={() => {
+                      setIncludePortfolio(!includePortfolio)
+                      setSelectedThread(null)
+                    }}
+                    className="flex items-center gap-1.5 h-6 px-2 rounded-full text-[10px] font-medium transition-colors"
+                    style={{
+                      background: includePortfolio ? 'var(--color-accent-bg)' : 'transparent',
+                      color: includePortfolio ? 'var(--color-accent)' : 'var(--color-text-tertiary)',
+                    }}
+                    title={includePortfolio ? 'Showing portfolio member emails' : 'Include portfolio member emails'}
+                  >
+                    <FolderKanban size={11} /> {isPortfolioDeal ? 'Members' : 'Portfolio'}
+                  </button>
+                </div>
+              ) : null
+            }
             renderHeaderRightActions={() => (
               <button
                 onClick={openCompose}
@@ -568,7 +643,7 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
             )}
             className="border-0 rounded-none"
           />
-          <ContactsPanel dealId={dealId} onEmailClick={handleContactEmailClick} />
+          <ContactsPanel dealId={dealId} onEmailClick={handleContactEmailClick} isPortfolioDeal={isPortfolioDeal} />
         </div>
 
         {/* ═══ Right Panel: Message detail ══════════════════════════════════ */}
@@ -652,6 +727,10 @@ export function DealEmailView({ dealId, dealName, projectId }: DealEmailViewProp
                 attachmentDealId={dealId}
                 activeMenuMsgId={activeMenuMsgId}
                 onSetActiveMenuMsgId={setActiveMenuMsgId}
+                onConfirmReply={handleConfirm}
+                onDismissReply={handleDismiss}
+                onSnoozeReply={handleSnooze}
+                reviewLoading={reviewLoading}
 
                 // ── Thread toolbar ───────────────────────────────────────
                 renderThreadActions={() => (

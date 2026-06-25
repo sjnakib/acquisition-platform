@@ -20,6 +20,7 @@ interface Campaign {
   is_active: boolean
   created_at: string
   deal_count: number
+  awaiting_review_count: number
 }
 
 function CampaignsContent({ projectId }: { projectId: string }) {
@@ -75,6 +76,7 @@ function CampaignsContent({ projectId }: { projectId: string }) {
                 listingType={campaign.listing_type}
                 isActive={campaign.is_active}
                 dealCount={campaign.deal_count}
+                awaitingReviewCount={campaign.awaiting_review_count}
                 createdAt={campaign.created_at}
                 projectId={projectId}
               />

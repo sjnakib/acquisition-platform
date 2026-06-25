@@ -8,6 +8,7 @@ interface FunnelMetricsProps {
     market: string
     leads: number
     emails_sent: number
+    awaiting_review: number
     responses_positive: number
     underwritten: number
     scored_good: number
@@ -28,13 +29,14 @@ export function FunnelMetrics({ data = [] }: FunnelMetricsProps) {
     (acc, row) => ({
       leads: acc.leads + Number(row.leads),
       emails_sent: acc.emails_sent + Number(row.emails_sent),
+      awaiting_review: acc.awaiting_review + Number(row.awaiting_review ?? 0),
       responses: acc.responses + Number(row.responses_positive),
       underwritten: acc.underwritten + Number(row.underwritten),
       scored_good: acc.scored_good + Number(row.scored_good),
       loi: acc.loi + Number(row.loi_count),
       closed: acc.closed + Number(row.closed_count),
     }),
-    { leads: 0, emails_sent: 0, responses: 0, underwritten: 0, scored_good: 0, loi: 0, closed: 0 }
+    { leads: 0, emails_sent: 0, awaiting_review: 0, responses: 0, underwritten: 0, scored_good: 0, loi: 0, closed: 0 }
   )
 
   const conversionRate = total.leads > 0 ? (total.closed / total.leads) * 100 : 0
@@ -42,7 +44,8 @@ export function FunnelMetrics({ data = [] }: FunnelMetricsProps) {
   const tiles = [
     { label: 'Leads', count: total.leads.toString(), rate: 100, color: 'var(--accent)' },
     { label: 'Outreach Sent', count: total.emails_sent.toString(), rate: total.leads > 0 ? (total.emails_sent / total.leads) * 100 : 0, color: 'var(--color-info-solid)' },
-    { label: 'Responses', count: total.responses.toString(), rate: total.emails_sent > 0 ? (total.responses / total.emails_sent) * 100 : 0, color: 'var(--color-warning-solid)' },
+    { label: 'Awaiting Review', count: total.awaiting_review.toString(), rate: total.emails_sent > 0 ? (total.awaiting_review / total.emails_sent) * 100 : 0, color: 'var(--color-warning-solid)' },
+    { label: 'Responses', count: total.responses.toString(), rate: total.emails_sent > 0 ? (total.responses / total.emails_sent) * 100 : 0, color: 'var(--color-success-solid)' },
     { label: 'Underwritten', count: total.underwritten.toString(), rate: total.leads > 0 ? (total.underwritten / total.leads) * 100 : 0, color: 'var(--color-neutral-text)' },
     { label: 'Scored Good+', count: total.scored_good.toString(), rate: total.underwritten > 0 ? (total.scored_good / total.underwritten) * 100 : 0, color: 'var(--color-success-solid)' },
     { label: 'LOI Submitted', count: total.loi.toString(), rate: total.underwritten > 0 ? (total.loi / total.underwritten) * 100 : 0, color: 'var(--color-success-solid)' },

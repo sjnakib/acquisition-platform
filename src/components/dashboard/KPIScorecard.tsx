@@ -1,4 +1,4 @@
-import { Building2, Send, MessageSquare, ClipboardCheck, FileText, CheckCircle2 } from 'lucide-react'
+import { Building2, Send, MessageSquare, ClipboardCheck, FileText, CheckCircle2, Mail } from 'lucide-react'
 
 interface KPIScorecardProps {
   data: Array<{
@@ -6,6 +6,7 @@ interface KPIScorecardProps {
     market: string
     leads: number
     emails_sent: number
+    awaiting_review?: number
     responses_positive: number
     underwritten: number
     scored_good: number
@@ -19,13 +20,14 @@ export function KPIScorecard({ data = [] }: KPIScorecardProps) {
     (acc, row) => ({
       leads: acc.leads + Number(row.leads),
       sent: acc.sent + Number(row.emails_sent),
+      awaiting_review: acc.awaiting_review + Number(row.awaiting_review ?? 0),
       responses: acc.responses + Number(row.responses_positive),
       underwritten: acc.underwritten + Number(row.underwritten),
       good: acc.good + Number(row.scored_good),
       loi: acc.loi + Number(row.loi_count),
       closed: acc.closed + Number(row.closed_count),
     }),
-    { leads: 0, sent: 0, responses: 0, underwritten: 0, good: 0, loi: 0, closed: 0 }
+    { leads: 0, sent: 0, awaiting_review: 0, responses: 0, underwritten: 0, good: 0, loi: 0, closed: 0 }
   )
 
   const responseRate = total.sent > 0 ? ((total.responses / total.sent) * 100).toFixed(1) : '0.0'
@@ -49,6 +51,14 @@ export function KPIScorecard({ data = [] }: KPIScorecardProps) {
       icon: Send,
       color: 'var(--color-info-solid)',
       bgColor: 'var(--color-info-bg)',
+    },
+    {
+      label: 'Awaiting Review',
+      value: total.awaiting_review,
+      subtext: `${total.awaiting_review} unread reply${total.awaiting_review === 1 ? '' : 'ies'}`,
+      icon: Mail,
+      color: 'var(--color-warning-solid)',
+      bgColor: 'var(--color-warning-bg)',
     },
     {
       label: 'Response Rate',
@@ -85,7 +95,7 @@ export function KPIScorecard({ data = [] }: KPIScorecardProps) {
   ]
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
       {kpis.map((kpi, idx) => {
         const Icon = kpi.icon
         return (

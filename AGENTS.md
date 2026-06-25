@@ -15,7 +15,7 @@ Commands + architecture: see **CLAUDE.md** (canonical source). This file = Next.
 
 ### Migration timeline
 
-**56 migrations** (`supabase/migrations/0001–0056`, all applied):
+**57 migrations** (`supabase/migrations/0001–0057`). 0056 and earlier applied; 0057 (reply review: `needs_review`/`snoozed_until` on `email_outreach`) pending:
 
 | Migration | What |
 |-----------|------|
@@ -39,6 +39,7 @@ Commands + architecture: see **CLAUDE.md** (canonical source). This file = Next.
 | 0052–0054 | Password reset — `password_resets` table, `find_user_by_email()`, `get_user_emails()` |
 | 0055 | Field cleanup — unified storage, consolidated LOI columns, deleted 57 stale `field_definitions` |
 | 0056 | Drive file count functions — stored procedures for `deals.drive_file_count` |
+| 0057 | Reply review — `needs_review` + `snoozed_until` columns on `email_outreach` |
 
 ### Key rules
 

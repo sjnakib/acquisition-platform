@@ -14,6 +14,7 @@ interface PipelineRow {
   market: string
   leads: number
   emails_sent: number
+  awaiting_review: number
   responses_positive: number
   underwritten: number
   scored_good: number
@@ -36,17 +37,21 @@ export default function DashboardPage() {
         if (!byCampaign.has(cName)) {
           byCampaign.set(cName, {
             campaign_name: cName, market: cMarket,
-            leads: 0, emails_sent: 0, responses_positive: 0,
+            leads: 0, emails_sent: 0, awaiting_review: 0, responses_positive: 0,
             underwritten: 0, scored_good: 0, loi_count: 0, closed_count: 0,
           })
         }
         const row = byCampaign.get(cName)!
         row.leads++
-        if ((d.stage as string) !== 'lead') row.emails_sent++
-        const outreach = d.email_outreach as Array<{ status: string; response_classification: string }> | undefined
+        const outreach = d.email_outreach as Array<{ status: string; response_classification: string; needs_review?: boolean; snoozed_until?: string | null }> | undefined
+        const hasSentEmail = (d.stage as string) !== 'lead' || (outreach?.some((o) => o.status === 'sent' || o.status === 'replied') ?? false)
+        if (hasSentEmail) row.emails_sent++
+
         if (outreach?.length) {
-          if (outreach.some((o) => o.status === 'sent' || o.status === 'replied')) row.emails_sent++
           if (outreach.some((o) => o.response_classification === 'positive')) row.responses_positive++
+        }
+        if (d.has_pending_review) {
+          row.awaiting_review++
         }
         if ((d.stage as string) === 'underwriting' || (d.stage as string) === 'scored') row.underwritten++
         if ((d.score as string) === 'good' || (d.score as string) === 'very_good') row.scored_good++

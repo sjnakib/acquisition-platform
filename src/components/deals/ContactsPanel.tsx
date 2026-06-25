@@ -9,14 +9,17 @@ import { toast } from 'sonner'
 interface Contact {
   id: string
   email: string[] | null
+  deal_id?: string
 }
 
 interface ContactsPanelProps {
   dealId: string
   onEmailClick: (email: string, contactId: string) => void
+  /** When true, contacts from member deals are shown as read-only. Only portfolio deal contacts can be removed. */
+  isPortfolioDeal?: boolean
 }
 
-export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
+export function ContactsPanel({ dealId, onEmailClick, isPortfolioDeal = false }: ContactsPanelProps) {
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
 
@@ -181,54 +184,71 @@ export function ContactsPanel({ dealId, onEmailClick }: ContactsPanelProps) {
             </div>
           ) : (
             <div className="max-h-[200px] overflow-y-auto">
-              {allEmails.map(({ email, contactId }) => (
+              {allEmails.map(({ email, contactId }) => {
+                const contact = contacts.find((c) => c.id === contactId)
+                const isOwnContact = !isPortfolioDeal || contact?.deal_id === dealId
+                const isMemberContact = isPortfolioDeal && contact?.deal_id !== dealId
+                return (
                 <div
                   key={`${contactId}-${email}`}
                   className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 transition-colors hover:bg-[var(--color-surface-1)]"
                   style={{ borderColor: 'var(--color-surface-2)' }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onEmailClick(email, contactId)}
-                    className="text-[12px] truncate text-left hover:underline transition-colors flex-1 min-w-0"
-                    style={{ color: 'var(--color-accent)' }}
-                    title={`Compose email to ${email}`}
-                  >
-                    {email}
-                  </button>
-                  {removing?.contactId === contactId && removing?.email === email ? (
-                    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                      <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Remove?</span>
-                      <button
-                        onClick={() => handleRemove(contactId)}
-                        className="text-[10px] font-medium hover:underline"
-                        style={{ color: 'var(--color-danger-text)' }}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setRemoving(null)}
-                        className="text-[10px] hover:underline"
-                        style={{ color: 'var(--color-text-tertiary)' }}
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <span
-                      onClick={() => setRemoving({ email, contactId })}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRemoving({ email, contactId }) } }}
-                      className="h-5 w-5 flex items-center justify-center rounded transition-colors hover:bg-[var(--color-surface-2)] cursor-pointer flex-shrink-0 ml-2"
-                      style={{ color: 'var(--color-text-tertiary)' }}
-                      title="Remove email"
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onEmailClick(email, contactId)}
+                      className="text-[12px] truncate text-left hover:underline transition-colors"
+                      style={{ color: 'var(--color-accent)' }}
+                      title={`Compose email to ${email}`}
                     >
-                      <X size={11} />
-                    </span>
+                      {email}
+                    </button>
+                    {isMemberContact && (
+                      <span
+                        className="text-[9px] px-1 py-0.5 rounded font-medium flex-shrink-0"
+                        style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-tertiary)' }}
+                        title="Contact belongs to a member deal"
+                      >
+                        member
+                      </span>
+                    )}
+                  </div>
+                  {isOwnContact && (
+                    removing?.contactId === contactId && removing?.email === email ? (
+                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                        <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Remove?</span>
+                        <button
+                          onClick={() => handleRemove(contactId)}
+                          className="text-[10px] font-medium hover:underline"
+                          style={{ color: 'var(--color-danger-text)' }}
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setRemoving(null)}
+                          className="text-[10px] hover:underline"
+                          style={{ color: 'var(--color-text-tertiary)' }}
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        onClick={() => setRemoving({ email, contactId })}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRemoving({ email, contactId }) } }}
+                        className="h-5 w-5 flex items-center justify-center rounded transition-colors hover:bg-[var(--color-surface-2)] cursor-pointer flex-shrink-0 ml-2"
+                        style={{ color: 'var(--color-text-tertiary)' }}
+                        title="Remove email"
+                      >
+                        <X size={11} />
+                      </span>
+                    )
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>

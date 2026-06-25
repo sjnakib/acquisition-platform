@@ -30,6 +30,39 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // ── Portfolio outreach_emails aggregation ────────────────────────────────
+    // For portfolio deals, aggregate outreach_emails from member deals so the
+    // Overview tab's "Email Targets" card shows the full set of tracked emails.
+    if ((data as Record<string, unknown>).is_portfolio === true) {
+      const { data: portfolio } = await supabase
+        .from('portfolios')
+        .select('id')
+        .eq('portfolio_deal_id', id)
+        .maybeSingle()
+
+      if (portfolio) {
+        const { data: memberDeals } = await supabase
+          .from('deals')
+          .select('outreach_emails')
+          .eq('portfolio_id', portfolio.id)
+          .not('outreach_emails', 'eq', '{}')
+
+        const aggregated = new Set<string>()
+        const existing = ((data as Record<string, unknown>).outreach_emails as string[] | null) ?? []
+        for (const e of existing) {
+          if (e) aggregated.add(e.toLowerCase())
+        }
+        for (const md of (memberDeals ?? [])) {
+          const emails = (md.outreach_emails as string[] | null) ?? []
+          for (const e of emails) {
+            if (e) aggregated.add(e.toLowerCase())
+          }
+        }
+        ;(data as Record<string, unknown>).outreach_emails = Array.from(aggregated)
+      }
+    }
+
     return NextResponse.json(data)
   } catch (err) {
     console.error('Deal get error:', err)

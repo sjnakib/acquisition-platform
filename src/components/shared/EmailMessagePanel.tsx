@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode, memo } from 'react'
 import {
   ChevronDown, ChevronUp, Paperclip, MoreVertical, ExternalLink,
-  ChevronRight,
+  ChevronRight, AlertTriangle, Check, X, Clock,
 } from 'lucide-react'
 import { formatEmailFullDate } from '@/lib/utils'
 import type { EmailThread } from '@/components/shared/EmailThreadList'
@@ -69,6 +69,10 @@ export interface EmailMessagePanelProps {
    * Receives the last message for context.
    */
   renderInlineReply?: (lastMessage: EmailMessage | null) => ReactNode
+  onConfirmReply?: (thread: EmailThread) => void
+  onDismissReply?: (thread: EmailThread) => void
+  onSnoozeReply?: (thread: EmailThread) => void
+  reviewLoading?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -203,7 +207,7 @@ function SafeHtmlViewer({ html }: { html: string }) {
         if (measuredHeight > 0) {
           setHeight(`${measuredHeight}px`)
         }
-      } catch (err) {
+      } catch {
         // Suppress cross-origin/iframe detached issues
       }
     }
@@ -247,7 +251,7 @@ function SafeHtmlViewer({ html }: { html: string }) {
             }
           `
         }
-      } catch (err) {
+      } catch {
         // Suppress
       }
     }
@@ -264,7 +268,7 @@ function SafeHtmlViewer({ html }: { html: string }) {
           })
           resizeObserver.observe(doc.body)
         }
-      } catch (err) {
+      } catch {
         // Suppress
       }
     }
@@ -628,6 +632,10 @@ export function EmailMessagePanel({
   showMessageMenu = true,
   gmailThreadId,
   renderInlineReply,
+  onConfirmReply,
+  onDismissReply,
+  onSnoozeReply,
+  reviewLoading,
 }: EmailMessagePanelProps) {
   const expandedCount = expandedMessages.size
   const allExpanded = messages.length > 0 && expandedCount === messages.length
@@ -745,6 +753,34 @@ export function EmailMessagePanel({
                 <span className="text-[13px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                   {thread.contactName ?? thread.contactEmail ?? 'Unknown'}
                 </span>
+                {thread.responseClassification && (
+                  <span
+                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider"
+                    style={{
+                      background:
+                        thread.responseClassification === 'positive'
+                          ? 'var(--color-success-bg)'
+                          : thread.responseClassification === 'negative'
+                          ? 'var(--color-danger-bg)'
+                          : 'var(--color-surface-2)',
+                      color:
+                        thread.responseClassification === 'positive'
+                          ? 'var(--color-success-text)'
+                          : thread.responseClassification === 'negative'
+                          ? 'var(--color-danger-text)'
+                          : 'var(--color-text-secondary)',
+                      border: `1px solid ${
+                        thread.responseClassification === 'positive'
+                          ? 'var(--color-success-border)'
+                          : thread.responseClassification === 'negative'
+                          ? 'var(--color-danger-border)'
+                          : 'var(--color-surface-3)'
+                      }`,
+                    }}
+                  >
+                    {thread.responseClassification}
+                  </span>
+                )}
                 {renderThreadMeta?.()}
                 {thread.dealName && !renderThreadMeta && (
                   <span className="text-[12px]" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -753,6 +789,85 @@ export function EmailMessagePanel({
                 )}
               </div>
             </div>
+
+            {/* Reply review status banner */}
+            {thread.needsReview && (onConfirmReply || onDismissReply || onSnoozeReply) && (
+              <div
+                className="mx-6 mt-4 p-4 rounded-xl border flex items-center justify-between gap-4 animate-message-fade-in"
+                style={{
+                  background: 'var(--color-warning-bg)',
+                  borderColor: 'var(--color-warning-border)',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-warning-text)' }} />
+                  <div className="space-y-1">
+                    <h4 className="text-[13px] font-semibold" style={{ color: 'var(--color-warning-text)' }}>
+                      Reply Awaiting Review
+                    </h4>
+                    <p className="text-[12px] leading-normal text-[var(--color-text-secondary)]">
+                      This thread contains a reply that needs to be classified or snoozed.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {onConfirmReply && (
+                    <button
+                      onClick={() => onConfirmReply(thread)}
+                      disabled={reviewLoading}
+                      className="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      style={{ background: 'var(--color-success-solid)', color: '#fff' }}
+                    >
+                      <Check size={14} />
+                      Confirm
+                    </button>
+                  )}
+                  {onDismissReply && (
+                    <button
+                      onClick={() => onDismissReply(thread)}
+                      disabled={reviewLoading}
+                      className="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}
+                    >
+                      <X size={14} />
+                      Dismiss
+                    </button>
+                  )}
+                  {onSnoozeReply && (
+                    <button
+                      onClick={() => onSnoozeReply(thread)}
+                      disabled={reviewLoading}
+                      className="h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                      style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-secondary)' }}
+                    >
+                      <Clock size={14} />
+                      Snooze
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Snoozed status banner */}
+            {thread.snoozedUntil && (
+              <div
+                className="mx-6 mt-4 p-4 rounded-xl border flex items-center gap-3 animate-message-fade-in"
+                style={{
+                  background: 'var(--color-surface-1)',
+                  borderColor: 'var(--color-surface-3)',
+                }}
+              >
+                <Clock className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+                <div className="space-y-0.5">
+                  <h4 className="text-[13px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    Review Alerts Snoozed
+                  </h4>
+                  <p className="text-[12px] text-[var(--color-text-secondary)]">
+                    Snoozed until {formatEmailFullDate(thread.snoozedUntil)}.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Messages */}
             {messages.map((msg, idx) => (

@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect, use, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { BarChart3, Mail, Inbox } from 'lucide-react'
+import { BarChart3, Mail, Inbox, MessageSquare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Breadcrumb } from '@/components/shared/Breadcrumb'
 import { useProjectContext } from '@/components/shared/ProjectContext'
@@ -47,6 +47,7 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
   const [allSelected, setAllSelected] = useState(false); const [gridKey, setGridKey] = useState(0)
+  const [needsReviewFilter, setNeedsReviewFilter] = useState(false)
 
   const updateParams = useCallback((updates: Record<string, string | null>) => {
     const p = new URLSearchParams(searchParams.toString())
@@ -89,16 +90,15 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
     },
   })
 
-  const { data: allDeals } = useQuery<Pick<Deal, 'stage' | 'deal_fields'>[]>({
+  const { data: allDeals } = useQuery<Deal[]>({
     queryKey: ['deals', { campaign_id: campaignId, project_id: projectId, select: 'stage' }],
     queryFn: async () => {
       const p = new URLSearchParams({ campaign_id: campaignId, project_id: projectId, limit: '1000' })
       const res = await fetch(`/api/deals?${p.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch deal metrics')
       const json = await res.json()
-      return (json.data ?? []) as Pick<Deal, 'stage' | 'deal_fields'>[]
+      return (json.data ?? []) as Deal[]
     },
-    enabled: tab === 'details',
   })
 
   const { data: fieldDefs = [] } = useQuery<FieldDef[]>({
@@ -134,6 +134,10 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
   }
 
   const deals = dealsData?.data ?? []
+  const displayDeals = useMemo(() => {
+    if (!needsReviewFilter) return deals
+    return deals.filter((d) => d.has_pending_review)
+  }, [deals, needsReviewFilter])
   const total = dealsData?.total ?? 0
   const leadCount = (allDeals ?? []).filter((d) => d.stage === 'lead').length
 
@@ -147,6 +151,11 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
       if (d.stage !== 'archived') counts.active++
     }
     return counts
+  }, [allDeals])
+
+  const awaitingReviewCount = useMemo(() => {
+    if (!allDeals) return 0
+    return allDeals.filter((d) => d.has_pending_review).length
   }, [allDeals])
 
   const activeTab = total === 0 ? 'leads' : tab
@@ -202,6 +211,11 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
             <span className="flex items-center gap-1.5">
               <Inbox size={13} />
               Emails
+              {awaitingReviewCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-[var(--color-warning-solid)] text-[#fff] animate-pulse">
+                  {awaitingReviewCount}
+                </span>
+              )}
             </span>
           </TabsTrigger>
         </TabsList>
@@ -246,6 +260,16 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
                         {stageCounts.outreach}
                       </span>
                     </div>
+
+                    {/* Awaiting Review */}
+                    {awaitingReviewCount > 0 && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-[var(--color-warning-text)] font-medium">Awaiting Review</span>
+                        <span className="text-xs font-semibold font-mono text-[var(--color-warning-text)] bg-[var(--color-warning-bg)] border border-[var(--color-warning-border)] px-2 py-0.5 rounded-[var(--radius-sm)]">
+                          {awaitingReviewCount}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Responses */}
                     <div className="flex justify-between items-center">
@@ -348,7 +372,8 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
             <div className="flex flex-col h-full pb-4">
               <div className="flex-1 min-h-0">
                 <DealTable
-                  key={gridKey} deals={deals} loading={dealsLoading} fieldDefs={fieldDefs}
+                  key={gridKey} deals={displayDeals} loading={dealsLoading} fieldDefs={fieldDefs}
+                  projectId={projectId}
                   emptyAction={{ label: 'Import Leads', onClick: () => router.push(`/projects/${projectId}/import?campaignId=${campaignId}`) }}
                   fillHeight totalRows={total} page={page} pageSize={pageSize}
                   onPageChange={(p) => { updateParams({ page: String(p) }); setAllSelected(false) }}
@@ -367,6 +392,14 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
                       else { setPendingDeleteIds(Array.from(ids)); setDeleteOpen(true) }
                     },
                     searchValue: search, onSearchChange: setSearch,
+                    ...(awaitingReviewCount > 0 ? {
+                      actions: [{
+                        id: 'needs-review',
+                        icon: <MessageSquare size={14} />,
+                        label: needsReviewFilter ? 'Show All' : `Needs Review (${awaitingReviewCount})`,
+                        onClick: () => setNeedsReviewFilter(!needsReviewFilter),
+                      }],
+                    } : {}),
                   }}
                 />
               </div>
@@ -375,7 +408,7 @@ function CampaignDetailContent({ projectId, campaignId }: { projectId: string; c
 
           <TabsContent value="emails" className="h-full">
             <div className="h-full pb-4">
-              <CampaignEmailView campaignId={campaignId} projectId={projectId} />
+              <CampaignEmailView campaignId={campaignId} projectId={projectId} reviewThreadId={searchParams.get('reviewThread')} />
             </div>
           </TabsContent>
         </div>
