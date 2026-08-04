@@ -1,64 +1,119 @@
-# UI & Theming Specifications
+# UI & Design System Specifications
 
-The Acquisition Platform requires a premium, exactingly precise user interface. Because it deals with high-density financial and real estate data, visual clarity, contrast, and layout stability are paramount.
+The **Acquire Platform** enforces a high-density, precision-engineered design system. Built to present complex financial models, large property tables, and multi-threaded communications, the interface emphasizes visual clarity, contrast stability, and zero-FOUC theme switching.
 
-## 1. Theming Architecture & Rules
+---
 
-The platform operates on a heavily customized CSS variable system. It does **not** rely on standard Tailwind colors, nor does it use OS-level default behaviors.
+## 1. Design System Architecture & Tokens
 
-### The Canonical Light Mode
-**Light mode is the primary, authoritative state of the application.** Every component must be designed for light mode first. 
+The application operates on an adaptive CSS variable token system mapped in `src/app/globals.css`. It explicitly prohibits standard Tailwind color utilities (e.g. `bg-white`, `bg-slate-*`, `text-blue-*`) or inline raw hex codes.
 
-### The Dark Mode Opt-In
-Dark mode is treated strictly as an opt-in user preference. 
-*   The application explicitly forbids the use of `@media (prefers-color-scheme: dark)`.
-*   The application explicitly forbids the `next-themes` package. If it exists in `layout.tsx`, it must be removed.
-*   **Implementation:** A user selects "Dark Mode" in settings. The value `"dark"` is written to `localStorage('acq_theme')`. A blocking `<script>` in the `<head>` of `layout.tsx` reads this key before first paint. If it equals `"dark"`, it attaches the `.dark` class to the `<html>` element. This completely prevents the flash-of-unstyled-content (FOUC).
+### Global Theme Tokens (`globals.css`):
 
-### The Desktop Sidebar Exception
-The Desktop Sidebar (part of the `(internal)` layout) is the **only** component in the application that is permanently dark.
-*   Its background is hardcoded to `#0E0E0E`.
-*   It does not use CSS variables like `var(--color-surface-0)`.
-*   This ensures the sidebar provides a consistent, stable "chrome" frame around the application regardless of whether the user is in light or dark mode.
+```css
+:root {
+  --sidebar-width: 220px;
+  /* Canvas & Surface Tokens */
+  --color-canvas: #F7F5F0;       /* Warm linen light background */
+  --color-surface-0: #FFFFFF;    /* Pure white card surface */
+  --color-surface-1: #ECE9E0;    /* Secondary background */
+  --color-surface-2: #D8D3C5;    /* Subdued divider & border */
+  --color-surface-3: #BEB9A9;    /* Active control border */
 
-## 2. Global Token System
+  /* Brand Accent Tokens */
+  --accent: #1E5B3F;             /* Deep Emerald Forest */
+  --color-accent-light: #C3DFC7;
+  --color-accent-bg: #EDF5EE;
 
-All colors must be applied using CSS variables mapped in `globals.css`. 
+  /* Typography Tokens */
+  --color-text-primary: #1A1814;
+  --color-text-secondary: #6B6560;
+  --color-text-tertiary: #9B9690;
+  --color-text-inverse: #F7F5F0;
 
-**Forbidden Patterns:**
-*   `bg-white`, `bg-black`, `bg-slate-100`, `text-blue-600`, `border-gray-200`.
-*   Raw hex codes inline like `color: #F7F5F0`.
-*   CSS named colors.
+  /* Sidebar Tokens (Light Mode) */
+  --color-sidebar-bg: #F7F5F0;
+  --color-sidebar-border: #C5C0B3;
+  --color-sidebar-text: #6B6560;
 
-**Allowed Tokens:**
-*   **Surfaces:** 
-    *   `--color-canvas`: The outer page background (`#F7F5F0` / `#111110`).
-    *   `--color-surface-0`: Clean surfaces like cards and popovers.
-    *   `--color-surface-1`, `2`, `3`: Escalating degrees of contrast used for borders, hover states, and dividers.
-*   **Typography:**
-    *   `--color-text-primary`: Primary reading text.
-    *   `--color-text-secondary`: Labels, subtitles.
-    *   `--color-text-tertiary`: Placeholders, disabled states.
-    *   `--color-text-inverse`: Text placed on top of heavily colored backgrounds (e.g., white text on a blue button).
-*   **Brand & Semantics:**
-    *   `--color-accent`: The primary brand soothing green (`#1E5B3F`).
-    *   `--color-success-*`, `--color-warning-*`, `--color-danger-*`, `--color-info-*`.
-*   **Deal Scores:**
-    *   Specific tokens exist exclusively for deal scores: `--color-score-vg-*` (Very Good), `--color-score-g-*` (Good), `--color-score-b-*` (Bad), `--color-score-vb-*` (Very Bad).
+  /* Transitions & Easing */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-fluid: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-## 3. Typography & Metrics
+.dark {
+  --color-canvas: #111110;       /* Deep obsidian dark background */
+  --color-surface-0: #191918;    /* Dark card surface */
+  --color-surface-1: #222220;
+  --color-surface-2: #2C2C2A;
+  --color-surface-3: #3A3A38;
 
-*   **Fonts:**
-    *   *Instrument Serif*: Used for high-impact brand elements.
-    *   *DM Sans*: The standard sans-serif for UI elements, labels, and paragraphs.
-    *   *JetBrains Mono*: Used exclusively for tabular data (financials, unit counts, dates) to ensure vertical alignment in tables.
-*   **Base Metrics:** 
-    *   The base font size is `13px` to accommodate data-heavy tables.
-    *   Border radiuses are scaled systematically: Small (`4px`), Medium (`6px`), Large (`10px`), Extra Large (`14px`).
+  --accent: #48A375;             /* Electric Emerald Dark Accent */
+  --color-accent-light: #1A3F2C;
+  --color-accent-bg: #0F261B;
 
-## 4. Complex Component Specifications
+  --color-text-primary: #F0EDE8;
+  --color-text-secondary: #9B9690;
+  --color-text-tertiary: #6B6560;
 
-When building or modifying components, refer to these rules:
-*   **DataGrid:** Must use virtualized rendering (`@tanstack/react-virtual`). Hover states use `var(--color-accent-bg)`.
-*   **DealStageBar:** A horizontal stepper showing 11 distinct deal stages. Completed steps use `success` tokens, active steps use `primary` tokens, and future steps use `surface-3` borders.
-*   **Forms:** All `<select>` and `<input>` elements must be wrapped in Shadcn UI components. Bare HTML inputs are not permitted due to styling inconsistencies across browsers.
+  /* Sidebar Tokens (Dark Mode) */
+  --color-sidebar-bg: #0E0E0E;
+  --color-sidebar-border: #2A2A2A;
+  --color-sidebar-text: #A8A39A;
+}
+```
+
+---
+
+## 2. Light & Dark Mode Execution
+
+*   **Canonical Primary Mode**: Light mode is the default state. All components are styled light-first using CSS variables.
+*   **Opt-In Dark Mode**:
+    *   No `@media (prefers-color-scheme: dark)` media queries are used.
+    *   `next-themes` package is strictly prohibited.
+    *   Theme preference is saved to `localStorage('acq_theme')`.
+    *   A synchronous inline script in the `<head>` of `layout.tsx` evaluates `localStorage` before first paint, adding `.dark` to `<html>` if enabled. This guarantees **zero Flash of Unstyled Content (FOUC)**.
+
+---
+
+## 3. Typography & Data Font Pairings
+
+The platform uses Google Fonts imported in `globals.css`:
+1.  **Instrument Serif**: Display typography for page titles and high-impact branding.
+2.  **DM Sans**: Clean sans-serif for UI labels, form controls, navigation, and body copy.
+3.  **JetBrains Mono**: Monospaced font reserved for tabular financial numbers, unit counts, dates, and deal metrics to ensure exact column alignment.
+
+```css
+@theme inline {
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: 'Instrument Serif', Georgia, serif;
+}
+```
+
+---
+
+## 4. Key UI Components & Hooks
+
+### A. Virtualized DataGrid (`src/components/shared/DataGrid.tsx`)
+- Driven by `@tanstack/react-virtual` for handling thousands of rows without DOM lag.
+- Uses custom interaction hooks:
+  - `useGridInteraction.ts`: Manages cell focus selection, keyboard navigation (Arrow keys, Enter, Tab, Escape, Shift+Tab), copy/paste buffers, and cell edit commits.
+  - `useColumnOrder.ts` & `useColumnWidths.ts`: Remembers user column order and width preferences.
+- Visual Feedback: Features custom CSS glow animations (`animate-cell-success`, `animate-cell-flash`, `animate-cell-error`).
+
+### B. Drive File Manager (`src/components/deals/DriveFileManager.tsx`)
+- Full Google Drive file system view with path breadcrumb navigation (`DriveBreadcrumb.tsx`).
+- Integrated dropzone (`FileDropZone.tsx`) supporting WebKit recursive directory drop traversal (`directory-traversal.ts`).
+- Displays Google Drive storage quota progress indicators and file MIME type icons.
+
+### C. Email Thread List & Reply Box (`EmailThreadList.tsx`, `InlineReplyBox.tsx`)
+- Gmail-style threaded view with collapsed message accordions.
+- Scoped HTML email rendering via `.email-content` stylesheet rules.
+- Recipient chips autocomplete (`RecipientChipsInput.tsx`) and template insertion manager (`EmailTemplateManager.tsx`).
+
+### D. Collapsible Sidebar Navigation (`Sidebar.tsx`)
+- Smooth animated collapsing with drag-resize handle (`useSidebarCollapsed.ts`).
+- Project switcher menu with recent access shortcuts (`get_recent_projects`).
+- Role-based nav items (`internalNavItems`, `clientNavItems`, `adminNavItems`).
