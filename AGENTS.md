@@ -10,7 +10,7 @@ Commands + gotchas: see CLAUDE.md quick-start section.
 - **Route groups:** `(auth)` — login/invite/logout/reset-password, `(internal)` — team views, `(client)` — CEO/client views.
 - **`/projects`** is the primary route (project list + `[id]` workspace). `src/app/projects/page.tsx` is outside route groups — shared entry for both roles. Internal → `/projects/[id]/dashboard`; client → `/projects/[id]/overview`. Workspace sub-routes: `dashboard`, `deals`, `campaigns`, `portfolios`, `import`, `settings`, `client-view`. `/projects/[id]/profile` for user profile. Legacy routes redirect → `/projects`.
 - **Proxy gates:** unauthenticated → `/login`; authenticated on auth pages → `/projects`; wrong role → redirect. Layout guards reinforce this.
-- **Seed users:** `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
+- **Seed users:** `test-admin@example.com` / `Password123!` (admin), `test-internal@example.com` / `Password123!` (internal), `test-client@example.com` / `Password123!` (client).
 
 ## API Routes (67 route files in `src/app/api/`)
 
