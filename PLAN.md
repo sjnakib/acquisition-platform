@@ -76,7 +76,7 @@ TURNSTILE_SECRET_KEY=             # server-side only
 # --- Google OAuth / Gmail API ---
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=              # e.g. https://yourdomain.com/api/auth/google/callback
+GOOGLE_REDIRECT_URI=              # e.g. https://yourdomain.com/api/auth/callback/google
 GOOGLE_CLOUD_PROJECT_ID=          # Google Cloud project ID for Pub/Sub
 
 # --- App ---
@@ -1867,7 +1867,7 @@ Mobile (< 640px): no shadow, no border, p-4
 ```
 User clicks "Connect Gmail" →
   GET /api/auth/google → redirect to Google consent →
-  Google redirects to /api/auth/google/callback →
+  Google redirects to /api/auth/callback/google →
     Exchange code for tokens → upsert into public.google_tokens →
     Call gmail.users.watch() → store historyId in google_tokens.last_history_id →
   Redirect to /settings?gmail=connected
@@ -1938,7 +1938,7 @@ export async function getAuthedClient(userId: string) {
 ### 12.3 — Callback registers Gmail watch
 
 ```typescript
-// After upserting tokens in /api/auth/google/callback/route.ts:
+// After upserting tokens in /api/auth/callback/google/route.ts:
 const gmail = google.gmail({ version: 'v1', auth })
 const watchRes = await gmail.users.watch({
   userId: 'me',
@@ -3044,6 +3044,17 @@ Section 5 — User Management (internal only):
 
 ```sql
 -- supabase/seed.sql — run with: npx supabase db reset (local only)
+
+-- Admin test user: test-admin@example.com / Password123!
+insert into auth.users (id, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data)
+values (
+  'aaaaaaaa-0000-0000-0000-000000000000',
+  'test-admin@example.com',
+  crypt('Password123!'::text, gen_salt('bf'::text)),
+  now(), '{"role": "admin"}',
+  '{"full_name": "Admin Tester", "role": "admin"}'
+);
 
 -- Internal test user: test-internal@example.com / Password123!
 insert into auth.users (id, email, encrypted_password, email_confirmed_at,

@@ -69,13 +69,15 @@ create table if not exists public.deal_ca (
 );
 
 -- ── Transform deal_stage enum (11 values → 8 values) ─────────────
--- Only run if old stage values still exist
+-- Run if the 'failed' enum value is missing (meaning it is still using the old definition)
 do $$
-declare
-  v_old_stage text;
 begin
-  select stage::text into v_old_stage from public.deals limit 1;
-  if v_old_stage in ('document_collection','underwritability_review','scored','call_scheduled') then
+  if not exists (
+    select 1 from pg_type t 
+    join pg_enum e on t.oid = e.enumtypid 
+    where t.typname = 'deal_stage' and e.enumlabel = 'failed'
+  ) then
+    alter table public.deals alter column stage drop default;
     alter table public.deals alter column stage type text;
     drop type public.deal_stage;
     create type public.deal_stage as enum (
@@ -90,6 +92,7 @@ begin
       else stage
     end;
     alter table public.deals alter column stage type public.deal_stage using stage::public.deal_stage;
+    alter table public.deals alter column stage set default 'lead'::public.deal_stage;
   end if;
 exception when others then
   -- Enum already transformed or no data yet
@@ -167,6 +170,12 @@ alter table public.document_checklist
   add column if not exists collected  boolean not null default false,
   add column if not exists metadata   jsonb not null default '{}'::jsonb,
   add column if not exists sort_order int not null default 100;
+
+-- Drop old unique constraint on deal_id (since we now have multiple rows per deal)
+alter table public.document_checklist drop constraint if exists document_checklist_deal_id_key;
+
+-- Add new unique constraint on (deal_id, doc_name)
+alter table public.document_checklist add constraint document_checklist_deal_id_doc_name_key unique (deal_id, doc_name);
 
 drop index if exists document_checklist_deal_idx;
 create index if not exists document_checklist_deal_idx on public.document_checklist(deal_id);

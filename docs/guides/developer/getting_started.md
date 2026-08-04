@@ -32,7 +32,7 @@ TURNSTILE_SECRET_KEY=[YOUR_SECRET_KEY]
 # --- Google OAuth / Gmail API ---
 GOOGLE_CLIENT_ID=[YOUR_GOOGLE_CLIENT_ID]
 GOOGLE_CLIENT_SECRET=[YOUR_GOOGLE_CLIENT_SECRET]
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/callback/google
 GOOGLE_CLOUD_PROJECT_ID=[YOUR_GCP_PROJECT_ID]
 
 # --- App ---
@@ -84,6 +84,7 @@ npm run dev
 
 ### Test Accounts
 If you ran the seed script, you can log in with:
+*   **Admin Role:** `test-admin@example.com` / `Password123!`
 *   **Internal Role:** `test-internal@example.com` / `Password123!`
 *   **Client Role:** `test-client@example.com` / `Password123!`
 
